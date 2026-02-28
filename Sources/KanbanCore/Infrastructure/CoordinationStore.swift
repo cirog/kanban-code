@@ -1,0 +1,117 @@
+import Foundation
+
+/// Persistent store for Link records in ~/.kanban/links.json.
+/// Atomic writes, file locking, corruption recovery.
+public actor CoordinationStore {
+    private let filePath: String
+    private let lockPath: String
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+
+    public init(basePath: String? = nil) {
+        let base = basePath ?? (NSHomeDirectory() as NSString).appendingPathComponent(".kanban")
+        self.filePath = (base as NSString).appendingPathComponent("links.json")
+        self.lockPath = (base as NSString).appendingPathComponent("links.json.lock")
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        self.encoder = encoder
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
+    }
+
+    // MARK: - Public API
+
+    /// Read all links from the coordination file.
+    public func readLinks() throws -> [Link] {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: filePath) else {
+            return []
+        }
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+        do {
+            let container = try decoder.decode(LinksContainer.self, from: data)
+            return container.links
+        } catch {
+            // Corruption recovery: backup and return empty
+            let backupPath = filePath + ".bkp"
+            try? fileManager.copyItem(atPath: filePath, toPath: backupPath)
+            return []
+        }
+    }
+
+    /// Write all links to the coordination file (atomic).
+    public func writeLinks(_ links: [Link]) throws {
+        let fileManager = FileManager.default
+        let dir = (filePath as NSString).deletingLastPathComponent
+        try fileManager.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        let container = LinksContainer(links: links)
+        let data = try encoder.encode(container)
+
+        // Atomic write: write to .tmp, then rename
+        let tmpPath = filePath + ".tmp"
+        try data.write(to: URL(fileURLWithPath: tmpPath))
+        _ = try? fileManager.removeItem(atPath: filePath)
+        try fileManager.moveItem(atPath: tmpPath, toPath: filePath)
+    }
+
+    /// Get a single link by session ID.
+    public func linkForSession(_ sessionId: String) throws -> Link? {
+        try readLinks().first { $0.sessionId == sessionId }
+    }
+
+    /// Upsert a link: update if exists (by sessionId), insert if new.
+    public func upsertLink(_ link: Link) throws {
+        var links = try readLinks()
+        if let index = links.firstIndex(where: { $0.sessionId == link.sessionId }) {
+            links[index] = link
+        } else {
+            links.append(link)
+        }
+        try writeLinks(links)
+    }
+
+    /// Update specific fields of a link, respecting manual overrides.
+    public func updateLink(sessionId: String, update: (inout Link) -> Void) throws {
+        var links = try readLinks()
+        guard let index = links.firstIndex(where: { $0.sessionId == sessionId }) else { return }
+        update(&links[index])
+        links[index].updatedAt = .now
+        try writeLinks(links)
+    }
+
+    /// Remove a link by session ID.
+    public func removeLink(sessionId: String) throws {
+        var links = try readLinks()
+        links.removeAll { $0.sessionId == sessionId }
+        try writeLinks(links)
+    }
+
+    /// Remove orphaned links whose .jsonl files no longer exist.
+    public func removeOrphans() throws {
+        let fileManager = FileManager.default
+        var links = try readLinks()
+        let before = links.count
+        links.removeAll { link in
+            guard let path = link.sessionPath else { return false }
+            return !fileManager.fileExists(atPath: path)
+        }
+        if links.count != before {
+            try writeLinks(links)
+        }
+    }
+
+    /// The file path for external access / debugging.
+    public var path: String { filePath }
+}
+
+// MARK: - Codable Container
+
+private struct LinksContainer: Codable {
+    let links: [Link]
+}

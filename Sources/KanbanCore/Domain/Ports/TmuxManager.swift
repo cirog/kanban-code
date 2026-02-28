@@ -1,0 +1,23 @@
+import Foundation
+
+/// Port for managing tmux sessions.
+public protocol TmuxManagerPort: Sendable {
+    /// List all tmux sessions.
+    func listSessions() async throws -> [TmuxSession]
+
+    /// Create a new tmux session.
+    func createSession(name: String, path: String, command: String?) async throws
+
+    /// Kill a tmux session by name.
+    func killSession(name: String) async throws
+
+    /// Find the tmux session for a worktree using matching heuristics.
+    func findSessionForWorktree(
+        sessions: [TmuxSession],
+        worktreePath: String,
+        branch: String?
+    ) -> TmuxSession?
+
+    /// Check if tmux is available on this system.
+    func isAvailable() async -> Bool
+}
