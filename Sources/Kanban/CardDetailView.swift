@@ -4,12 +4,15 @@ import KanbanCore
 struct CardDetailView: View {
     let card: KanbanCard
     var onResume: () -> Void = {}
+    var onRename: (String) -> Void = { _ in }
+    var onFork: () -> Void = {}
     var onDismiss: () -> Void = {}
 
     @State private var turns: [ConversationTurn] = []
     @State private var isLoadingHistory = false
     @State private var selectedTab = 0
-    @State private var showTerminal = false
+    @State private var showRenameSheet = false
+    @State private var renameText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,12 +42,6 @@ struct CardDetailView: View {
                 }
 
                 Spacer()
-
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.borderless)
             }
             .padding(16)
 
@@ -72,10 +69,18 @@ struct CardDetailView: View {
                 EmptyView()
             }
         }
-        .frame(minWidth: 350, idealWidth: 400, maxWidth: 500)
-        .background(Color(.windowBackgroundColor))
-        .task {
+        .frame(maxWidth: .infinity)
+        .task(id: card.id) {
+            turns = []
+            isLoadingHistory = false
             await loadHistory()
+        }
+        .sheet(isPresented: $showRenameSheet) {
+            RenameSessionDialog(
+                currentName: card.link.name ?? card.displayTitle,
+                isPresented: $showRenameSheet,
+                onRename: onRename
+            )
         }
     }
 
@@ -108,24 +113,44 @@ struct CardDetailView: View {
             }
             .buttonStyle(.borderedProminent)
 
+            Button(action: { showRenameSheet = true }) {
+                Label("Rename", systemImage: "pencil")
+            }
+            .buttonStyle(.bordered)
+
+            Button(action: onFork) {
+                Label("Fork Session", systemImage: "arrow.branch")
+            }
+            .buttonStyle(.bordered)
+
             Button(action: copyResumeCommand) {
                 Label("Copy Resume Command", systemImage: "doc.on.doc")
             }
             .buttonStyle(.bordered)
 
-            if let jsonlPath = card.link.sessionPath {
+            if card.link.sessionPath != nil {
                 Button(action: { copyToClipboard("claude --resume \(card.link.sessionId)") }) {
                     Label("Copy Session ID", systemImage: "number")
                 }
                 .buttonStyle(.bordered)
+            }
 
+            if let pr = card.link.githubPR {
+                Divider()
+                Button(action: {}) {
+                    Label("Open PR #\(pr)", systemImage: "arrow.up.right.square")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Spacer()
+
+            if let jsonlPath = card.link.sessionPath {
                 Text(jsonlPath)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .textSelection(.enabled)
             }
-
-            Spacer()
         }
         .padding(16)
     }
@@ -148,5 +173,49 @@ struct CardDetailView: View {
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// Native rename dialog sheet.
+struct RenameSessionDialog: View {
+    let currentName: String
+    @Binding var isPresented: Bool
+    var onRename: (String) -> Void = { _ in }
+
+    @State private var name = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename Session")
+                .font(.title3)
+                .fontWeight(.semibold)
+
+            TextField("Session name", text: $name)
+                .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Rename") {
+                    let trimmed = name.trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty {
+                        onRename(trimmed)
+                    }
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 350)
+        .onAppear {
+            name = currentName
+        }
     }
 }

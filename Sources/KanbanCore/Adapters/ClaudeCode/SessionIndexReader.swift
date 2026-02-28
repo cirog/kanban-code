@@ -11,6 +11,40 @@ public enum SessionIndexReader {
         public let directoryName: String
     }
 
+    /// Update the summary for a session in its sessions-index.json.
+    /// Best-effort: finds the index file containing this session and updates the summary field.
+    public static func updateSummary(sessionId: String, summary: String, claudeDir: String? = nil) throws {
+        let baseDir = claudeDir
+            ?? (NSHomeDirectory() as NSString).appendingPathComponent(".claude/projects")
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: baseDir) else { return }
+
+        let projectDirs = try fileManager.contentsOfDirectory(atPath: baseDir)
+        for dirName in projectDirs {
+            let dirPath = (baseDir as NSString).appendingPathComponent(dirName)
+            let indexPath = (dirPath as NSString).appendingPathComponent("sessions-index.json")
+            guard fileManager.fileExists(atPath: indexPath) else { continue }
+
+            let data = try Data(contentsOf: URL(fileURLWithPath: indexPath))
+            guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+
+            // Format: { "version": 1, "entries": [ { "sessionId": "...", "summary": "...", ... } ] }
+            if var entries = root["entries"] as? [[String: Any]] {
+                guard let idx = entries.firstIndex(where: { $0["sessionId"] as? String == sessionId }) else {
+                    continue
+                }
+                entries[idx]["summary"] = summary
+                root["entries"] = entries
+
+                let updatedData = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+                try updatedData.write(to: URL(fileURLWithPath: indexPath))
+                return // Found and updated
+            }
+        }
+    }
+
     /// Read all index entries from a sessions-index.json file.
     public static func readIndex(at path: String, directoryName: String) throws -> [IndexEntry] {
         guard FileManager.default.fileExists(atPath: path) else { return [] }

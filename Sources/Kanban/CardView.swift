@@ -7,6 +7,7 @@ struct CardView: View {
     var onSelect: () -> Void = {}
     var onResume: () -> Void = {}
     var onFork: () -> Void = {}
+    var onRename: () -> Void = {}
     var onCopyResumeCmd: () -> Void = {}
     var onArchive: () -> Void = {}
 
@@ -54,8 +55,8 @@ struct CardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(.controlBackgroundColor))
-                .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
+                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+                .stroke(isSelected ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.06), lineWidth: 1)
         }
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
@@ -65,6 +66,9 @@ struct CardView: View {
             }
             Button(action: onFork) {
                 Label("Fork Session", systemImage: "arrow.branch")
+            }
+            Button(action: onRename) {
+                Label("Rename", systemImage: "pencil")
             }
             Button(action: onCopyResumeCmd) {
                 Label("Copy Resume Command", systemImage: "doc.on.doc")

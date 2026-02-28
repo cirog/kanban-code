@@ -22,8 +22,11 @@ struct DroppableColumnView: View {
     let cards: [KanbanCard]
     @Binding var selectedCardId: String?
     var onMoveCard: (String, KanbanColumn) -> Void = { _, _ in }
+    var onRenameCard: (String, String) -> Void = { _, _ in }
+    var onArchiveCard: (String) -> Void = { _ in }
 
     @State private var isTargeted = false
+    @State private var renamingCardId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -32,6 +35,12 @@ struct DroppableColumnView: View {
                 Text(column.displayName)
                     .font(.headline)
                     .foregroundStyle(.primary)
+
+                if column == .inProgress && !cards.isEmpty {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                }
 
                 Spacer()
 
@@ -57,9 +66,30 @@ struct DroppableColumnView: View {
                             isSelected: card.id == selectedCardId,
                             onSelect: {
                                 selectedCardId = selectedCardId == card.id ? nil : card.id
+                            },
+                            onRename: {
+                                renamingCardId = card.id
+                            },
+                            onArchive: {
+                                onArchiveCard(card.id)
                             }
                         )
                         .draggable(CardDragData(cardId: card.id, sourceColumn: column.rawValue))
+                        .sheet(isPresented: Binding(
+                            get: { renamingCardId == card.id },
+                            set: { if !$0 { renamingCardId = nil } }
+                        )) {
+                            RenameSessionDialog(
+                                currentName: card.link.name ?? card.displayTitle,
+                                isPresented: Binding(
+                                    get: { renamingCardId == card.id },
+                                    set: { if !$0 { renamingCardId = nil } }
+                                ),
+                                onRename: { name in
+                                    onRenameCard(card.id, name)
+                                }
+                            )
+                        }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -67,16 +97,12 @@ struct DroppableColumnView: View {
             }
         }
         .frame(minWidth: 240, idealWidth: 280, maxWidth: 360)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(isTargeted ? Color.accentColor.opacity(0.1) : Color(.windowBackgroundColor).opacity(0.5))
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .glassColumn()
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(
-                    isTargeted ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.15),
-                    lineWidth: isTargeted ? 2 : 1
+                    isTargeted ? Color.accentColor.opacity(0.5) : Color.clear,
+                    lineWidth: isTargeted ? 2 : 0
                 )
         )
         .dropDestination(for: CardDragData.self) { items, _ in

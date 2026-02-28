@@ -91,46 +91,28 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
         var globalTermFreqs: [String: Int] = [:]
         var totalTokenCount = 0
 
-        // Sort paths by modification time (newest first)
         let fileManager = FileManager.default
-        let sortedPaths = paths.sorted { a, b in
-            let aTime = (try? fileManager.attributesOfItem(atPath: a))?[.modificationDate] as? Date ?? .distantPast
-            let bTime = (try? fileManager.attributesOfItem(atPath: b))?[.modificationDate] as? Date ?? .distantPast
-            return aTime > bTime
-        }
 
-        for path in sortedPaths {
+        // Filter to existing files and sort by modification time (newest first)
+        let validPaths: [(String, Date)] = paths.compactMap { path in
+            guard fileManager.fileExists(atPath: path),
+                  let attrs = try? fileManager.attributesOfItem(atPath: path),
+                  let mtime = attrs[.modificationDate] as? Date else { return nil }
+            return (path, mtime)
+        }.sorted { $0.1 > $1.1 }
+
+        // Limit to most recent 50 files to keep search responsive
+        let searchPaths = validPaths.prefix(50)
+
+        for (path, mtime) in searchPaths {
             guard !Task.isCancelled else { break }
 
-            guard let attrs = try? fileManager.attributesOfItem(atPath: path),
-                  let mtime = attrs[.modificationDate] as? Date else {
-                continue
-            }
-
-            // Extract text content from the .jsonl
-            var textParts: [String] = []
-            do {
-                let url = URL(fileURLWithPath: path)
-                let handle = try FileHandle(forReadingFrom: url)
-                defer { try? handle.close() }
-
-                for try await line in handle.bytes.lines {
-                    guard !line.isEmpty, line.contains("\"type\"") else { continue }
-                    guard let data = line.data(using: .utf8),
-                          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let type = obj["type"] as? String else { continue }
-
-                    if type == "user" || type == "assistant" {
-                        if let text = JsonlParser.extractTextContent(from: obj) {
-                            textParts.append(text)
-                        }
-                    }
-                }
-            } catch {
-                continue
-            }
+            // Read file as Data (much faster than AsyncBytes line-by-line)
+            let textParts = readTextParts(from: path)
 
             let fullText = textParts.joined(separator: " ")
+            guard !fullText.isEmpty else { continue }
+
             let tokens = BM25Scorer.tokenize(fullText)
 
             // Track document frequencies
@@ -144,6 +126,9 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
             let snippet = findBestSnippet(text: fullText, queryTerms: queryTerms)
 
             docs.append(DocInfo(path: path, tokens: tokens, snippet: snippet, modifiedTime: mtime))
+
+            // Yield to avoid blocking
+            await Task.yield()
         }
 
         guard !docs.isEmpty else { return [] }
@@ -167,6 +152,33 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
         }
 
         return results.sorted { $0.score > $1.score }
+    }
+
+    /// Read text parts from a .jsonl file using synchronous Data loading (fast).
+    private func readTextParts(from path: String) -> [String] {
+        guard let data = FileManager.default.contents(atPath: path),
+              let content = String(data: data, encoding: .utf8) else {
+            return []
+        }
+
+        // Limit to first 500KB of text to avoid huge files
+        let limit = 500_000
+        let searchContent = content.count > limit ? String(content.prefix(limit)) : content
+
+        var textParts: [String] = []
+        for line in searchContent.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard line.contains("\"type\"") else { continue }
+            guard let lineData = String(line).data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let type = obj["type"] as? String else { continue }
+
+            if type == "user" || type == "assistant" {
+                if let text = JsonlParser.extractTextContent(from: obj) {
+                    textParts.append(text)
+                }
+            }
+        }
+        return textParts
     }
 
     /// Find the best snippet containing query terms.

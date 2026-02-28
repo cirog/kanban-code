@@ -59,6 +59,17 @@ public enum AssignColumn {
             return .backlog
         }
 
+        // Recently active (within 24h) → requiresAttention
+        // These sessions are recent but not confirmed active by hooks/polling.
+        // In Progress is reserved for hook-confirmed actively working sessions.
+        // User can triage from here: drag to All Sessions to archive, or resume.
+        if let lastActivity = link.lastActivity {
+            let hoursSinceActivity = Date.now.timeIntervalSince(lastActivity) / 3600
+            if hoursSinceActivity < 24 {
+                return .requiresAttention
+            }
+        }
+
         // Default: allSessions
         return .allSessions
     }

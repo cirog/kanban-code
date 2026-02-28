@@ -27,7 +27,7 @@ final class SystemTray: @unchecked Sendable {
             let attentionCards = state.cards(in: .requiresAttention)
 
             if !activeCards.isEmpty {
-                menu.addItem(NSMenuItem.sectionHeader(withTitle: "In Progress"))
+                menu.addItem(NSMenuItem.sectionHeader(title: "In Progress"))
                 for card in activeCards.prefix(5) {
                     let item = NSMenuItem(title: card.displayTitle, action: nil, keyEquivalent: "")
                     item.image = NSImage(systemSymbolName: "play.circle.fill", accessibilityDescription: nil)
@@ -37,7 +37,7 @@ final class SystemTray: @unchecked Sendable {
 
             if !attentionCards.isEmpty {
                 menu.addItem(NSMenuItem.separator())
-                menu.addItem(NSMenuItem.sectionHeader(withTitle: "Requires Attention"))
+                menu.addItem(NSMenuItem.sectionHeader(title: "Requires Attention"))
                 for card in attentionCards.prefix(5) {
                     let item = NSMenuItem(title: card.displayTitle, action: nil, keyEquivalent: "")
                     item.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)

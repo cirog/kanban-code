@@ -71,11 +71,12 @@ struct SearchOverlay: View {
             }
         }
         .frame(maxWidth: 600, maxHeight: 500)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(radius: 20)
+        .glassOverlay()
         .onAppear {
             isSearchFocused = true
+        }
+        .onExitCommand {
+            isPresented = false
         }
         .onChange(of: query) { _, newValue in
             updateFilter(newValue)

@@ -103,4 +103,44 @@ struct AssignColumnTests {
         let col = AssignColumn.assign(link: link)
         #expect(col == .allSessions)
     }
+
+    @Test("Recently active session (within 24h) → requiresAttention (not inProgress)")
+    func recentlyActive() {
+        let link = Link(sessionId: "s1", lastActivity: Date.now.addingTimeInterval(-3600)) // 1h ago
+        let col = AssignColumn.assign(link: link)
+        #expect(col == .requiresAttention)
+    }
+
+    @Test("Session active 2h ago → requiresAttention")
+    func activeToday() {
+        let link = Link(sessionId: "s1", lastActivity: Date.now.addingTimeInterval(-7200)) // 2h ago
+        let col = AssignColumn.assign(link: link)
+        #expect(col == .requiresAttention)
+    }
+
+    @Test("Only activelyWorking activity state → inProgress")
+    func onlyActivelyWorkingIsInProgress() {
+        // Without activityState, recent sessions should NOT be inProgress
+        let recentLink = Link(sessionId: "s1", lastActivity: Date.now.addingTimeInterval(-60)) // 1 min ago
+        let col = AssignColumn.assign(link: recentLink)
+        #expect(col == .requiresAttention)
+
+        // With activityState = activelyWorking → inProgress
+        let col2 = AssignColumn.assign(link: recentLink, activityState: .activelyWorking)
+        #expect(col2 == .inProgress)
+    }
+
+    @Test("Archive sets manuallyArchived → allSessions regardless of recency")
+    func archivedRecentSession() {
+        let link = Link(sessionId: "s1", lastActivity: Date.now.addingTimeInterval(-300), manuallyArchived: true)
+        let col = AssignColumn.assign(link: link)
+        #expect(col == .allSessions)
+    }
+
+    @Test("Session active 25h ago → allSessions (stale)")
+    func staleSession() {
+        let link = Link(sessionId: "s1", lastActivity: Date.now.addingTimeInterval(-90000)) // 25h ago
+        let col = AssignColumn.assign(link: link)
+        #expect(col == .allSessions)
+    }
 }

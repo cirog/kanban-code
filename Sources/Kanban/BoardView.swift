@@ -5,71 +5,11 @@ struct BoardView: View {
     @Bindable var state: BoardState
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Top bar
-            HStack {
-                Text("Kanban")
-                    .font(.title2)
-                    .fontWeight(.bold)
-
-                Spacer()
-
-                if state.isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .padding(.trailing, 4)
-                }
-
-                if let lastRefresh = state.lastRefresh {
-                    Text("Updated \(lastRefresh, style: .relative) ago")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Button(action: {
-                    Task { await state.refresh() }
-                }) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh sessions")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-
-            Divider()
-
-            // Error banner
-            if let error = state.error {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    Text(error)
-                        .font(.caption)
-                    Spacer()
-                    Button("Dismiss") { state.error = nil }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(Color.orange.opacity(0.1))
-            }
-
-            // Board + detail panel
+        Group {
             if state.cards.isEmpty && !state.isLoading {
                 emptyState
             } else {
-                HSplitView {
-                    boardContent
-
-                    if let selectedCard = state.cards.first(where: { $0.id == state.selectedCardId }) {
-                        CardDetailView(
-                            card: selectedCard,
-                            onDismiss: { state.selectedCardId = nil }
-                        )
-                    }
-                }
+                boardContent
             }
         }
     }
@@ -84,12 +24,38 @@ struct BoardView: View {
                         selectedCardId: $state.selectedCardId,
                         onMoveCard: { cardId, targetColumn in
                             state.moveCard(cardId: cardId, to: targetColumn)
+                        },
+                        onRenameCard: { cardId, name in
+                            state.renameCard(cardId: cardId, name: name)
+                        },
+                        onArchiveCard: { cardId in
+                            state.archiveCard(cardId: cardId)
                         }
                     )
                 }
             }
-            .padding(12)
+            .padding(16)
         }
+        // Error banner overlaid at top
+        .overlay(alignment: .top) {
+            if let error = state.error {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text(error)
+                        .font(.caption)
+                    Spacer()
+                    Button("Dismiss") { state.error = nil }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: state.error != nil)
     }
 
     private var emptyState: some View {

@@ -2,12 +2,12 @@ import Foundation
 
 /// A card on the Kanban board, combining Link + Session data for display.
 public struct KanbanCard: Identifiable, Sendable {
-    public let id: String // link.id
+    public let id: String // sessionId — stable across refreshes
     public let link: Link
     public let session: Session?
 
     public init(link: Link, session: Session? = nil) {
-        self.id = link.id
+        self.id = link.sessionId
         self.link = link
         self.session = session
     }
@@ -86,6 +86,40 @@ public final class BoardState: @unchecked Sendable {
         return result
     }
 
+    /// Rename a card (manual override).
+    public func renameCard(cardId: String, name: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        var link = cards[index].link
+        link.name = name
+        link.manualOverrides.name = true
+        link.updatedAt = .now
+        let session = cards[index].session
+        cards[index] = KanbanCard(link: link, session: session)
+
+        let sessionId = link.sessionId
+        Task {
+            // Persist to our coordination store
+            try? await coordinationStore.upsertLink(link)
+            // Also update Claude's sessions-index.json so other tools see the rename
+            try? SessionIndexReader.updateSummary(sessionId: sessionId, summary: name)
+        }
+    }
+
+    /// Archive a card — sets manuallyArchived and moves to allSessions.
+    public func archiveCard(cardId: String) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        var link = cards[index].link
+        link.manuallyArchived = true
+        link.column = .allSessions
+        link.updatedAt = .now
+        let session = cards[index].session
+        cards[index] = KanbanCard(link: link, session: session)
+
+        Task {
+            try? await coordinationStore.upsertLink(link)
+        }
+    }
+
     /// Move a card to a different column (manual override).
     public func moveCard(cardId: String, to column: KanbanColumn) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
@@ -96,12 +130,9 @@ public final class BoardState: @unchecked Sendable {
         let session = cards[index].session
         cards[index] = KanbanCard(link: link, session: session)
 
-        // Persist the override
+        // Persist — use upsertLink so discovered-only links get written too
         Task {
-            try? await coordinationStore.updateLink(sessionId: link.sessionId) { l in
-                l.column = column
-                l.manualOverrides.column = true
-            }
+            try? await coordinationStore.upsertLink(link)
         }
     }
 
@@ -143,12 +174,22 @@ public final class BoardState: @unchecked Sendable {
             }
 
             // Build cards
-            let newCards = linksById.values.map { link in
+            let mergedLinks = Array(linksById.values)
+            let newCards = mergedLinks.map { link in
                 KanbanCard(link: link, session: sessionsById[link.sessionId])
             }
 
             cards = newCards
             lastRefresh = Date()
+
+            // Persist merged links so manual overrides survive
+            try? await coordinationStore.writeLinks(mergedLinks)
+
+            // Validate selected card still exists
+            if let selectedId = selectedCardId,
+               !newCards.contains(where: { $0.id == selectedId }) {
+                selectedCardId = nil
+            }
         } catch {
             self.error = error.localizedDescription
         }

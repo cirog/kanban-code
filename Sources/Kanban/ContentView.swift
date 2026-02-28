@@ -6,7 +6,16 @@ struct ContentView: View {
     @State private var orchestrator: BackgroundOrchestrator
     @State private var showSearch = false
     @State private var showNewTask = false
+    @State private var hooksInstalled = true // assume true until checked
+    @State private var hookSetupError: String?
     private let coordinationStore: CoordinationStore
+
+    private var showInspector: Binding<Bool> {
+        Binding(
+            get: { boardState.selectedCardId != nil },
+            set: { if !$0 { boardState.selectedCardId = nil } }
+        )
+    }
 
     init() {
         let discovery = ClaudeCodeSessionDiscovery()
@@ -24,53 +33,192 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
-            BoardView(state: boardState)
-
-            if showSearch {
-                Color.black.opacity(0.3)
-                    .ignoresSafeArea()
-                    .onTapGesture { showSearch = false }
-
-                SearchOverlay(
-                    isPresented: $showSearch,
-                    cards: boardState.cards,
-                    onSelectCard: { card in
-                        boardState.selectedCardId = card.id
+        BoardView(state: boardState)
+            .overlay(alignment: .topTrailing) {
+                // Search hint — floats over board content, shifts left when inspector opens
+                Button(action: { showSearch = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.primary.opacity(0.6))
+                        Text("Search")
+                            .foregroundStyle(.primary.opacity(0.6))
+                        Text("⌘K")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.primary.opacity(0.7))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.15)))
                     }
-                )
-                .padding(40)
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.bar, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.borderless)
+                .help("Search sessions (⌘K)")
+                .padding(.top, 6)
+                .padding(.trailing, 12)
             }
-        }
-        .animation(.easeInOut(duration: 0.15), value: showSearch)
-        .sheet(isPresented: $showNewTask) {
-            NewTaskDialog(isPresented: $showNewTask) { title, description, projectPath in
-                createManualTask(title: title, description: description, projectPath: projectPath)
+            // Hook onboarding banner
+            .overlay(alignment: .top) {
+                if !hooksInstalled {
+                    hookOnboardingBanner
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
-        }
-        .task {
-            await boardState.refresh()
-            orchestrator.start()
-        }
-        .task(id: "refresh-timer") {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                guard !Task.isCancelled else { break }
+            .animation(.easeInOut(duration: 0.25), value: hooksInstalled)
+            .extendedBackground()
+            .navigationTitle("")
+            .inspector(isPresented: showInspector) {
+                if let card = boardState.cards.first(where: { $0.id == boardState.selectedCardId }) {
+                    CardDetailView(
+                        card: card,
+                        onRename: { name in
+                            boardState.renameCard(cardId: card.id, name: name)
+                        },
+                        onFork: {},
+                        onDismiss: { boardState.selectedCardId = nil }
+                    )
+                    .inspectorColumnWidth(min: 600, ideal: 800, max: 1000)
+                }
+            }
+            .toolbar(id: "main") {
+                // Group 1: Action buttons (own pill near traffic lights)
+                ToolbarItem(id: "actions", placement: .navigation) {
+                    HStack(spacing: 4) {
+                        Button(action: { showNewTask = true }) {
+                            Image(systemName: "square.and.pencil")
+                        }
+                        .help("New task (⌘N)")
+
+                        Button(action: { Task { await boardState.refresh() } }) {
+                            if boardState.isLoading {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .help("Refresh sessions")
+                    }
+                }
+
+                // Group 2: App title (separate pill)
+                ToolbarItem(id: "title", placement: .navigation) {
+                    Text("Kanban")
+                        .font(.headline)
+                }
+
+                // Far right: Sidebar toggle (rightmost, over the inspector)
+                ToolbarItem(id: "sidebar-toggle", placement: .primaryAction) {
+                    Button(action: {
+                        if boardState.selectedCardId != nil {
+                            boardState.selectedCardId = nil
+                        }
+                    }) {
+                        Image(systemName: "sidebar.right")
+                    }
+                    .help("Toggle session details")
+                    .opacity(boardState.selectedCardId != nil ? 1 : 0.3)
+                    .disabled(boardState.selectedCardId == nil)
+                }
+            }
+            .overlay {
+                if showSearch {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture { showSearch = false }
+
+                    SearchOverlay(
+                        isPresented: $showSearch,
+                        cards: boardState.cards,
+                        onSelectCard: { card in
+                            boardState.selectedCardId = card.id
+                        }
+                    )
+                    .padding(40)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: showSearch)
+            .sheet(isPresented: $showNewTask) {
+                NewTaskDialog(isPresented: $showNewTask) { title, description, projectPath in
+                    createManualTask(title: title, description: description, projectPath: projectPath)
+                }
+            }
+            .task {
+                hooksInstalled = HookManager.isInstalled()
                 await boardState.refresh()
+                orchestrator.start()
             }
+            .task(id: "refresh-timer") {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    guard !Task.isCancelled else { break }
+                    await boardState.refresh()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .kanbanToggleSearch)) { _ in
+                showSearch.toggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .kanbanNewTask)) { _ in
+                showNewTask = true
+            }
+            .background {
+                Button("") { showSearch.toggle() }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .hidden()
+            }
+    }
+
+    private var hookOnboardingBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .foregroundStyle(.orange)
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Set up Claude Code hooks")
+                    .font(.callout)
+                    .fontWeight(.medium)
+                Text("Kanban needs hooks to detect when Claude is actively working, stops, or needs attention.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let error = hookSetupError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Spacer()
+
+            Button("Set up for me") {
+                do {
+                    try HookManager.install()
+                    hooksInstalled = true
+                    hookSetupError = nil
+                } catch {
+                    hookSetupError = error.localizedDescription
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            Button(action: { hooksInstalled = true }) {
+                Image(systemName: "xmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss — Kanban will use file polling as fallback")
         }
-        .onReceive(NotificationCenter.default.publisher(for: .kanbanToggleSearch)) { _ in
-            showSearch.toggle()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .kanbanNewTask)) { _ in
-            showNewTask = true
-        }
-        .background {
-            Button("") { showSearch.toggle() }
-                .keyboardShortcut("k", modifiers: .command)
-                .hidden()
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 
     private func createManualTask(title: String, description: String, projectPath: String?) {

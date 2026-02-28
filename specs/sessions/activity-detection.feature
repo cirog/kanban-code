@@ -89,6 +89,36 @@ Feature: Activity Detection
       | 30 minutes    | no      | Stop              | ended              |
       | 25 hours      | no      | Stop              | stale              |
 
+  # ── Column Assignment from Activity ──
+
+  Scenario: In Progress requires hook-confirmed active session
+    Given a session was last active 30 minutes ago
+    But no hooks have confirmed it is actively working right now
+    Then it should NOT be in "In Progress"
+    And it should be in "Requires Attention" (if within 24h)
+    Because "In Progress" is exclusively for Claude actively working
+    And the column shows a loading spinner to make this clear
+
+  Scenario: Recently active but idle session goes to Requires Attention
+    Given a session was last active 2 hours ago
+    And no activity state has been confirmed by hooks or polling
+    Then it should be in "Requires Attention"
+    So the user can triage it: resume, archive, or investigate
+
+  Scenario: Only activelyWorking state puts session in In Progress
+    Given a session has activityState = "actively_working"
+    When the column is assigned
+    Then the session goes to "In Progress"
+    And a loading spinner appears in the column header
+
+  Scenario: User can archive from Requires Attention to All Sessions
+    Given a session is in "Requires Attention"
+    When the user clicks "Archive" in the context menu
+    Or drags the card to "All Sessions"
+    Then the session moves to "All Sessions"
+    And it is marked as manuallyArchived
+    And it stays in All Sessions even on refresh
+
   # ── Idle Timeout ──
 
   Scenario: Configurable idle timeout

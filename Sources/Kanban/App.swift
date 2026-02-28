@@ -10,7 +10,6 @@ struct KanbanApp: App {
             ContentView()
                 .frame(minWidth: 900, minHeight: 500)
         }
-        .windowStyle(.titleBar)
         .defaultSize(width: 1200, height: 700)
         .commands {
             CommandGroup(replacing: .newItem) {
