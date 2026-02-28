@@ -13,8 +13,13 @@ final class SystemTray: @unchecked Sendable {
     private var clawdProcess: Process?
     /// Time when In Progress last had sessions (for linger timeout).
     private var lastActiveTime: Date?
-    /// How long to keep tray visible after last active session (seconds).
-    var lingerTimeout: TimeInterval = 60
+
+    /// How long to keep tray visible after last active session.
+    /// Reads from UserDefaults (synced with @AppStorage("clawdLingerTimeout") in settings).
+    private var lingerTimeout: TimeInterval {
+        let stored = UserDefaults.standard.double(forKey: "clawdLingerTimeout")
+        return stored > 0 ? stored : 60
+    }
 
     func setup(boardState: BoardState) {
         self.boardState = boardState
@@ -141,16 +146,24 @@ final class SystemTray: @unchecked Sendable {
 
         // Find clawd binary next to the Kanban binary
         let clawdPath = Self.findClawdBinary()
-        guard let path = clawdPath else { return }
+        guard let path = clawdPath else {
+            Self.log("clawd binary not found")
+            return
+        }
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: path)
         proc.qualityOfService = .background
+        proc.terminationHandler = { process in
+            let reason = process.terminationReason == .exit ? "exit" : "uncaughtSignal"
+            Self.log("clawd terminated: status=\(process.terminationStatus) reason=\(reason)")
+        }
         do {
             try proc.run()
             clawdProcess = proc
+            Self.log("clawd started: pid=\(proc.processIdentifier)")
         } catch {
-            // Best-effort — Amphetamine integration is optional
+            Self.log("clawd failed to start: \(error)")
         }
     }
 
@@ -160,24 +173,60 @@ final class SystemTray: @unchecked Sendable {
             clawdProcess = nil
             return
         }
+        Self.log("stopping clawd: pid=\(proc.processIdentifier)")
         proc.terminate()
         clawdProcess = nil
     }
 
-    /// Find the clawd binary relative to the running Kanban binary.
+    // MARK: - Logging
+
+    private nonisolated(unsafe) static let logDir: String = {
+        let dir = (NSHomeDirectory() as NSString).appendingPathComponent(".kanban/logs")
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    nonisolated static func log(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+        let logPath = (logDir as NSString).appendingPathComponent("kanban.log")
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8) ?? Data())
+            try? handle.close()
+        } else {
+            FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
+        }
+    }
+
+    /// Find the clawd binary by checking multiple locations.
     private static func findClawdBinary() -> String? {
-        // In a Swift Package build, both binaries are in the same .build/debug/ directory
+        var candidates: [String] = []
+
+        // 1. Next to the running Kanban binary (swift run, .app bundle)
         let kanbanPath = ProcessInfo.processInfo.arguments[0]
         let dir = (kanbanPath as NSString).deletingLastPathComponent
-        let clawdPath = (dir as NSString).appendingPathComponent("clawd")
-        if FileManager.default.isExecutableFile(atPath: clawdPath) {
-            return clawdPath
+        candidates.append((dir as NSString).appendingPathComponent("clawd"))
+
+        // 2. Inside .app bundle's MacOS directory
+        if let bundlePath = Bundle.main.executablePath {
+            let bundleDir = (bundlePath as NSString).deletingLastPathComponent
+            candidates.append((bundleDir as NSString).appendingPathComponent("clawd"))
         }
-        // Also check ~/.kanban/bin/clawd for installed locations
-        let installedPath = (NSHomeDirectory() as NSString).appendingPathComponent(".kanban/bin/clawd")
-        if FileManager.default.isExecutableFile(atPath: installedPath) {
-            return installedPath
+
+        // 3. ~/.kanban/bin/clawd for installed locations
+        candidates.append(
+            (NSHomeDirectory() as NSString).appendingPathComponent(".kanban/bin/clawd")
+        )
+
+        for candidate in candidates {
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                log("clawd found at: \(candidate)")
+                return candidate
+            }
         }
+
+        log("clawd binary not found, searched: \(candidates)")
         return nil
     }
 }

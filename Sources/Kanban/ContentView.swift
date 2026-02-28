@@ -147,6 +147,19 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .kanbanNewTask)) { _ in
                 showNewTask = true
             }
+            .onReceive(NotificationCenter.default.publisher(for: .kanbanHookEvent)) { _ in
+                Task {
+                    await orchestrator.tick()
+                    await boardState.refresh()
+                    systemTray.update()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task {
+                    await boardState.refresh()
+                    systemTray.update()
+                }
+            }
             .toolbar {
                 // Left: actions pill
                 ToolbarItemGroup(placement: .navigation) {
@@ -162,17 +175,21 @@ struct ContentView: View {
                     .help("Refresh sessions")
                 }
 
-                // Center-left: title pill
-                ToolbarItem(placement: .principal) {
-                    Text("Kanban")
-                        .font(.headline)
-                        .padding(.horizontal, 6)
+                // Left: title pill (Menu = different control type = own glass)
+                ToolbarItem(placement: .navigation) {
+                    Menu {
+                        SettingsLink()
+                        Divider()
+                        Button("About Kanban") {
+                            NSApplication.shared.orderFrontStandardAboutPanel()
+                        }
+                    } label: {
+                        Text("Kanban")
+                            .font(.headline)
+                    }
                 }
 
-                // Flexible spacer separates title and search into two pills
-                ToolbarSpacer(.flexible, placement: .principal)
-
-                // Center-right: search pill
+                // Center: search pill
                 ToolbarItem(placement: .principal) {
                     Button { showSearch.toggle() } label: {
                         HStack(spacing: 6) {
@@ -261,18 +278,19 @@ struct ContentView: View {
         .padding(.top, 8)
     }
 
-    /// Watch ~/.kanban/hook-events.jsonl for writes → trigger immediate orchestrator tick + board refresh.
+    /// Watch ~/.kanban/hook-events.jsonl for writes → post notification (handled by onReceive above).
+    /// Runs on a background queue via DispatchSource — does NOT capture self to avoid @MainActor isolation crash.
     private func watchHookEvents() async {
-        // Ensure the directory exists
-        let dir = (hookEventsPath as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let path = hookEventsPath
 
-        // Ensure the file exists
-        if !FileManager.default.fileExists(atPath: hookEventsPath) {
-            FileManager.default.createFile(atPath: hookEventsPath, contents: nil)
+        // Ensure the directory and file exist
+        let dir = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: path) {
+            FileManager.default.createFile(atPath: path, contents: nil)
         }
 
-        guard let fd = open(hookEventsPath, O_EVTONLY) as Int32?,
+        guard let fd = open(path, O_EVTONLY) as Int32?,
               fd >= 0 else { return }
         defer { close(fd) }
 
@@ -283,20 +301,15 @@ struct ContentView: View {
         )
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Post notification instead of capturing self — avoids @MainActor isolation crash
             source.setEventHandler {
-                Task { @MainActor in
-                    // Process new hook events through orchestrator, then refresh board
-                    await self.orchestrator.tick()
-                    await self.boardState.refresh()
-                    self.systemTray.update()
-                }
+                NotificationCenter.default.post(name: .kanbanHookEvent, object: nil)
             }
             source.setCancelHandler {
                 continuation.resume()
             }
             source.resume()
 
-            // Keep alive until task is cancelled
             Task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(60))
