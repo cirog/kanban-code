@@ -139,8 +139,7 @@ struct ContentView: View {
         return PushoverClient(token: token, userKey: user)
     }
 
-    var body: some View {
-        NavigationStack {
+    private var boardView: some View {
         BoardView(
             store: store,
             onStartCard: { cardId in startCard(cardId: cardId) },
@@ -171,66 +170,76 @@ struct ContentView: View {
             onDropCard: { cardId, column in handleDrop(cardId: cardId, to: column) },
             onNewTask: { showNewTask = true }
         )
+    }
+
+    @ViewBuilder
+    private var inspectorContent: some View {
+        if let card = store.state.cards.first(where: { $0.id == store.state.selectedCardId }) {
+            CardDetailView(
+                card: card,
+                sessionStore: store.sessionStore,
+                onResume: {
+                    if card.link.sessionLink != nil {
+                        resumeCard(cardId: card.id)
+                    } else {
+                        startCard(cardId: card.id)
+                    }
+                },
+                onRename: { name in
+                    store.dispatch(.renameCard(cardId: card.id, name: name))
+                },
+                onFork: {},
+                onDismiss: { store.dispatch(.selectCard(cardId: nil)) },
+                onUnlink: { linkType in
+                    let actionType: Action.LinkType
+                    switch linkType {
+                    case .pr: actionType = .pr
+                    case .issue: actionType = .issue
+                    case .worktree: actionType = .worktree
+                    case .tmux: actionType = .tmux
+                    }
+                    store.dispatch(.unlinkFromCard(cardId: card.id, linkType: actionType))
+                },
+                onAddBranch: { branch in
+                    store.dispatch(.addBranchToCard(cardId: card.id, branch: branch))
+                },
+                onAddIssue: { number in
+                    store.dispatch(.addIssueLinkToCard(cardId: card.id, issueNumber: number))
+                },
+                onCleanupWorktree: {
+                    Task { await cleanupWorktree(cardId: card.id) }
+                },
+                onDeleteCard: {
+                    pendingDeleteCardId = card.id
+                },
+                onCreateTerminal: {
+                    createExtraTerminal(cardId: card.id)
+                },
+                onKillTerminal: { sessionName in
+                    store.dispatch(.killTerminal(cardId: card.id, sessionName: sessionName))
+                },
+                onDiscover: {
+                    Task {
+                        store.dispatch(.setBusy(cardId: card.id, busy: true))
+                        await orchestrator.discoverBranchesForCard(cardId: card.id)
+                        await store.reconcile()
+                        store.dispatch(.setBusy(cardId: card.id, busy: false))
+                    }
+                },
+                focusTerminal: $shouldFocusTerminal
+            )
+            .inspectorColumnWidth(min: 600, ideal: 800, max: 1000)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+        boardView
             .ignoresSafeArea(edges: .top)
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .navigationTitle("")
             .inspector(isPresented: showInspector) {
-                if let card = store.state.cards.first(where: { $0.id == store.state.selectedCardId }) {
-                    CardDetailView(
-                        card: card,
-                        sessionStore: store.sessionStore,
-                        onResume: {
-                            if card.link.sessionLink != nil {
-                                resumeCard(cardId: card.id)
-                            } else {
-                                startCard(cardId: card.id)
-                            }
-                        },
-                        onRename: { name in
-                            store.dispatch(.renameCard(cardId: card.id, name: name))
-                        },
-                        onFork: {},
-                        onDismiss: { store.dispatch(.selectCard(cardId: nil)) },
-                        onUnlink: { linkType in
-                            let actionType: Action.LinkType
-                            switch linkType {
-                            case .pr: actionType = .pr
-                            case .issue: actionType = .issue
-                            case .worktree: actionType = .worktree
-                            case .tmux: actionType = .tmux
-                            }
-                            store.dispatch(.unlinkFromCard(cardId: card.id, linkType: actionType))
-                        },
-                        onAddBranch: { branch in
-                            store.dispatch(.addBranchToCard(cardId: card.id, branch: branch))
-                        },
-                        onAddIssue: { number in
-                            store.dispatch(.addIssueLinkToCard(cardId: card.id, issueNumber: number))
-                        },
-                        onCleanupWorktree: {
-                            Task { await cleanupWorktree(cardId: card.id) }
-                        },
-                        onDeleteCard: {
-                            pendingDeleteCardId = card.id
-                        },
-                        onCreateTerminal: {
-                            createExtraTerminal(cardId: card.id)
-                        },
-                        onKillTerminal: { sessionName in
-                            store.dispatch(.killTerminal(cardId: card.id, sessionName: sessionName))
-                        },
-                        onDiscover: {
-                            Task {
-                                store.dispatch(.setBusy(cardId: card.id, busy: true))
-                                await orchestrator.discoverBranchesForCard(cardId: card.id)
-                                await store.reconcile()
-                                store.dispatch(.setBusy(cardId: card.id, busy: false))
-                            }
-                        },
-                        focusTerminal: $shouldFocusTerminal
-                    )
-                    .inspectorColumnWidth(min: 600, ideal: 800, max: 1000)
-                }
+                inspectorContent
             }
             .overlay {
                 if showSearch {
