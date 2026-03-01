@@ -232,8 +232,7 @@ struct ContentView: View {
         }
     }
 
-    var body: some View {
-        NavigationStack {
+    private var boardWithOverlays: some View {
         boardView
             .ignoresSafeArea(edges: .top)
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -269,6 +268,10 @@ struct ContentView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.15), value: showSearch)
+    }
+
+    private var boardWithSheets: some View {
+        boardWithOverlays
             .sheet(isPresented: $showNewTask) {
                 NewTaskDialog(
                     isPresented: $showNewTask,
@@ -331,6 +334,11 @@ struct ContentView: View {
                     }
                 )
             }
+    }
+
+    var body: some View {
+        NavigationStack {
+        boardWithSheets
             .alert(
                 "Remote Worktree",
                 isPresented: Binding(
