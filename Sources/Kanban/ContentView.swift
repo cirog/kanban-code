@@ -179,7 +179,13 @@ struct ContentView: View {
                     CardDetailView(
                         card: card,
                         sessionStore: store.sessionStore,
-                        onResume: { resumeCard(cardId: card.id) },
+                        onResume: {
+                            if card.link.sessionLink != nil {
+                                resumeCard(cardId: card.id)
+                            } else {
+                                startCard(cardId: card.id)
+                            }
+                        },
                         onRename: { name in
                             store.dispatch(.renameCard(cardId: card.id, name: name))
                         },
@@ -1412,8 +1418,8 @@ struct ContentView: View {
             }
 
             let worktreeName: String?
-            if card.link.worktreeLink != nil {
-                worktreeName = nil
+            if let branch = card.link.worktreeLink?.branch {
+                worktreeName = branch
             } else if let issueNum = card.link.issueLink?.number {
                 worktreeName = "issue-\(issueNum)"
             } else {

@@ -1058,6 +1058,16 @@ struct CardDetailView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Open in browser")
+
+                Button {
+                    copyToClipboard(url)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy link")
             }
 
             if let onUnlink {
