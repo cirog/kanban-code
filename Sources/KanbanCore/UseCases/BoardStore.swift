@@ -31,6 +31,10 @@ public struct AppState: Sendable {
     /// Prevents the reconciler from recreating cards for these sessions.
     public var deletedSessionIds: Set<String> = []
 
+    /// Card IDs that were deliberately deleted by the user.
+    /// Prevents the reconciler from re-adding them during in-flight reconciliation.
+    public var deletedCardIds: Set<String> = []
+
     /// Cards with an async operation in progress (terminal creating, worktree cleanup, PR discovery).
     /// Transient — not persisted. Used to show a spinner on the card.
     public var busyCards: Set<String> = []
@@ -129,7 +133,7 @@ public enum Action: Sendable {
     case moveCardToProject(cardId: String, projectPath: String)
 
     // Async completions
-    case launchCompleted(cardId: String, tmuxName: String, sessionLink: SessionLink?, isRemote: Bool)
+    case launchCompleted(cardId: String, tmuxName: String, sessionLink: SessionLink?, worktreeLink: WorktreeLink?, isRemote: Bool)
     case launchFailed(cardId: String, error: String)
     case resumeCompleted(cardId: String, tmuxName: String)
     case resumeFailed(cardId: String, error: String)
@@ -318,7 +322,8 @@ public enum Reducer {
         case .deleteCard(let cardId):
             guard let link = state.links.removeValue(forKey: cardId) else { return [] }
             if state.selectedCardId == cardId { state.selectedCardId = nil }
-            // Remember deleted session IDs so reconciler doesn't recreate cards for them
+            // Remember deleted IDs so in-flight reconciliation doesn't re-add them
+            state.deletedCardIds.insert(cardId)
             if let sessionId = link.sessionLink?.sessionId {
                 state.deletedSessionIds.insert(sessionId)
             }
@@ -433,10 +438,11 @@ public enum Reducer {
 
         // MARK: Async Completions
 
-        case .launchCompleted(let cardId, let tmuxName, let sessionLink, let isRemote):
+        case .launchCompleted(let cardId, let tmuxName, let sessionLink, let worktreeLink, let isRemote):
             guard var link = state.links[cardId] else { return [] }
             link.tmuxLink = TmuxLink(sessionName: tmuxName)
             if let sl = sessionLink { link.sessionLink = sl }
+            if let wl = worktreeLink, link.worktreeLink == nil { link.worktreeLink = wl }
             // Keep isLaunching = true until reconciliation confirms activity.
             // Clearing it here causes a column bounce: the next reconciliation
             // has no activity hook data yet and assigns .allSessions.
@@ -511,6 +517,10 @@ public enum Reducer {
             var mergedLinks = state.links
             var preservedIds: Set<String> = []
             for link in result.links {
+                // Skip cards deliberately deleted during this reconciliation cycle
+                if state.deletedCardIds.contains(link.id) {
+                    continue
+                }
                 // Skip cards whose session was deliberately deleted
                 if let sessionId = link.sessionLink?.sessionId, state.deletedSessionIds.contains(sessionId) {
                     continue
@@ -551,6 +561,43 @@ public enum Reducer {
 
             if !preservedIds.isEmpty {
                 KanbanLog.info("store", "Preserved \(preservedIds.count) card(s) modified during reconciliation")
+            }
+
+            // Absorb orphan worktree cards (worktreeLink but no sessionLink) into
+            // cards that have a session on the same branch. Multiple sessions on the
+            // same branch are legitimate (e.g., forked tasks) and must NOT be merged.
+            var branchToIds: [String: [String]] = [:]
+            for (id, link) in mergedLinks {
+                if let branch = link.worktreeLink?.branch, !branch.isEmpty {
+                    branchToIds[branch, default: []].append(id)
+                }
+            }
+            for (branch, ids) in branchToIds where ids.count > 1 {
+                // Split into "real" cards (have a session or were manually created) vs orphans
+                let realIds = ids.filter { id in
+                    let l = mergedLinks[id]!
+                    return l.sessionLink != nil || l.source == .manual || l.name != nil
+                }
+                let orphanIds = ids.filter { id in
+                    let l = mergedLinks[id]!
+                    return l.sessionLink == nil && l.source != .manual && l.name == nil
+                }
+                guard !orphanIds.isEmpty else { continue } // all legitimate — no dedup needed
+
+                // Pick a keeper among real cards (or the first orphan if no real cards)
+                let keeperId = realIds.first ?? orphanIds.first!
+                var keeper = mergedLinks[keeperId]!
+
+                // Remove all orphans (transfer their data to keeper first)
+                for orphanId in orphanIds where orphanId != keeperId {
+                    if let orphan = mergedLinks[orphanId] {
+                        if keeper.worktreeLink == nil { keeper.worktreeLink = orphan.worktreeLink }
+                        if keeper.tmuxLink == nil { keeper.tmuxLink = orphan.tmuxLink }
+                        KanbanLog.info("store", "Dedup: absorbing orphan \(orphanId.prefix(12)) (branch=\(branch)) into \(keeperId.prefix(12))")
+                    }
+                    mergedLinks.removeValue(forKey: orphanId)
+                }
+                mergedLinks[keeperId] = keeper
             }
 
             // Recompute columns for cards NOT mid-launch and NOT preserved.
@@ -666,6 +713,7 @@ public final class BoardStore: @unchecked Sendable {
     private var _lastErrorId: UUID?
 
     // Dependencies for reconciliation
+    private var isReconciling = false
     private let discovery: SessionDiscovery
     private let coordinationStore: CoordinationStore
     private let activityDetector: ClaudeCodeActivityDetector?
@@ -740,6 +788,12 @@ public final class BoardStore: @unchecked Sendable {
     /// Replaces BoardState.refresh(). The async work happens here; the state mutation
     /// happens atomically via dispatch(.reconciled(...)).
     public func reconcile() async {
+        // Prevent concurrent reconciliation — overlapping calls create orphan cards
+        // with different IDs from the same data.
+        guard !isReconciling else { return }
+        isReconciling = true
+        defer { isReconciling = false }
+
         dispatch(.setLoading(true))
 
         do {

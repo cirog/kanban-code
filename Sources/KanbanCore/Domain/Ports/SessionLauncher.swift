@@ -10,7 +10,8 @@ public protocol SessionLauncher: Sendable {
         worktreeName: String?,
         shellOverride: String?,
         extraEnv: [String: String],
-        commandOverride: String?
+        commandOverride: String?,
+        skipPermissions: Bool
     ) async throws -> String // returns tmux session name
 
     /// Resume an existing session by its ID.
@@ -19,7 +20,8 @@ public protocol SessionLauncher: Sendable {
         projectPath: String,
         shellOverride: String?,
         extraEnv: [String: String],
-        commandOverride: String?
+        commandOverride: String?,
+        skipPermissions: Bool
     ) async throws -> String // returns tmux session name
 }
 
@@ -39,7 +41,8 @@ extension SessionLauncher {
             worktreeName: worktreeName,
             shellOverride: shellOverride,
             extraEnv: [:],
-            commandOverride: nil
+            commandOverride: nil,
+            skipPermissions: false
         )
     }
 
@@ -55,7 +58,8 @@ extension SessionLauncher {
             projectPath: projectPath,
             shellOverride: shellOverride,
             extraEnv: extraEnv,
-            commandOverride: commandOverride
+            commandOverride: commandOverride,
+            skipPermissions: false
         )
     }
 }

@@ -15,13 +15,14 @@ struct LaunchConfirmationDialog: View {
     let isResume: Bool
     let sessionId: String?
     @Binding var isPresented: Bool
-    var onLaunch: (String, Bool, Bool, String?) -> Void = { _, _, _, _ in } // (editedPrompt, createWorktree, runRemotely, commandOverride)
+    var onLaunch: (String, Bool, Bool, Bool, String?) -> Void = { _, _, _, _, _ in } // (editedPrompt, createWorktree, runRemotely, skipPermissions, commandOverride)
 
     @State private var prompt: String
     @State private var command: String = ""
     @State private var commandEdited: Bool = false
     @AppStorage("createWorktree") private var createWorktree = true
     @AppStorage("runRemotely") private var runRemotely = true
+    @AppStorage("dangerouslySkipPermissions") private var dangerouslySkipPermissions = true
 
     init(
         cardId: String,
@@ -35,7 +36,7 @@ struct LaunchConfirmationDialog: View {
         isResume: Bool = false,
         sessionId: String? = nil,
         isPresented: Binding<Bool>,
-        onLaunch: @escaping (String, Bool, Bool, String?) -> Void = { _, _, _, _ in }
+        onLaunch: @escaping (String, Bool, Bool, Bool, String?) -> Void = { _, _, _, _, _ in }
     ) {
         self.cardId = cardId
         self.projectPath = projectPath
@@ -134,6 +135,9 @@ struct LaunchConfirmationDialog: View {
                         .foregroundStyle(.secondary)
                         .padding(.leading, 20)
                 }
+
+                Toggle("Dangerously skip permissions", isOn: $dangerouslySkipPermissions)
+                    .font(.callout)
             }
 
             // Editable command
@@ -182,6 +186,9 @@ struct LaunchConfirmationDialog: View {
         .onChange(of: createWorktree) {
             if !commandEdited { command = commandPreview }
         }
+        .onChange(of: dangerouslySkipPermissions) {
+            if !commandEdited { command = commandPreview }
+        }
     }
 
     // MARK: - Actions
@@ -191,7 +198,7 @@ struct LaunchConfirmationDialog: View {
             guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         }
         let override = commandEdited ? command : nil
-        onLaunch(prompt, effectiveCreateWorktree, effectiveRunRemotely, override)
+        onLaunch(prompt, effectiveCreateWorktree, effectiveRunRemotely, dangerouslySkipPermissions, override)
         isPresented = false
     }
 
@@ -213,9 +220,16 @@ struct LaunchConfirmationDialog: View {
         }
 
         if isResume, let sid = sessionId {
-            parts.append("cd \(projectPath) && claude --resume \(sid)")
+            var resumeCmd = "claude"
+            if dangerouslySkipPermissions { resumeCmd += " --dangerously-skip-permissions" }
+            resumeCmd += " --resume \(sid)"
+            parts.append("cd \(projectPath) && \(resumeCmd)")
         } else {
             var cmd = "claude"
+            if dangerouslySkipPermissions { cmd += " --dangerously-skip-permissions" }
+
+            let truncated = Self.truncatePrompt(prompt, maxLength: 60)
+            cmd += " '\(truncated)'"
 
             if effectiveCreateWorktree {
                 if let name = worktreeName, !name.isEmpty {
@@ -224,9 +238,6 @@ struct LaunchConfirmationDialog: View {
                     cmd += " --worktree"
                 }
             }
-
-            let truncated = Self.truncatePrompt(prompt, maxLength: 60)
-            cmd += " '\(truncated)'"
 
             parts.append(cmd)
         }

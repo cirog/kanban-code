@@ -38,7 +38,15 @@ public final class GitWorktreeAdapter: WorktreeManagerPort, @unchecked Sendable 
         if force { args.append("--force") }
         args.append(path)
 
-        let result = try await ShellCommand.run(gitPath, arguments: args)
+        // Derive repo root from worktree path (e.g. /repo/.claude/worktrees/name → /repo)
+        let repoRoot: String?
+        if let range = path.range(of: "/.claude/worktrees/") {
+            repoRoot = String(path[..<range.lowerBound])
+        } else {
+            repoRoot = (path as NSString).deletingLastPathComponent
+        }
+
+        let result = try await ShellCommand.run(gitPath, arguments: args, currentDirectory: repoRoot)
         if !result.succeeded {
             throw WorktreeError.removeFailed(path: path, message: result.stderr)
         }

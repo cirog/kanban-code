@@ -152,6 +152,103 @@ Feature: Session Launching
     And Claude Code will auto-generate the worktree name
     And the reconciler should later detect the worktree and add worktreeLink
 
+  # ── Tmux Session Resilience ──
+  #
+  # When Claude exits (error, crash, or normal completion), the tmux session
+  # must stay alive so the user can see output and take charge.
+
+  Scenario: Claude command exits — tmux session stays alive
+    Given a tmux session "feat-login" is created for a launch
+    When Claude exits (error or completion)
+    Then the tmux session should remain alive
+    And the user should see a shell prompt (not "[exited]")
+    Because the session uses send-keys instead of passing the command directly
+
+  Scenario: Claude fails to start — user can see the error
+    Given a tmux session is created for a launch
+    And the claude command fails (e.g., invalid arguments)
+    When the user attaches to the tmux session
+    Then they should see the error output from the failed command
+    And a live shell prompt below it
+    Because send-keys types the command into a shell, keeping the shell alive
+
+  Scenario: tmux session creation uses send-keys
+    When creating a tmux session with name "feat-login" and command "claude --resume abc"
+    Then the implementation should:
+      | Step | Action                                         |
+      | 1    | Create session: tmux new-session -d -s feat-login -c <path> |
+      | 2    | Send command: tmux send-keys -t feat-login "claude --resume abc" Enter |
+    And the shell process owns the session (not the command)
+
+  Scenario: Reuse existing tmux session
+    Given a tmux session "feat-login" already exists
+    When a launch attempts to create a session with the same name
+    Then it should reuse the existing session (not kill and recreate)
+    Because killing an active session would clear the terminal contents
+
+  # ── Worktree Session Detection ──
+  #
+  # When launching with --worktree, Claude Code creates the session .jsonl
+  # in a worktree-specific directory (not the project's directory).
+  # e.g., ~/.claude/projects/-Users-rchaves-Projects-repo-.claude-worktrees-feat-login/
+
+  Scenario: Detect session file in worktree-specific directory
+    Given a launch with --worktree for project "/Users/me/Projects/repo"
+    And the encoded project prefix is "-Users-me-Projects-repo"
+    When Claude creates the session in ~/.claude/projects/-Users-me-Projects-repo-.claude-worktrees-feat-login/
+    Then the session detector should find the new .jsonl file
+    Because it scans ALL directories under ~/.claude/projects/ matching the project prefix
+
+  Scenario: Session detector snapshots existing files before launch
+    When launching with --worktree
+    Then the detector should snapshot existing .jsonl files in:
+      | Directory                          | Purpose                          |
+      | ~/.claude/projects/<encoded-project>/ | Normal project sessions        |
+      | ~/.claude/projects/<encoded-project>-*/ | Worktree-specific sessions  |
+    And only NEW files (not in the snapshot) should be considered as the launched session
+
+  Scenario: New worktree directory appears during polling
+    Given the encoded project directory exists before launch
+    When Claude creates a new worktree-specific directory during launch
+    Then the detector should discover it on the next poll iteration
+    And use an empty baseline for that new directory (all files are new)
+
+  Scenario: Worktree launch gets more polling time
+    When launching with --worktree
+    Then the session detector should poll for 6 seconds (12 attempts)
+    Because worktree setup takes longer than normal launches (3 seconds, 6 attempts)
+
+  Scenario: Branch is available immediately after launch completes
+    Given a worktree launch completes and session .jsonl is detected
+    When the first line of the .jsonl contains gitBranch = "worktree-feat-login"
+    Then worktreeLink should be set on the card immediately (in launchCompleted)
+    And the card should show the branch name without waiting for the next reconcile cycle
+    Because executeLaunch reads the first line of the .jsonl to extract gitBranch
+
+  Scenario: Branch fallback to directory name
+    Given a worktree launch completes and session .jsonl is detected
+    When the .jsonl first line has no gitBranch field
+    Then worktreeLink.branch should be extracted from the worktree directory name
+    Because the directory name is the best available fallback
+
+  # ── Dangerously Skip Permissions ──
+
+  Scenario: Skip permissions checkbox defaults to checked
+    When the launch confirmation dialog first appears
+    Then "Dangerously skip permissions" should be checked by default
+    And the command preview should include --dangerously-skip-permissions
+
+  Scenario: Skip permissions preference persists
+    When I uncheck "Dangerously skip permissions" and launch
+    Then the next time I open the dialog, it should be unchecked
+    Because the preference is saved via @AppStorage("dangerouslySkipPermissions")
+
+  Scenario: Skip permissions flag in command
+    Given "Dangerously skip permissions" is checked
+    Then the claude command should include --dangerously-skip-permissions
+    When I uncheck "Dangerously skip permissions"
+    Then the flag should be removed from the command
+
   # ── Sub-repo Support ──
 
   Scenario: Launch Claude in a sub-repo

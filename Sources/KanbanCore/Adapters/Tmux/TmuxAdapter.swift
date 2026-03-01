@@ -48,13 +48,23 @@ public final class TmuxAdapter: TmuxManagerPort, @unchecked Sendable {
             return
         }
 
-        var args = ["new-session", "-d", "-s", name, "-c", path]
-        if let command {
-            args.append(command)
-        }
+        // Create session with a shell (no command argument).
+        // Then send the command via send-keys so the shell stays alive
+        // if the command exits — the user can see errors and take charge.
+        let args = ["new-session", "-d", "-s", name, "-c", path]
         let result = try await ShellCommand.run(tmuxPath, arguments: args)
         if !result.succeeded {
             throw TmuxError.createFailed(name: name, message: result.stderr)
+        }
+
+        if let command, !command.isEmpty {
+            let sendResult = try await ShellCommand.run(
+                tmuxPath,
+                arguments: ["send-keys", "-t", name, command, "Enter"]
+            )
+            if !sendResult.succeeded {
+                KanbanLog.error("tmux", "send-keys failed for \(name): \(sendResult.stderr)")
+            }
         }
     }
 

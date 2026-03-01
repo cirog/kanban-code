@@ -195,7 +195,61 @@ Feature: Card Reconciliation and Link Management
     Then it should skip updating the worktreeLink
     And only update non-overridden links
 
-  # ── Multiple Sessions per Branch ──
+  # ── Orphan Worktree Deduplication ──
+  #
+  # When a session is launched with --worktree, the reconciler may create
+  # "orphan" worktree cards before the session is detected. These orphans
+  # have ONLY a worktreeLink (no sessionLink, no name, source != manual).
+  # The reconciler must absorb orphans into real cards on the same branch,
+  # but NEVER merge legitimate parallel sessions.
+
+  Scenario: Orphan worktree card is absorbed into session card
+    Given a card exists with sessionLink and worktreeLink.branch = "feat-login"
+    And an orphan card exists with only worktreeLink.branch = "feat-login" (no session, no name, source = discovered)
+    When the reconciler runs
+    Then the orphan should be absorbed into the session card
+    And only ONE card should remain for branch "feat-login"
+    And the surviving card should retain its sessionLink and worktreeLink
+
+  Scenario: Multiple orphans absorbed into single card
+    Given a card exists with sessionLink and worktreeLink.branch = "feat-auth"
+    And 3 orphan cards exist with only worktreeLink.branch = "feat-auth"
+    When the reconciler runs
+    Then all 3 orphans should be absorbed
+    And exactly 1 card should remain for branch "feat-auth"
+
+  Scenario: Orphan absorbs into manual card
+    Given a manual card exists (source = manual) with worktreeLink.branch = "feat-ui"
+    And an orphan card exists with only worktreeLink.branch = "feat-ui"
+    When the reconciler runs
+    Then the orphan should be absorbed into the manual card
+    Because manual cards always take priority
+
+  Scenario: Named card is never treated as orphan
+    Given a card exists with name = "Fix login bug" and worktreeLink.branch = "feat-login"
+    And another card exists with sessionLink and worktreeLink.branch = "feat-login"
+    When the reconciler runs
+    Then both cards should survive (neither is an orphan)
+    Because a named card is not bare — it has user intent
+
+  Scenario: Orphan dedup also runs in the reducer
+    Given the CardReconciler output contains 1 session card and 2 orphans for "feat-login"
+    When the reducer merges reconciler output with existing state
+    Then the reducer should also perform orphan absorption
+    And only 1 card should remain in the final state
+    Because the reducer is the last line of defense against duplicates
+
+  Scenario: Orphans already in state are cleaned up by reducer
+    Given state.links contains an orphan card for branch "feat-login"
+    And the reconciler output does NOT include this orphan (it was never re-discovered)
+    When the reducer merges reconciler output with state
+    Then the orphan from state should still be absorbed if a real card exists for "feat-login"
+    Because the reducer dedup operates on the merged set
+
+  # ── Multiple Sessions per Branch (Parallel Work) ──
+  #
+  # Forking a task creates multiple sessions on the same branch.
+  # These are legitimate parallel work and must NOT be merged.
 
   Scenario: Two sessions linked to the same worktree branch
     Given I started a session in worktree "feat-login"
@@ -203,6 +257,70 @@ Feature: Card Reconciliation and Link Management
     Then both sessions should appear as separate cards
     And both should have worktreeLink.branch = "feat/login"
     And the PR should appear on both cards (same prLinks entry)
+
+  Scenario: Forked sessions on same branch are not merged
+    Given two cards exist, both with sessionLink AND worktreeLink.branch = "feat-login"
+    When the reconciler runs
+    Then both cards should survive
+    Because neither is an orphan — both have sessionLink
+    And the dedup only absorbs bare orphans (no session, no name, not manual)
+
+  Scenario: Three cards on same branch — one orphan, two sessions
+    Given card A has sessionLink + worktreeLink.branch = "feat-login"
+    And card B has sessionLink + worktreeLink.branch = "feat-login" (forked task)
+    And card C has ONLY worktreeLink.branch = "feat-login" (orphan)
+    When the reconciler runs
+    Then card C should be absorbed into card A (first real card)
+    And cards A and B should both survive
+    And exactly 2 cards should remain
+
+  # ── Worktree Branch Name Resolution ──
+  #
+  # When Claude creates a worktree, the directory name (e.g., "hashed-snacking-pony")
+  # may differ from the git branch name (e.g., "worktree-hashed-snacking-pony").
+  # The reconciler must use the REAL git branch name for matching.
+
+  Scenario: Branch name resolved from git worktree snapshot
+    Given a session has projectPath = "/repo/.claude/worktrees/hashed-snacking-pony"
+    And the worktree snapshot shows that path has branch "refs/heads/worktree-hashed-snacking-pony"
+    When the reconciler sets worktreeLink on the card
+    Then worktreeLink.branch should be "worktree-hashed-snacking-pony" (not "hashed-snacking-pony")
+    Because the git branch name from the snapshot is authoritative
+
+  Scenario: Branch name falls back to directory name when snapshot unavailable
+    Given a session has projectPath = "/repo/.claude/worktrees/feat-login"
+    And the worktree snapshot does NOT contain this path (not yet scanned)
+    When the reconciler sets worktreeLink on the card
+    Then worktreeLink.branch should be "feat-login" (extracted from path)
+    Because the directory name is the best available fallback
+
+  # ── Worktree Session Path Matching ──
+  #
+  # Sessions started in a worktree have a projectPath like:
+  #   /path/to/project/.claude/worktrees/<name>
+  # The reconciler must match these to cards with projectPath = /path/to/project
+
+  Scenario: Session in worktree matches card by parent project path
+    Given a card has tmuxLink and projectPath = "/path/to/project"
+    And a new session is discovered with projectPath = "/path/to/project/.claude/worktrees/feat-login"
+    When the reconciler tries to match the session
+    Then it should match to the existing card
+    Because the session's worktree path is under the card's project root
+
+  Scenario: Session in unrelated worktree does not match
+    Given a card has tmuxLink and projectPath = "/path/to/project-A"
+    And a new session is discovered with projectPath = "/path/to/project-B/.claude/worktrees/feat-login"
+    When the reconciler tries to match the session
+    Then it should NOT match to the existing card
+    Because project-B is not a subdirectory of project-A
+
+  # ── Concurrent Reconciliation Guard ──
+
+  Scenario: Overlapping reconcile calls are prevented
+    Given a reconciliation is currently in progress
+    When a second reconcile() call is triggered (e.g., by timer)
+    Then the second call should return immediately without running
+    Because concurrent reconciles can create duplicate orphan card IDs
 
   # ── Session Switching Worktrees ──
 

@@ -156,8 +156,8 @@ public struct Link: Identifiable, Codable, Sendable {
         if let promptBody, !promptBody.isEmpty { return String(promptBody.prefix(100)) }
         if let branch = worktreeLink?.branch, !branch.isEmpty { return branch }
         if let prTitle = prLink?.title, !prTitle.isEmpty { return prTitle }
-        if let sid = sessionLink?.sessionId { return String(sid.prefix(8)) + "..." }
-        return String(id.prefix(8)) + "..."
+        if let sid = sessionLink?.sessionId { return sid }
+        return id
     }
 
     // MARK: - Multi-PR computed properties

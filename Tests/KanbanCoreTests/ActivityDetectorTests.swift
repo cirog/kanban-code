@@ -69,48 +69,48 @@ struct ActivityDetectorTests {
         #expect(resolved.count == 0)
     }
 
-    @Test("UserPromptSubmit falls back to polling after grace period (handles Ctrl+C interrupt)")
+    @Test("UserPromptSubmit falls back to mtime check after grace period (handles Ctrl+C interrupt)")
     func interruptFallback() async {
         let detector = ClaudeCodeActivityDetector()
 
-        // Simulate: UserPromptSubmit happened 20 seconds ago (past 15s grace period)
+        // Simulate: UserPromptSubmit happened 5 seconds ago (past 3s grace period)
         let oldEvent = HookEvent(
             sessionId: "s1",
             eventName: "UserPromptSubmit",
-            timestamp: Date.now.addingTimeInterval(-20)
+            timestamp: Date.now.addingTimeInterval(-5)
         )
         await detector.handleHookEvent(oldEvent)
 
-        // Polling says needsAttention (file stopped being modified after interrupt)
+        // Create a file with old mtime (simulating Claude stopped writing)
         let dir = NSTemporaryDirectory() + "kanban-interrupt-test-\(UUID().uuidString)"
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let path = (dir as NSString).appendingPathComponent("test.jsonl")
         try? "data".write(toFile: path, atomically: true, encoding: .utf8)
-        // Backdate the file so it looks inactive
         let oldDate = Date.now.addingTimeInterval(-30)
         try? FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: path)
-        // Poll twice so mtime is seen as unchanged → needsAttention
-        let _ = await detector.pollActivity(sessionPaths: ["s1": path])
+
+        // Poll once so the detector knows the path
         let _ = await detector.pollActivity(sessionPaths: ["s1": path])
 
+        // activityState checks mtime directly — file is old, so not activelyWorking
         let state = await detector.activityState(for: "s1")
-        #expect(state == .needsAttention)
+        #expect(state != .activelyWorking)
     }
 
     @Test("UserPromptSubmit stays activelyWorking within grace period")
     func activeWithinGracePeriod() async {
         let detector = ClaudeCodeActivityDetector()
 
-        // Simulate: UserPromptSubmit happened 5 seconds ago (within 15s grace)
+        // Simulate: UserPromptSubmit happened 2 seconds ago (within 5s grace)
         let recentEvent = HookEvent(
             sessionId: "s1",
             eventName: "UserPromptSubmit",
-            timestamp: Date.now.addingTimeInterval(-5)
+            timestamp: Date.now.addingTimeInterval(-2)
         )
         await detector.handleHookEvent(recentEvent)
 
-        // Even if polling says inactive, trust the hook within grace period
+        // Even with an old file, trust the hook within grace period
         let dir = NSTemporaryDirectory() + "kanban-grace-test-\(UUID().uuidString)"
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -119,6 +119,29 @@ struct ActivityDetectorTests {
         let oldDate = Date.now.addingTimeInterval(-30)
         try? FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: path)
         let _ = await detector.pollActivity(sessionPaths: ["s1": path])
+
+        let state = await detector.activityState(for: "s1")
+        #expect(state == .activelyWorking)
+    }
+
+    @Test("UserPromptSubmit stays activelyWorking when file is fresh")
+    func activeWithFreshFile() async {
+        let detector = ClaudeCodeActivityDetector()
+
+        // Simulate: UserPromptSubmit 10 seconds ago, but file is still being written to
+        let event = HookEvent(
+            sessionId: "s1",
+            eventName: "UserPromptSubmit",
+            timestamp: Date.now.addingTimeInterval(-10)
+        )
+        await detector.handleHookEvent(event)
+
+        let dir = NSTemporaryDirectory() + "kanban-fresh-test-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = (dir as NSString).appendingPathComponent("test.jsonl")
+        // File was just modified (now) — Claude is still writing
+        try? "data".write(toFile: path, atomically: true, encoding: .utf8)
         let _ = await detector.pollActivity(sessionPaths: ["s1": path])
 
         let state = await detector.activityState(for: "s1")

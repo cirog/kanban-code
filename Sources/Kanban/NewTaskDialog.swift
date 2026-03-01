@@ -8,8 +8,8 @@ struct NewTaskDialog: View {
     var globalRemoteSettings: RemoteSettings?
     /// (prompt, projectPath, title, startImmediately) — creates task, optionally starts via LaunchConfirmation
     var onCreate: (String, String?, String?, Bool) -> Void = { _, _, _, _ in }
-    /// (prompt, projectPath, title, createWorktree, runRemotely, commandOverride) — creates and launches directly (skips LaunchConfirmation)
-    var onCreateAndLaunch: (String, String?, String?, Bool, Bool, String?) -> Void = { _, _, _, _, _, _ in }
+    /// (prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride) — creates and launches directly (skips LaunchConfirmation)
+    var onCreateAndLaunch: (String, String?, String?, Bool, Bool, Bool, String?) -> Void = { _, _, _, _, _, _, _ in }
 
     @State private var prompt = ""
     @State private var title = ""
@@ -20,6 +20,7 @@ struct NewTaskDialog: View {
     @AppStorage("startTaskImmediately") private var startImmediately = true
     @AppStorage("createWorktree") private var createWorktree = true
     @AppStorage("runRemotely") private var runRemotely = true
+    @AppStorage("dangerouslySkipPermissions") private var dangerouslySkipPermissions = true
 
     private static let customPathSentinel = "__custom__"
 
@@ -102,6 +103,9 @@ struct NewTaskDialog: View {
                             .foregroundStyle(.secondary)
                             .padding(.leading, 20)
                     }
+
+                    Toggle("Dangerously skip permissions", isOn: $dangerouslySkipPermissions)
+                        .font(.callout)
                 }
 
                 // Editable command
@@ -160,6 +164,9 @@ struct NewTaskDialog: View {
         .onChange(of: selectedProjectPath) {
             if !commandEdited { command = commandPreview }
         }
+        .onChange(of: dangerouslySkipPermissions) {
+            if !commandEdited { command = commandPreview }
+        }
     }
 
     // MARK: - Actions
@@ -175,6 +182,7 @@ struct NewTaskDialog: View {
                 titleOrNil,
                 createWorktree && isGitRepo,
                 runRemotely && hasRemoteConfig,
+                dangerouslySkipPermissions,
                 commandEdited ? command : nil
             )
         } else {
@@ -224,13 +232,14 @@ struct NewTaskDialog: View {
         }
 
         var cmd = "claude"
+        if dangerouslySkipPermissions { cmd += " --dangerously-skip-permissions" }
+
+        let truncated = LaunchConfirmationDialog.truncatePrompt(prompt, maxLength: 60)
+        cmd += " '\(truncated)'"
 
         if createWorktree && isGitRepo {
             cmd += " --worktree"
         }
-
-        let truncated = LaunchConfirmationDialog.truncatePrompt(prompt, maxLength: 60)
-        cmd += " '\(truncated)'"
 
         parts.append(cmd)
         return parts.joined(separator: " \\\n  ")

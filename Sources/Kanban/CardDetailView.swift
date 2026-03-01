@@ -20,6 +20,7 @@ struct CardDetailView: View {
     var onCreateTerminal: () -> Void = {}
     var onKillTerminal: (String) -> Void = { _ in }
     var onDiscover: () -> Void = {}
+    @Binding var focusTerminal: Bool
 
     @State private var turns: [ConversationTurn] = []
     @State private var isLoadingHistory = false
@@ -67,7 +68,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: KanbanCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping () -> Void = {}, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}) {
+    init(card: KanbanCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping () -> Void = {}, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, focusTerminal: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -82,6 +83,7 @@ struct CardDetailView: View {
         self.onCreateTerminal = onCreateTerminal
         self.onKillTerminal = onKillTerminal
         self.onDiscover = onDiscover
+        self._focusTerminal = focusTerminal
         _selectedTab = State(initialValue: Self.initialTab(for: card))
     }
 
@@ -105,30 +107,21 @@ struct CardDetailView: View {
 
                     // Action pills
                     HStack(spacing: 8) {
-                        if card.column == .backlog {
+                        if card.link.tmuxLink == nil {
+                            let hasSession = card.link.sessionLink != nil
+                            let isStart = card.column == .backlog || !hasSession
                             Button(action: onResume) {
-                                Label("Start", systemImage: "play.fill")
+                                Label(isStart ? "Start" : "Resume", systemImage: "play.fill")
                                     .font(.system(size: 13))
+                                    .foregroundStyle(isStart ? Color.green.opacity(0.8) : Color.blue.opacity(0.8))
                                     .padding(.horizontal, 12)
                                     .frame(height: 36)
-                            }
-                            .buttonStyle(.plain)
-                            .glassEffect(.regular, in: .capsule)
-                            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
-                            .help("Start work on this task")
-                        } else if card.link.tmuxLink == nil {
-                            Button(action: onResume) {
-                                Label("Resume", systemImage: "play.fill")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Color.blue.opacity(0.8))
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 36)
-                                    .background(Color.blue.opacity(0.08), in: Capsule())
+                                    .background((isStart ? Color.green : Color.blue).opacity(0.08), in: Capsule())
                                     .background(.ultraThinMaterial, in: Capsule())
                             }
                             .buttonStyle(.plain)
                             .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-                            .help("Resume session")
+                            .help(isStart ? "Start work on this task" : "Resume session")
                         }
 
                         actionsMenu
@@ -338,6 +331,24 @@ struct CardDetailView: View {
             guard now.timeIntervalSince(lastReloadTime) > 0.5 else { return }
             lastReloadTime = now
             Task { await loadHistory() }
+        }
+        .onChange(of: focusTerminal) {
+            if focusTerminal {
+                if card.link.tmuxLink != nil {
+                    // Terminal already loaded — focus now
+                    selectedTab = .terminal
+                    terminalGrabFocus = true
+                    focusTerminal = false
+                }
+                // Otherwise wait for tmuxLink to appear (handled below)
+            }
+        }
+        .onChange(of: card.link.tmuxLink?.sessionName) {
+            if focusTerminal && card.link.tmuxLink != nil {
+                selectedTab = .terminal
+                terminalGrabFocus = true
+                focusTerminal = false
+            }
         }
         .onDisappear {
             stopHistoryWatcher()
@@ -821,9 +832,17 @@ struct CardDetailView: View {
                 Label("Copy Resume Command", systemImage: "doc.on.doc")
             }
 
+            Button(action: { copyToClipboard(card.id) }) {
+                Label("Copy Card ID", systemImage: "number")
+            }
+
             if let sessionId = card.link.sessionLink?.sessionId {
                 Button(action: { copyToClipboard(sessionId) }) {
-                    Label("Copy Session ID", systemImage: "number")
+                    Label {
+                        Text("Copy Session ID")
+                    } icon: {
+                        ClawdIcon().frame(width: 14, height: 14)
+                    }
                 }
             }
 

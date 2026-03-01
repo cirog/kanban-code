@@ -25,20 +25,24 @@ public actor CoordinationStore {
 
     /// Read all links from the coordination file.
     public func readLinks() throws -> [Link] {
+        let container = try readContainer()
+        return container.links
+    }
+
+    private func readContainer() throws -> LinksContainer {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: filePath) else {
-            return []
+            return LinksContainer(links: [])
         }
 
         let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
         do {
-            let container = try decoder.decode(LinksContainer.self, from: data)
-            return container.links
+            return try decoder.decode(LinksContainer.self, from: data)
         } catch {
             // Corruption recovery: backup and return empty
             let backupPath = filePath + ".bkp"
             try? fileManager.copyItem(atPath: filePath, toPath: backupPath)
-            return []
+            return LinksContainer(links: [])
         }
     }
 

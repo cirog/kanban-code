@@ -16,7 +16,8 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         worktreeName: String?,
         shellOverride: String?,
         extraEnv: [String: String] = [:],
-        commandOverride: String? = nil
+        commandOverride: String? = nil,
+        skipPermissions: Bool = false
     ) async throws -> String {
 
         let cmd: String
@@ -25,7 +26,10 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
             cmd = commandOverride
         } else {
             // Build the claude command
+            // Prompt must come before --worktree so it's not mistaken for the worktree name
             var built = "claude"
+            if skipPermissions { built += " --dangerously-skip-permissions" }
+            built += " \(shellEscape(prompt))"
             if let worktreeName {
                 if worktreeName.isEmpty {
                     built += " --worktree"
@@ -33,7 +37,6 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
                     built += " --worktree \(worktreeName)"
                 }
             }
-            built += " \(shellEscape(prompt))"
 
             // Prepend environment variables (SHELL override + KANBAN_* vars)
             let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv)
@@ -56,7 +59,8 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         projectPath: String,
         shellOverride: String?,
         extraEnv: [String: String] = [:],
-        commandOverride: String? = nil
+        commandOverride: String? = nil,
+        skipPermissions: Bool = false
     ) async throws -> String {
         // Check if there's already a tmux session for this
         let existing = try await tmux.listSessions()
@@ -70,7 +74,9 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         if let commandOverride, !commandOverride.isEmpty {
             cmd = commandOverride
         } else {
-            var built = "claude --resume \(sessionId)"
+            var built = "claude"
+            if skipPermissions { built += " --dangerously-skip-permissions" }
+            built += " --resume \(sessionId)"
             let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv)
             if !envPrefix.isEmpty {
                 built = envPrefix + " " + built

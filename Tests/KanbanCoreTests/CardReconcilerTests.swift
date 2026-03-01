@@ -159,6 +159,235 @@ struct CardReconcilerTests {
         #expect(result[0].issueLink?.number == 123)
     }
 
+    // MARK: - Worktree launch integration scenarios
+    //
+    // These test the complete flow: user launches a task with --worktree,
+    // Claude creates worktree + session, reconciler discovers them.
+
+    @Test("Worktree launch: session before executeLaunch links it (reconciler first)")
+    func worktreeLaunchReconcilerFirst() {
+        // Scenario: reconciler runs BEFORE executeLaunch finishes polling.
+        // Card has tmuxLink but no sessionLink yet.
+        // Session appears in the worktree directory (different projectPath from card).
+        // Worktree also discovered by git worktree list.
+        // Should produce 1 card with session + worktree.
+        let manualCard = Link(
+            name: "Do a thing",
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            tmuxLink: TmuxLink(sessionName: "project-wt")
+        )
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(
+                    id: "session-1",
+                    projectPath: "/project/.claude/worktrees/jazzy-floating-bird",
+                    gitBranch: nil, // not yet available in first few seconds
+                    messageCount: 1,
+                    modifiedTime: .now,
+                    jsonlPath: "/claude/projects/session-1.jsonl"
+                )
+            ],
+            tmuxSessions: [
+                TmuxSession(name: "project-wt", path: "/project", attached: false)
+            ],
+            didScanTmux: true,
+            worktrees: [
+                "/project": [
+                    Worktree(path: "/project/.claude/worktrees/jazzy-floating-bird", branch: "jazzy-floating-bird", isBare: false)
+                ]
+            ]
+        )
+
+        let result = CardReconciler.reconcile(existing: [manualCard], snapshot: snapshot)
+
+        #expect(result.count == 1)
+        #expect(result[0].id == manualCard.id)
+        #expect(result[0].sessionLink?.sessionId == "session-1")
+        #expect(result[0].worktreeLink?.branch == "jazzy-floating-bird")
+    }
+
+    @Test("Worktree launch: executeLaunch already linked session (reconciler second)")
+    func worktreeLaunchExecuteLaunchFirst() {
+        // Scenario: executeLaunch finished polling and already set sessionLink.
+        // Card has tmuxLink + sessionLink, but no worktreeLink yet.
+        // Reconciler should match by sessionId and set worktreeLink.
+        let manualCard = Link(
+            name: "Do a thing",
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            sessionLink: SessionLink(
+                sessionId: "session-1",
+                sessionPath: "/claude/projects/session-1.jsonl"
+            ),
+            tmuxLink: TmuxLink(sessionName: "project-wt")
+        )
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(
+                    id: "session-1",
+                    projectPath: "/project/.claude/worktrees/jazzy-floating-bird",
+                    gitBranch: nil,
+                    messageCount: 1,
+                    modifiedTime: .now,
+                    jsonlPath: "/claude/projects/session-1.jsonl"
+                )
+            ],
+            tmuxSessions: [
+                TmuxSession(name: "project-wt", path: "/project", attached: false)
+            ],
+            didScanTmux: true,
+            worktrees: [
+                "/project": [
+                    Worktree(path: "/project/.claude/worktrees/jazzy-floating-bird", branch: "jazzy-floating-bird", isBare: false)
+                ]
+            ]
+        )
+
+        let result = CardReconciler.reconcile(existing: [manualCard], snapshot: snapshot)
+
+        #expect(result.count == 1)
+        #expect(result[0].id == manualCard.id)
+        #expect(result[0].sessionLink?.sessionId == "session-1")
+        #expect(result[0].worktreeLink?.branch == "jazzy-floating-bird")
+    }
+
+    @Test("Worktree launch: git branch name differs from worktree directory name")
+    func worktreeBranchNameDiffersFromDirName() {
+        // Claude Code creates worktree dir "hashed-snacking-pony" but git branch
+        // is "worktree-hashed-snacking-pony" (prefixed). The reconciler should use
+        // the git branch from the snapshot, not the directory name.
+        let manualCard = Link(
+            name: "Do a thing",
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            sessionLink: SessionLink(sessionId: "session-1", sessionPath: "/path.jsonl"),
+            tmuxLink: TmuxLink(sessionName: "project-wt")
+        )
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(
+                    id: "session-1",
+                    projectPath: "/project/.claude/worktrees/hashed-snacking-pony",
+                    gitBranch: nil,
+                    messageCount: 1,
+                    modifiedTime: .now,
+                    jsonlPath: "/path.jsonl"
+                )
+            ],
+            tmuxSessions: [
+                TmuxSession(name: "project-wt", path: "/project", attached: false)
+            ],
+            didScanTmux: true,
+            worktrees: [
+                "/project": [
+                    // Git branch has different name from directory
+                    Worktree(path: "/project/.claude/worktrees/hashed-snacking-pony", branch: "worktree-hashed-snacking-pony", isBare: false)
+                ]
+            ]
+        )
+
+        let result = CardReconciler.reconcile(existing: [manualCard], snapshot: snapshot)
+
+        #expect(result.count == 1)
+        // Should use git branch name, not directory name
+        #expect(result[0].worktreeLink?.branch == "worktree-hashed-snacking-pony")
+    }
+
+    @Test("Worktree launch: existing orphans are deduplicated")
+    func worktreeOrphanDedup() {
+        // Main card has session + worktree. Three orphan cards exist from
+        // previous reconciliation runs (concurrent reconciles created them).
+        let mainCard = Link(
+            name: "Do a thing",
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            sessionLink: SessionLink(sessionId: "s1", sessionPath: "/path.jsonl"),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x")
+        )
+        let orphan1 = Link(
+            projectPath: "/project",
+            source: .discovered,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x")
+        )
+        let orphan2 = Link(
+            projectPath: "/project",
+            source: .discovered,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x")
+        )
+        let orphan3 = Link(
+            projectPath: "/project",
+            source: .discovered,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x")
+        )
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            worktrees: [
+                "/project": [
+                    Worktree(path: "/project/.claude/worktrees/feat-x", branch: "feat-x", isBare: false)
+                ]
+            ]
+        )
+
+        let result = CardReconciler.reconcile(existing: [mainCard, orphan1, orphan2, orphan3], snapshot: snapshot)
+
+        #expect(result.count == 1)
+        #expect(result[0].id == mainCard.id, "Should keep the card with sessionLink")
+        #expect(result[0].sessionLink?.sessionId == "s1")
+        #expect(result[0].worktreeLink?.branch == "feat-x")
+    }
+
+    @Test("Worktree launch: second reconcile after first linked session produces 1 card")
+    func worktreeSecondReconcileStable() {
+        // After the first successful reconcile, the card has session + worktree.
+        // Running reconcile again with the same data should NOT create duplicates.
+        let linkedCard = Link(
+            name: "Do a thing",
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            sessionLink: SessionLink(sessionId: "session-1", sessionPath: "/path.jsonl"),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x")
+        )
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(
+                    id: "session-1",
+                    projectPath: "/project/.claude/worktrees/feat-x",
+                    gitBranch: "feat-x",
+                    messageCount: 10,
+                    modifiedTime: .now,
+                    jsonlPath: "/path.jsonl"
+                )
+            ],
+            tmuxSessions: [
+                TmuxSession(name: "project-wt", path: "/project", attached: false)
+            ],
+            didScanTmux: true,
+            worktrees: [
+                "/project": [
+                    Worktree(path: "/project/.claude/worktrees/feat-x", branch: "feat-x", isBare: false)
+                ]
+            ]
+        )
+
+        // Run reconcile twice
+        let result1 = CardReconciler.reconcile(existing: [linkedCard], snapshot: snapshot)
+        #expect(result1.count == 1)
+
+        let result2 = CardReconciler.reconcile(existing: result1, snapshot: snapshot)
+        #expect(result2.count == 1)
+        #expect(result2[0].id == linkedCard.id)
+    }
+
     // MARK: - Worktree handling
 
     @Test("Orphan worktree creates new card with just worktreeLink")

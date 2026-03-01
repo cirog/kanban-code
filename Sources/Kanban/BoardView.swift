@@ -3,11 +3,13 @@ import KanbanCore
 
 struct BoardView: View {
     var store: BoardStore
+    @State private var dragState = DragState()
     var onStartCard: (String) -> Void = { _ in }
     var onResumeCard: (String) -> Void = { _ in }
     var onForkCard: (String) -> Void = { _ in }
     var onCopyResumeCmd: (String) -> Void = { _ in }
     var onCleanupWorktree: (String) -> Void = { _ in }
+    var onArchiveCard: (String) -> Void = { _ in }
     var onDeleteCard: (String) -> Void = { _ in }
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String, String) -> Void = { _, _ in }
@@ -32,6 +34,7 @@ struct BoardView: View {
                                 get: { store.state.selectedCardId },
                                 set: { store.dispatch(.selectCard(cardId: $0)) }
                             ),
+                            dragState: dragState,
                             isRefreshingBacklog: store.state.isRefreshingBacklog,
                             onMoveCard: { cardId, targetColumn in
                                 onDropCard(cardId, targetColumn)
@@ -40,7 +43,7 @@ struct BoardView: View {
                                 store.dispatch(.renameCard(cardId: cardId, name: name))
                             },
                             onArchiveCard: { cardId in
-                                store.dispatch(.archiveCard(cardId: cardId))
+                                onArchiveCard(cardId)
                             },
                             onStartCard: onStartCard,
                             onResumeCard: onResumeCard,
@@ -75,24 +78,30 @@ struct BoardView: View {
         // Error banner at bottom
         .overlay(alignment: .bottom) {
             if let error = store.state.error {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.orange.opacity(0.7))
                     Text(error)
-                        .font(.caption)
+                        .font(.body.weight(.medium))
                         .lineLimit(2)
                     Spacer()
-                    Button("Dismiss") { store.dispatch(.setError(nil)) }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
+                    Button("Dismiss") {
+                        store.dispatch(.setError(nil))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
+                .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: store.state.error != nil)
+        .animation(.easeInOut(duration: 0.25), value: store.state.error != nil)
         // Empty board hint
         .overlay {
             if store.state.filteredCards.isEmpty && !store.state.isLoading {

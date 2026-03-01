@@ -1,19 +1,11 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import KanbanCore
 
-/// Transferable data for dragging a card between columns.
-struct CardDragData: Codable, Transferable {
-    let cardId: String
-    let sourceColumn: String
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .kanbanCard)
-    }
-}
-
-extension UTType {
-    static let kanbanCard = UTType(exportedAs: "com.kanban.card")
+/// Shared drag state so source and target columns can communicate.
+@Observable
+class DragState {
+    var draggingCard: KanbanCard?
+    var sourceColumn: KanbanColumn?
 }
 
 /// A column view that supports drag and drop.
@@ -21,6 +13,7 @@ struct DroppableColumnView: View {
     let column: KanbanColumn
     let cards: [KanbanCard]
     @Binding var selectedCardId: String?
+    var dragState: DragState
     var isRefreshingBacklog: Bool = false
     var onMoveCard: (String, KanbanColumn) -> Void = { _, _ in }
     var onRenameCard: (String, String) -> Void = { _, _ in }
@@ -61,7 +54,11 @@ struct DroppableColumnView: View {
                         availableProjects: availableProjects,
                         onMoveToProject: { projectPath in onMoveToProject(card.id, projectPath) }
                     )
-                    .draggable(CardDragData(cardId: card.id, sourceColumn: column.rawValue))
+                    .onDrag {
+                        dragState.draggingCard = card
+                        dragState.sourceColumn = column
+                        return NSItemProvider(object: card.id as NSString)
+                    }
                     .sheet(isPresented: Binding(
                         get: { renamingCardId == card.id },
                         set: { if !$0 { renamingCardId = nil } }
@@ -77,6 +74,22 @@ struct DroppableColumnView: View {
                             }
                         )
                     }
+                }
+
+                // Ghost card placeholder when dragging over this column
+                if isTargeted, let dragging = dragState.draggingCard, dragState.sourceColumn != column {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(dragging.displayTitle)
+                            .font(.system(.body, weight: .medium))
+                            .lineLimit(2)
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.accentColor.opacity(0.3), style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])))
+                    .opacity(0.7)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
             .padding(.horizontal, 8)
@@ -132,16 +145,19 @@ struct DroppableColumnView: View {
             .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
             .padding(4)
         }
-        .dropDestination(for: CardDragData.self) { items, _ in
-            guard let item = items.first else { return false }
-            if item.sourceColumn != column.rawValue {
-                onMoveCard(item.cardId, column)
+        .onDrop(of: [.utf8PlainText], isTargeted: $isTargeted) { _, _ in
+            defer {
+                dragState.draggingCard = nil
+                dragState.sourceColumn = nil
             }
+            guard let cardId = dragState.draggingCard?.id,
+                  let source = dragState.sourceColumn,
+                  source != column else {
+                return false
+            }
+            onMoveCard(cardId, column)
             return true
-        } isTargeted: { targeted in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isTargeted = targeted
-            }
         }
+        .animation(.easeInOut(duration: 0.15), value: isTargeted)
     }
 }

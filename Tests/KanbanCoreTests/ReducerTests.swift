@@ -540,4 +540,186 @@ struct ReducerTests {
 
         #expect(state.links["card_cl1"]?.tmuxLink?.isShellOnly != true)
     }
+
+    // MARK: - Worktree dedup in reducer
+
+    @Test("Reconciled deduplicates orphan worktree cards in state")
+    func reconciledDedupOrphanWorktreeCards() {
+        // Pre-existing state: main card + 3 orphan worktree cards (all same branch)
+        let mainCard = makeLink(
+            id: "card_main",
+            column: .inProgress,
+            sessionLink: SessionLink(sessionId: "s1", sessionPath: "/path.jsonl"),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x"),
+            source: .manual,
+            name: "My task"
+        )
+        let orphan1 = Link(
+            id: "card_orphan1",
+            projectPath: "/project",
+            source: .discovered,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x")
+        )
+        let orphan2 = Link(
+            id: "card_orphan2",
+            projectPath: "/project",
+            source: .discovered,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x")
+        )
+        let orphan3 = Link(
+            id: "card_orphan3",
+            projectPath: "/project",
+            source: .discovered,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-x", branch: "feat-x")
+        )
+
+        var state = stateWith([mainCard, orphan1, orphan2, orphan3])
+
+        // Reconcile returns all 4 cards (reconciler dedup should catch them,
+        // but even if it doesn't, the reducer dedup must)
+        let result = ReconciliationResult(
+            links: [mainCard, orphan1, orphan2, orphan3],
+            sessions: [],
+            activityMap: [:],
+            tmuxSessions: []
+        )
+        let _ = Reducer.reduce(state: &state, action: .reconciled(result))
+
+        // Should be exactly 1 card — the main one with sessionLink
+        #expect(state.links.count == 1)
+        #expect(state.links["card_main"] != nil, "Should keep the card with sessionLink")
+        #expect(state.links["card_main"]?.sessionLink?.sessionId == "s1")
+        #expect(state.links["card_main"]?.worktreeLink?.branch == "feat-x")
+    }
+
+    @Test("Reconciled dedup absorbs bare orphans into manual card")
+    func reconciledDedupKeepsManualCard() {
+        // Manual card + bare orphan (no session, no name) on same branch.
+        // Orphan should be absorbed into the manual card.
+        let manualCard = Link(
+            id: "card_manual",
+            name: "My important task",
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-y", branch: "feat-y")
+        )
+        let orphan = Link(
+            id: "card_orphan",
+            projectPath: "/project",
+            source: .discovered,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-y", branch: "feat-y")
+        )
+
+        var state = stateWith([manualCard, orphan])
+
+        let result = ReconciliationResult(
+            links: [manualCard, orphan],
+            sessions: [],
+            activityMap: [:],
+            tmuxSessions: []
+        )
+        let _ = Reducer.reduce(state: &state, action: .reconciled(result))
+
+        #expect(state.links.count == 1)
+        #expect(state.links["card_manual"] != nil, "Should keep the manual card")
+    }
+
+    @Test("Reconciled dedup preserves two sessions on the same branch")
+    func reconciledDedupPreservesParallelSessions() {
+        // Two cards with sessions on the same branch (forked tasks).
+        // Both should survive — they're legitimate parallel work.
+        let session1 = makeLink(
+            id: "card_fork1",
+            sessionLink: SessionLink(sessionId: "s1", sessionPath: "/path1.jsonl"),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-z", branch: "feat-z"),
+            source: .manual,
+            name: "Task A"
+        )
+        let session2 = makeLink(
+            id: "card_fork2",
+            sessionLink: SessionLink(sessionId: "s2", sessionPath: "/path2.jsonl"),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-z", branch: "feat-z"),
+            source: .manual,
+            name: "Task B (fork)"
+        )
+
+        var state = stateWith([session1, session2])
+
+        let result = ReconciliationResult(
+            links: [session1, session2],
+            sessions: [],
+            activityMap: [:],
+            tmuxSessions: []
+        )
+        let _ = Reducer.reduce(state: &state, action: .reconciled(result))
+
+        #expect(state.links.count == 2, "Both sessions should survive — they're parallel work")
+        #expect(state.links["card_fork1"] != nil)
+        #expect(state.links["card_fork2"] != nil)
+    }
+
+    @Test("Reconciled dedup does not merge cards on different branches")
+    func reconciledDedupDifferentBranches() {
+        // Two cards with different branches should both survive
+        let card1 = makeLink(
+            id: "card_a",
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-a", branch: "feat-a"),
+            source: .discovered
+        )
+        let card2 = makeLink(
+            id: "card_b",
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-b", branch: "feat-b"),
+            source: .discovered
+        )
+
+        var state = stateWith([card1, card2])
+
+        let result = ReconciliationResult(
+            links: [card1, card2],
+            sessions: [],
+            activityMap: [:],
+            tmuxSessions: []
+        )
+        let _ = Reducer.reduce(state: &state, action: .reconciled(result))
+
+        #expect(state.links.count == 2, "Different branches should not be deduped")
+    }
+
+    @Test("Reconciled dedup handles orphans already in state not in reconciler output")
+    func reconciledDedupOrphansAlreadyInState() {
+        // Orphans exist in state.links but were NOT returned by the reconciler
+        // (maybe the reconciler already deduped them). The reducer should still
+        // dedup them because state.links starts with ALL existing links.
+        let mainCard = makeLink(
+            id: "card_main2",
+            column: .inProgress,
+            sessionLink: SessionLink(sessionId: "s3", sessionPath: "/path.jsonl"),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-z", branch: "feat-z"),
+            source: .manual,
+            name: "Main task"
+        )
+        let orphan = Link(
+            id: "card_stale_orphan",
+            projectPath: "/project",
+            source: .discovered,
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat-z", branch: "feat-z")
+        )
+
+        // Both in state
+        var state = stateWith([mainCard, orphan])
+
+        // Reconciler only returns the main card (it deduped the orphan)
+        let result = ReconciliationResult(
+            links: [mainCard],
+            sessions: [],
+            activityMap: [:],
+            tmuxSessions: []
+        )
+        let _ = Reducer.reduce(state: &state, action: .reconciled(result))
+
+        // Orphan should be gone — it was in state but dedup catches it
+        #expect(state.links.count == 1)
+        #expect(state.links["card_main2"] != nil)
+    }
 }

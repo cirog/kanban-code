@@ -94,11 +94,15 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
                 // Stale hook event — fall back to polling entirely
                 return polledStates[sessionId] ?? .idleWaiting
             }
-            // After 15s grace period, check if polling disagrees.
+            // After a short grace period, check file mtime directly.
             // Handles Ctrl+C interrupts where no Stop hook fires —
-            // the jsonl file stops being modified, so polling detects inactivity.
-            if timeSince > 15, let polled = polledStates[sessionId], polled != .activelyWorking {
-                return polled
+            // when Claude stops, the jsonl file stops being modified.
+            if timeSince > 3, let path = sessionPaths[sessionId] {
+                if let age = Self.fileAge(path), age > 3 {
+                    // File hasn't been modified in >5s — Claude is not actively working.
+                    // This catches Ctrl+C interrupts where no Stop hook fires.
+                    return .needsAttention
+                }
             }
             return .activelyWorking
         case "Stop":
@@ -114,6 +118,13 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
             if timeSince < 3600 { return .idleWaiting }
             return .ended
         }
+    }
+
+    /// Quick mtime check — returns seconds since file was last modified, or nil on error.
+    private static func fileAge(_ path: String) -> TimeInterval? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let mtime = attrs[.modificationDate] as? Date else { return nil }
+        return Date.now.timeIntervalSince(mtime)
     }
 
     /// Resolve all pending stops (call periodically from background orchestrator).

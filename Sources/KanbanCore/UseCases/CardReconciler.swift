@@ -94,6 +94,31 @@ public enum CardReconciler {
                 if link.projectPath == nil, let pp = session.projectPath {
                     link.projectPath = pp
                 }
+                // If session is in a worktree dir and card doesn't have worktreeLink yet,
+                // find the matching worktree in the snapshot to get the correct git branch name.
+                if link.worktreeLink == nil,
+                   let pp = session.projectPath,
+                   pp.contains("/.claude/worktrees/") {
+                    // Prefer real git branch from snapshot (directory name may differ from branch)
+                    var branchName: String?
+                    for (_, worktrees) in snapshot.worktrees {
+                        if let wt = worktrees.first(where: { $0.path == pp }),
+                           let branch = wt.branch {
+                            branchName = branch.replacingOccurrences(of: "refs/heads/", with: "")
+                            break
+                        }
+                    }
+                    // Fallback: extract from path if worktree not in snapshot yet
+                    if branchName == nil, let range = pp.range(of: "/.claude/worktrees/") {
+                        let afterPrefix = String(pp[range.upperBound...])
+                        branchName = afterPrefix.components(separatedBy: "/").first
+                    }
+                    if let branchName, !branchName.isEmpty {
+                        KanbanLog.info("reconciler", "Setting worktreeLink from session path: branch=\(branchName) on card \(cardId.prefix(12))")
+                        link.worktreeLink = WorktreeLink(path: pp, branch: branchName)
+                        cardIdsByBranch[branchName, default: []].append(cardId)
+                    }
+                }
                 linksById[cardId] = link
                 matchedSessionIds.insert(session.id)
             } else {
@@ -171,6 +196,32 @@ public enum CardReconciler {
                     }
                 }
             }
+        }
+
+        // B2. Absorb orphan worktree cards (worktreeLink but no session/name/manual)
+        // into real cards on the same branch. Multiple sessions on the same branch
+        // are legitimate (forked tasks) and must NOT be merged.
+        for (branch, cardIds) in cardIdsByBranch where cardIds.count > 1 {
+            let orphanIds = cardIds.filter { id in
+                let l = linksById[id]!
+                return l.sessionLink == nil && l.source != .manual && l.name == nil
+            }
+            guard !orphanIds.isEmpty else { continue }
+
+            let realIds = cardIds.filter { id in !orphanIds.contains(id) }
+            let keeperId = realIds.first ?? orphanIds.first!
+            var keeper = linksById[keeperId]!
+
+            for orphanId in orphanIds where orphanId != keeperId {
+                if let orphan = linksById[orphanId] {
+                    if keeper.worktreeLink == nil { keeper.worktreeLink = orphan.worktreeLink }
+                    if keeper.tmuxLink == nil { keeper.tmuxLink = orphan.tmuxLink }
+                    KanbanLog.info("reconciler", "Dedup: absorbing orphan \(orphanId.prefix(12)) (branch=\(branch)) into \(keeperId.prefix(12))")
+                }
+                linksById.removeValue(forKey: orphanId)
+            }
+            linksById[keeperId] = keeper
+            cardIdsByBranch[branch] = cardIds.filter { !orphanIds.contains($0) || $0 == keeperId }
         }
 
         // C. Match PRs to existing cards via branch (add or update)
@@ -274,11 +325,13 @@ public enum CardReconciler {
         }
 
         // 3. Match by project path + tmux (card has tmuxLink, same project, no sessionLink yet)
+        //    Also matches when session is in a worktree under the card's project
+        //    (e.g., session in <project>/.claude/worktrees/<name> matches card with projectPath=<project>)
         if let projectPath = session.projectPath {
             for (_, link) in linksById {
                 if link.tmuxLink != nil,
                    link.sessionLink == nil,
-                   link.projectPath == projectPath {
+                   (link.projectPath == projectPath || isWorktreeUnder(sessionPath: projectPath, projectRoot: link.projectPath)) {
                     KanbanLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by projectPath+tmux → card=\(link.id.prefix(12)) (tmux=\(link.tmuxLink?.sessionName ?? "?"))")
                     return link.id
                 }
@@ -294,5 +347,13 @@ public enum CardReconciler {
 
         KanbanLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) projectPath=\(session.projectPath ?? "nil") → NO MATCH")
         return nil
+    }
+
+    /// Check if sessionPath is a worktree directory under a project root.
+    /// e.g., sessionPath = "/path/to/project/.claude/worktrees/my-branch"
+    ///        projectRoot = "/path/to/project"
+    private static func isWorktreeUnder(sessionPath: String, projectRoot: String?) -> Bool {
+        guard let projectRoot else { return false }
+        return sessionPath.hasPrefix(projectRoot + "/.claude/worktrees/")
     }
 }

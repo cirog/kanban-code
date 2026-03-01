@@ -20,11 +20,11 @@ struct KanbanCardTests {
         #expect(card.displayTitle == "Help me debug the auth flow")
     }
 
-    @Test("Display title falls back to ID prefix")
+    @Test("Display title falls back to full session ID")
     func displayTitleFallback() {
         let link = Link(sessionLink: SessionLink(sessionId: "abcdef01-2345-6789-abcd-ef0123456789"))
         let card = KanbanCard(link: link)
-        #expect(card.displayTitle == "abcdef01...")
+        #expect(card.displayTitle == "abcdef01-2345-6789-abcd-ef0123456789")
     }
 
     @Test("Project name extracted from path")
