@@ -116,15 +116,18 @@ struct CardDetailView: View {
                             .glassEffect(.regular, in: .capsule)
                             .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
                             .help("Start work on this task")
-                        } else {
+                        } else if card.link.tmuxLink == nil {
                             Button(action: onResume) {
-                                Image(systemName: "play.fill")
+                                Label("Resume", systemImage: "play.fill")
                                     .font(.system(size: 13))
-                                    .frame(width: 36, height: 36)
+                                    .foregroundStyle(Color.blue.opacity(0.8))
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 36)
+                                    .background(Color.blue.opacity(0.08), in: Capsule())
+                                    .background(.ultraThinMaterial, in: Capsule())
                             }
                             .buttonStyle(.plain)
-                            .glassEffect(.regular, in: .capsule)
-                            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                            .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
                             .help("Resume session")
                         }
 
@@ -406,26 +409,27 @@ struct CardDetailView: View {
                                         }
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
+                                        .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
 
-                                    if !isPrimary {
-                                        Button {
-                                            onKillTerminal(sessionName)
-                                            if selectedTerminalSession == sessionName {
-                                                selectedTerminalSession = tmux.sessionName
-                                            }
-                                        } label: {
-                                            Image(systemName: "xmark")
-                                                .font(.system(size: 8, weight: .bold))
-                                                .foregroundStyle(.secondary)
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 4)
-                                                .contentShape(Rectangle())
+                                    Button {
+                                        onKillTerminal(sessionName)
+                                        if selectedTerminalSession == sessionName {
+                                            // Switch to first remaining session, or clear
+                                            let remaining = allSessions.filter { $0 != sessionName }
+                                            selectedTerminalSession = remaining.first
                                         }
-                                        .buttonStyle(.borderless)
-                                        .help("Close terminal")
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 8, weight: .bold))
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 4)
+                                            .contentShape(Rectangle())
                                     }
+                                    .buttonStyle(.borderless)
+                                    .help("Close terminal")
                                 }
                                 .background(
                                     isSelected ? Color.accentColor.opacity(0.15) : Color.clear,

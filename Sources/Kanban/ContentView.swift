@@ -14,6 +14,32 @@ struct LaunchConfig: Identifiable {
     let isGitRepo: Bool
     let hasRemoteConfig: Bool
     let remoteHost: String?
+    let isResume: Bool
+    let sessionId: String?
+
+    init(
+        cardId: String,
+        projectPath: String,
+        prompt: String,
+        worktreeName: String? = nil,
+        hasExistingWorktree: Bool = false,
+        isGitRepo: Bool = false,
+        hasRemoteConfig: Bool = false,
+        remoteHost: String? = nil,
+        isResume: Bool = false,
+        sessionId: String? = nil
+    ) {
+        self.cardId = cardId
+        self.projectPath = projectPath
+        self.prompt = prompt
+        self.worktreeName = worktreeName
+        self.hasExistingWorktree = hasExistingWorktree
+        self.isGitRepo = isGitRepo
+        self.hasRemoteConfig = hasRemoteConfig
+        self.remoteHost = remoteHost
+        self.isResume = isResume
+        self.sessionId = sessionId
+    }
 }
 
 struct ContentView: View {
@@ -23,6 +49,10 @@ struct ContentView: View {
     @State private var showNewTask = false
     @State private var showOnboarding = false
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .auto
+    @State private var showProcessManager = false
+    @State private var showQuitConfirmation = false
+    @State private var quitOwnedSessions: [TmuxSession] = []
+    @AppStorage("killTmuxOnQuit") private var killTmuxOnQuit = true
     @State private var showAddFromPath = false
     @State private var addFromPathText = ""
     @State private var launchConfig: LaunchConfig?
@@ -248,13 +278,19 @@ struct ContentView: View {
                     isGitRepo: config.isGitRepo,
                     hasRemoteConfig: config.hasRemoteConfig,
                     remoteHost: config.remoteHost,
+                    isResume: config.isResume,
+                    sessionId: config.sessionId,
                     isPresented: Binding(
                         get: { launchConfig != nil },
                         set: { if !$0 { launchConfig = nil } }
                     )
                 ) { editedPrompt, createWorktree, runRemotely, commandOverride in
-                    let wtName: String? = createWorktree ? (config.worktreeName ?? "") : nil
-                    executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: wtName, runRemotely: runRemotely, commandOverride: commandOverride)
+                    if config.isResume {
+                        executeResume(cardId: config.cardId, runRemotely: runRemotely, commandOverride: commandOverride)
+                    } else {
+                        let wtName: String? = createWorktree ? (config.worktreeName ?? "") : nil
+                        executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: wtName, runRemotely: runRemotely, commandOverride: commandOverride)
+                    }
                 }
             }
             .sheet(isPresented: $showOnboarding) {
@@ -265,6 +301,15 @@ struct ContentView: View {
                         let pushover = Self.loadPushoverConfig()
                         let newNotifier = CompositeNotifier(primary: pushover, fallback: MacOSNotificationClient())
                         orchestrator.updateNotifier(newNotifier)
+                    }
+                )
+            }
+            .sheet(isPresented: $showProcessManager) {
+                ProcessManagerView(
+                    store: store,
+                    isPresented: $showProcessManager,
+                    onSelectCard: { cardId in
+                        store.dispatch(.selectCard(cardId: cardId))
                     }
                 )
             }
@@ -382,6 +427,18 @@ struct ContentView: View {
                     applyAppearance()
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .kanbanQuitRequested)) { notification in
+                // Sessions are already loaded by AppDelegate — no re-fetch needed
+                if let sessions = notification.userInfo?["sessions"] as? [TmuxSession], !sessions.isEmpty {
+                    quitOwnedSessions = sessions
+                    showQuitConfirmation = true
+                } else {
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                }
+            }
+            .sheet(isPresented: $showQuitConfirmation) {
+                quitConfirmationSheet
+            }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 Task {
                     await store.reconcile()
@@ -435,6 +492,15 @@ struct ContentView: View {
                         .padding(.horizontal, 4)
                     }
                     .help("Search sessions (⌘K)")
+                }
+
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showProcessManager = true } label: {
+                        Image(systemName: "gearshape.2")
+                    }
+                    .help("Process Manager")
                 }
 
                 ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -686,6 +752,100 @@ struct ContentView: View {
         return .notRunning
     }
 
+    // MARK: - Quit Confirmation
+
+    private var quitConfirmationSheet: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                Image(systemName: "terminal")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text("Quit Kanban?")
+                    .font(.headline)
+                Text("You have \(quitOwnedSessions.count) managed tmux session\(quitOwnedSessions.count == 1 ? "" : "s") running.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+
+            // Table of sessions — fills available space
+            Table(quitOwnedSessions) {
+                TableColumn("") { session in
+                    Circle()
+                        .fill(session.attached ? .green : .gray)
+                        .frame(width: 8, height: 8)
+                }
+                .width(16)
+
+                TableColumn("Session") { session in
+                    Text(session.name)
+                        .lineLimit(1)
+                }
+
+                TableColumn("Card") { session in
+                    if let card = store.state.cards.first(where: { card in
+                        card.link.tmuxLink?.allSessionNames.contains(session.name) == true
+                    }) {
+                        Text(card.displayTitle)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                TableColumn("Path") { session in
+                    Text(abbreviateHomePath(session.path))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            Divider()
+
+            HStack {
+                Toggle("Kill managed sessions on quit", isOn: $killTmuxOnQuit)
+                    .toggleStyle(.checkbox)
+                Spacer()
+                Button("Cancel") {
+                    showQuitConfirmation = false
+                    NSApp.reply(toApplicationShouldTerminate: false)
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Quit Kanban") {
+                    showQuitConfirmation = false
+                    if killTmuxOnQuit {
+                        Task {
+                            await killOwnedTmuxSessions()
+                            NSApp.reply(toApplicationShouldTerminate: true)
+                        }
+                    } else {
+                        NSApp.reply(toApplicationShouldTerminate: true)
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
+        .frame(width: 520, height: 380)
+    }
+
+    private func killOwnedTmuxSessions() async {
+        let tmux = TmuxAdapter()
+        for session in quitOwnedSessions {
+            try? await tmux.killSession(name: session.name)
+            TerminalCache.shared.remove(session.name)
+        }
+    }
+
+    private func abbreviateHomePath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
+
     @ViewBuilder
     private var syncStatusView: some View {
         Button { showSyncPopover.toggle() } label: {
@@ -724,14 +884,14 @@ struct ContentView: View {
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
 
             HStack(spacing: 4) {
-                Text("mutagen sync list")
+                Text("mutagen sync list -l")
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
                 Button {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("mutagen sync list", forType: .string)
+                    NSPasteboard.general.setString("mutagen sync list -l", forType: .string)
                 } label: {
                     Image(systemName: "doc.on.doc")
                         .font(.caption)
@@ -1361,7 +1521,26 @@ struct ContentView: View {
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
         let projectPath = card.link.projectPath ?? NSHomeDirectory()
 
-        // IMMEDIATE state update via reducer — isLaunching prevents background override
+        let globalRemote = store.state.globalRemoteSettings
+        let projectIsUnderRemote = globalRemote.map { projectPath.hasPrefix($0.localPath) } ?? false
+
+        launchConfig = LaunchConfig(
+            cardId: cardId,
+            projectPath: projectPath,
+            prompt: "",
+            hasExistingWorktree: card.link.worktreeLink != nil,
+            hasRemoteConfig: projectIsUnderRemote,
+            remoteHost: globalRemote?.host,
+            isResume: true,
+            sessionId: sessionId
+        )
+    }
+
+    private func executeResume(cardId: String, runRemotely: Bool, commandOverride: String?) {
+        guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
+        let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
+        let projectPath = card.link.projectPath ?? NSHomeDirectory()
+
         store.dispatch(.resumeCard(cardId: cardId))
         KanbanLog.info("resume", "Starting resume for card=\(cardId.prefix(12)) session=\(sessionId.prefix(8))")
 
@@ -1373,7 +1552,7 @@ struct ContentView: View {
                 let extraEnv: [String: String]
 
                 let globalRemote = settings?.remote
-                if let remote = globalRemote, projectPath.hasPrefix(remote.localPath) {
+                if runRemotely, let remote = globalRemote, projectPath.hasPrefix(remote.localPath) {
                     try? RemoteShellManager.deploy()
                     shellOverride = RemoteShellManager.shellOverridePath()
                     extraEnv = RemoteShellManager.setupEnvironment(remote: remote, projectPath: projectPath)
@@ -1394,7 +1573,8 @@ struct ContentView: View {
                     sessionId: sessionId,
                     projectPath: projectPath,
                     shellOverride: shellOverride,
-                    extraEnv: extraEnv
+                    extraEnv: extraEnv,
+                    commandOverride: commandOverride
                 )
                 KanbanLog.info("resume", "Resume launched for card=\(cardId.prefix(12)) actualTmux=\(actualTmuxName)")
 

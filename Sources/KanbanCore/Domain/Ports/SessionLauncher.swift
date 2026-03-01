@@ -18,7 +18,8 @@ public protocol SessionLauncher: Sendable {
         sessionId: String,
         projectPath: String,
         shellOverride: String?,
-        extraEnv: [String: String]
+        extraEnv: [String: String],
+        commandOverride: String?
     ) async throws -> String // returns tmux session name
 }
 
@@ -45,13 +46,16 @@ extension SessionLauncher {
     public func resume(
         sessionId: String,
         projectPath: String,
-        shellOverride: String?
+        shellOverride: String?,
+        extraEnv: [String: String] = [:],
+        commandOverride: String? = nil
     ) async throws -> String {
         try await resume(
             sessionId: sessionId,
             projectPath: projectPath,
             shellOverride: shellOverride,
-            extraEnv: [:]
+            extraEnv: extraEnv,
+            commandOverride: commandOverride
         )
     }
 }

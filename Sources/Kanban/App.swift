@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import UserNotifications
+import KanbanCore
 
 @main
 struct KanbanApp: App {
@@ -58,6 +59,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 print("[Kanban] Notification permission denied")
             }
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Check if we have managed tmux sessions running
+        let killOnQuit = UserDefaults.standard.bool(forKey: "killTmuxOnQuit")
+        let task = Task {
+            let tmux = TmuxAdapter()
+            let sessions = (try? await tmux.listSessions()) ?? []
+            let owned = sessions.filter { $0.name.contains("card_") }
+            await MainActor.run {
+                if owned.isEmpty {
+                    // No managed sessions — quit immediately
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                } else if killOnQuit {
+                    // User already chose to always kill — do it silently
+                    Task {
+                        for session in owned {
+                            try? await tmux.killSession(name: session.name)
+                            TerminalCache.shared.remove(session.name)
+                        }
+                        NSApp.reply(toApplicationShouldTerminate: true)
+                    }
+                } else {
+                    // Show confirmation dialog with sessions already loaded
+                    NotificationCenter.default.post(
+                        name: .kanbanQuitRequested,
+                        object: nil,
+                        userInfo: ["sessions": owned]
+                    )
+                }
+            }
+        }
+        _ = task
+        return .terminateLater
     }
 
     // Show notifications even when the app is in the foreground
@@ -121,4 +156,5 @@ extension Notification.Name {
     static let kanbanHistoryChanged = Notification.Name("kanbanHistoryChanged")
     static let kanbanSettingsChanged = Notification.Name("kanbanSettingsChanged")
     static let kanbanSelectCard = Notification.Name("kanbanSelectCard")
+    static let kanbanQuitRequested = Notification.Name("kanbanQuitRequested")
 }

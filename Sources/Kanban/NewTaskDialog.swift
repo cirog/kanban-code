@@ -221,10 +221,6 @@ struct NewTaskDialog: View {
 
         if runRemotely && hasRemoteConfig {
             parts.append("SHELL=~/.kanban/remote/zsh")
-            if let host = remoteHost {
-                parts.append("KANBAN_REMOTE_HOST=\(host)")
-            }
-            parts.append("...")
         }
 
         var cmd = "claude"

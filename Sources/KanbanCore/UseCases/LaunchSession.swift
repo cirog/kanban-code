@@ -55,7 +55,8 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         sessionId: String,
         projectPath: String,
         shellOverride: String?,
-        extraEnv: [String: String] = [:]
+        extraEnv: [String: String] = [:],
+        commandOverride: String? = nil
     ) async throws -> String {
         // Check if there's already a tmux session for this
         let existing = try await tmux.listSessions()
@@ -65,12 +66,16 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
 
         // Create new tmux session with resume command
         let sessionName = "claude-\(String(sessionId.prefix(8)))"
-        var cmd = "claude --resume \(sessionId)"
-
-        // Prepend environment variables
-        let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv)
-        if !envPrefix.isEmpty {
-            cmd = envPrefix + " " + cmd
+        let cmd: String
+        if let commandOverride, !commandOverride.isEmpty {
+            cmd = commandOverride
+        } else {
+            var built = "claude --resume \(sessionId)"
+            let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv)
+            if !envPrefix.isEmpty {
+                built = envPrefix + " " + built
+            }
+            cmd = built
         }
 
         try await tmux.createSession(name: sessionName, path: projectPath, command: cmd)

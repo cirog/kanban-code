@@ -2,6 +2,7 @@ import SwiftUI
 import KanbanCore
 
 /// Pre-launch confirmation dialog showing editable prompt, options, and editable command.
+/// Also used for resume — shows the resume command with remote toggle.
 struct LaunchConfirmationDialog: View {
     let cardId: String
     let projectPath: String
@@ -11,6 +12,8 @@ struct LaunchConfirmationDialog: View {
     let isGitRepo: Bool
     let hasRemoteConfig: Bool
     let remoteHost: String?
+    let isResume: Bool
+    let sessionId: String?
     @Binding var isPresented: Bool
     var onLaunch: (String, Bool, Bool, String?) -> Void = { _, _, _, _ in } // (editedPrompt, createWorktree, runRemotely, commandOverride)
 
@@ -29,6 +32,8 @@ struct LaunchConfirmationDialog: View {
         isGitRepo: Bool = false,
         hasRemoteConfig: Bool = false,
         remoteHost: String? = nil,
+        isResume: Bool = false,
+        sessionId: String? = nil,
         isPresented: Binding<Bool>,
         onLaunch: @escaping (String, Bool, Bool, String?) -> Void = { _, _, _, _ in }
     ) {
@@ -40,15 +45,16 @@ struct LaunchConfirmationDialog: View {
         self.isGitRepo = isGitRepo
         self.hasRemoteConfig = hasRemoteConfig
         self.remoteHost = remoteHost
+        self.isResume = isResume
+        self.sessionId = sessionId
         self._isPresented = isPresented
         self.onLaunch = onLaunch
-        // Initialize prompt state directly — avoids .onAppear timing issues
         self._prompt = State(initialValue: initialPrompt)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Launch Session")
+            Text(isResume ? "Resume Session" : "Launch Session")
                 .font(.title3)
                 .fontWeight(.semibold)
 
@@ -63,8 +69,8 @@ struct LaunchConfirmationDialog: View {
                     .truncationMode(.middle)
             }
 
-            // Worktree name (if applicable)
-            if let name = worktreeName {
+            // Worktree name (if applicable, launch only)
+            if !isResume, let name = worktreeName {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.branch")
                         .foregroundStyle(.secondary)
@@ -74,24 +80,40 @@ struct LaunchConfirmationDialog: View {
                 }
             }
 
-            // Editable prompt
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Prompt")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            // Session ID (resume only)
+            if isResume, let sid = sessionId {
+                HStack(spacing: 6) {
+                    ClawdIcon()
+                        .frame(width: 14, height: 14)
+                        .opacity(0.5)
+                    Text(sid)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
 
-                PromptEditor(
-                    text: $prompt,
-                    onSubmit: submitForm
-                )
-                .frame(minHeight: 120, maxHeight: 300)
-                .padding(4)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+            // Editable prompt (launch only)
+            if !isResume {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Prompt")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    PromptEditor(
+                        text: $prompt,
+                        onSubmit: submitForm
+                    )
+                    .frame(minHeight: 120, maxHeight: 300)
+                    .padding(4)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                }
             }
 
             // Checkboxes
             VStack(alignment: .leading, spacing: 6) {
-                if !hasExistingWorktree {
+                if !isResume && !hasExistingWorktree {
                     Toggle("Create worktree", isOn: isGitRepo ? $createWorktree : .constant(false))
                         .font(.callout)
                         .disabled(!isGitRepo)
@@ -126,7 +148,6 @@ struct LaunchConfirmationDialog: View {
                     .padding(4)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                     .onChange(of: command) {
-                        // Track if user manually edited the command
                         if command != commandPreview {
                             commandEdited = true
                         }
@@ -141,9 +162,9 @@ struct LaunchConfirmationDialog: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Launch", action: submitForm)
+                Button(isResume ? "Resume" : "Launch", action: submitForm)
                 .keyboardShortcut(.defaultAction)
-                .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!isResume && prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .buttonStyle(.borderedProminent)
             }
         }
@@ -166,7 +187,9 @@ struct LaunchConfirmationDialog: View {
     // MARK: - Actions
 
     private func submitForm() {
-        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if !isResume {
+            guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        }
         let override = commandEdited ? command : nil
         onLaunch(prompt, effectiveCreateWorktree, effectiveRunRemotely, override)
         isPresented = false
@@ -175,7 +198,7 @@ struct LaunchConfirmationDialog: View {
     // MARK: - Computed
 
     private var effectiveCreateWorktree: Bool {
-        !hasExistingWorktree && createWorktree && isGitRepo
+        !isResume && !hasExistingWorktree && createWorktree && isGitRepo
     }
 
     private var effectiveRunRemotely: Bool {
@@ -187,26 +210,27 @@ struct LaunchConfirmationDialog: View {
 
         if effectiveRunRemotely {
             parts.append("SHELL=~/.kanban/remote/zsh")
-            if let host = remoteHost {
-                parts.append("KANBAN_REMOTE_HOST=\(host)")
-            }
-            parts.append("...")
         }
 
-        var cmd = "claude"
+        if isResume, let sid = sessionId {
+            parts.append("cd \(projectPath) && claude --resume \(sid)")
+        } else {
+            var cmd = "claude"
 
-        if effectiveCreateWorktree {
-            if let name = worktreeName, !name.isEmpty {
-                cmd += " --worktree \(name)"
-            } else {
-                cmd += " --worktree"
+            if effectiveCreateWorktree {
+                if let name = worktreeName, !name.isEmpty {
+                    cmd += " --worktree \(name)"
+                } else {
+                    cmd += " --worktree"
+                }
             }
+
+            let truncated = Self.truncatePrompt(prompt, maxLength: 60)
+            cmd += " '\(truncated)'"
+
+            parts.append(cmd)
         }
 
-        let truncated = Self.truncatePrompt(prompt, maxLength: 60)
-        cmd += " '\(truncated)'"
-
-        parts.append(cmd)
         return parts.joined(separator: " \\\n  ")
     }
 

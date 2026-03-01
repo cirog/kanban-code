@@ -24,7 +24,6 @@ public enum RemoteShellManager {
             try? fm.removeItem(atPath: symlinkPath)
         }
         try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: scriptPath)
-        // Ensure the symlink target is executable (already set above, but belt-and-suspenders)
     }
 
     /// Returns the path to use as SHELL override for remote execution.
@@ -33,13 +32,10 @@ public enum RemoteShellManager {
     }
 
     /// Returns environment variables needed for remote execution.
+    /// The script reads config from ~/.kanban/settings.json directly,
+    /// so no env vars are needed.
     public static func setupEnvironment(remote: RemoteSettings, projectPath: String) -> [String: String] {
-        [
-            "KANBAN_REMOTE_HOST": remote.host,
-            "KANBAN_REMOTE_PATH": remote.remotePath,
-            "KANBAN_LOCAL_PATH": remote.localPath,
-            "KANBAN_MUTAGEN_LABEL": "kanban-\(sanitizeLabel(projectPath))",
-        ]
+        [:] // Script reads config from ~/.kanban/settings.json directly
     }
 
     // MARK: - Paths
@@ -56,190 +52,185 @@ public enum RemoteShellManager {
         (remoteDir() as NSString).appendingPathComponent("zsh")
     }
 
-    /// Sanitize a project path into a safe label component.
-    private static func sanitizeLabel(_ path: String) -> String {
-        let name = (path as NSString).lastPathComponent
-        // Replace non-alphanumeric characters with dashes
-        return name.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : Character("-") }
-            .map(String.init)
-            .joined()
-            .lowercased()
-    }
-
     // MARK: - Embedded Script
+    // Based on ~/Projects/claude-remote/scripts/remote-shell.sh (battle-tested).
+    // Adapted to read config from ~/.kanban/settings.json instead of config.sh.
 
     private static let remoteShellScript = """
     #!/usr/bin/env bash
-    # Remote shell wrapper for Claude Code.
-    # Intercepts shell commands and runs them on a remote host via SSH.
-    # Designed to be used as $SHELL override: SHELL=/path/to/remote-shell.sh claude
     #
-    # Features:
-    # - SSH ControlMaster for connection reuse
-    # - Working directory tracking via MARKER pattern
-    # - Path replacement (local <-> remote)
-    # - Pre/post Mutagen sync flush
-    # - Local fallback with state file + notification
+    # Remote shell wrapper for Claude Code
+    # Intercepts shell commands and executes them on the remote machine
+    # Falls back to local execution if remote is unavailable
     #
-    # Configuration via environment variables:
-    #   KANBAN_REMOTE_HOST     - SSH host (required)
-    #   KANBAN_REMOTE_PATH     - Remote base path (required)
-    #   KANBAN_LOCAL_PATH      - Local base path (required)
-    #   KANBAN_MUTAGEN_LABEL   - Mutagen sync label (optional)
-    #   KANBAN_STATE_DIR       - State directory (default: ~/.kanban/remote)
+    # Configuration: reads from ~/.kanban/settings.json (remote.host, remote.remotePath, remote.localPath)
+    #
 
-    set -euo pipefail
+    # Read config from ~/.kanban/settings.json
+    CONFIG_FILE="${HOME}/.kanban/settings.json"
+    REMOTE_HOST=""
+    REMOTE_DIR=""
+    LOCAL_MOUNT=""
 
-    # Configuration
-    REMOTE_HOST="${KANBAN_REMOTE_HOST:-}"
-    REMOTE_PATH="${KANBAN_REMOTE_PATH:-}"
-    LOCAL_PATH="${KANBAN_LOCAL_PATH:-}"
-    MUTAGEN_LABEL="${KANBAN_MUTAGEN_LABEL:-}"
-    STATE_DIR="${KANBAN_STATE_DIR:-${HOME}/.kanban/remote}"
-    MARKER="__KANBAN_CWD_MARKER__"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        REMOTE_HOST=$(/usr/bin/perl -MJSON::PP -e 'open my $f,"<","'"$CONFIG_FILE"'" or exit;local $/;my $d=decode_json(<$f>);print $d->{remote}{host}//"" if $d->{remote}' 2>/dev/null || echo "")
+        REMOTE_DIR=$(/usr/bin/perl -MJSON::PP -e 'open my $f,"<","'"$CONFIG_FILE"'" or exit;local $/;my $d=decode_json(<$f>);print $d->{remote}{remotePath}//"" if $d->{remote}' 2>/dev/null || echo "")
+        LOCAL_MOUNT=$(/usr/bin/perl -MJSON::PP -e 'open my $f,"<","'"$CONFIG_FILE"'" or exit;local $/;my $d=decode_json(<$f>);print $d->{remote}{localPath}//"" if $d->{remote}' 2>/dev/null || echo "")
+    fi
 
-    # SSH ControlMaster settings
-    SSH_CONTROL_DIR="${STATE_DIR}/ssh"
-    SSH_CONTROL_PATH="${SSH_CONTROL_DIR}/control-%h-%p-%r"
-    SSH_OPTS=(-o "ControlMaster=auto" -o "ControlPath=${SSH_CONTROL_PATH}" -o "ControlPersist=600" -o "ServerAliveInterval=30")
+    SSH_OPTS="-o ControlMaster=auto -o ControlPath=/tmp/ssh-kanban-%r@%h:%p -o ControlPersist=600 -o ConnectTimeout=5"
+    STATE_FILE="/tmp/kanban-remote-state"
+    NOTIFY_COOLDOWN=300  # 5 minutes
 
-    mkdir -p "$STATE_DIR" "$SSH_CONTROL_DIR"
-
-    # ---------- Helpers ----------
-
-    log() {
-        echo "[kanban-remote] $*" >&2
+    # Map local path to remote path
+    local_to_remote() {
+        echo "${1/#$LOCAL_MOUNT/$REMOTE_DIR}"
     }
 
-    replace_paths_to_remote() {
-        local cmd="$1"
-        echo "${cmd//$LOCAL_PATH/$REMOTE_PATH}"
+    # Map remote path to local path
+    remote_to_local() {
+        echo "${1/#$REMOTE_DIR/$LOCAL_MOUNT}"
     }
 
-    replace_paths_to_local() {
-        local output="$1"
-        echo "${output//$REMOTE_PATH/$LOCAL_PATH}"
-    }
+    # Send macOS notification with rate limiting
+    notify() {
+        local message="$1"
+        local state="$2"  # "offline" or "online"
+        local now=$(date +%s)
+        local last_state=""
+        local last_notify=0
 
-    flush_mutagen() {
-        if [ -n "$MUTAGEN_LABEL" ]; then
-            mutagen sync flush --label-selector="$MUTAGEN_LABEL" 2>/dev/null || true
+        if [[ -f "$STATE_FILE" ]]; then
+            last_state=$(head -1 "$STATE_FILE")
+            last_notify=$(tail -1 "$STATE_FILE")
+        fi
+
+        # Only notify if state changed, or still offline after cooldown
+        if [[ "$state" != "$last_state" ]] || { [[ "$state" == "offline" ]] && [[ $((now - last_notify)) -ge $NOTIFY_COOLDOWN ]]; }; then
+            osascript -e "display notification \\"$message\\" with title \\"Kanban Remote\\"" 2>/dev/null
+            echo -e "$state\\n$now" > "$STATE_FILE"
         fi
     }
 
-    check_remote() {
-        ssh "${SSH_OPTS[@]}" -o "ConnectTimeout=5" "$REMOTE_HOST" "echo ok" 2>/dev/null
+    # Check if remote is reachable (fast check with hard timeout)
+    is_remote_available() {
+        # First check if control socket exists but is stale
+        local socket="/tmp/ssh-kanban-${REMOTE_HOST}:22"
+        if [[ -S "$socket" ]]; then
+            # Test if socket is alive, remove if stale
+            if ! timeout 1 /usr/bin/ssh -o ControlPath="$socket" -O check "$REMOTE_HOST" 2>/dev/null; then
+                /bin/rm -f "$socket" 2>/dev/null
+            fi
+        fi
+        # Plain SSH check without ControlMaster (ControlMaster=auto can hang when creating socket)
+        timeout 5 /usr/bin/ssh -o ConnectTimeout=5 -o BatchMode=yes "$REMOTE_HOST" "exit 0" 2>/dev/null
     }
 
-    write_status() {
-        local status="$1"
-        local file="${STATE_DIR}/status-${REMOTE_HOST}.json"
-        local ts
-        ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        if [ "$status" = "offline" ]; then
-            printf '{"status":"offline","since":"%s"}\\n' "$ts" > "$file"
+    # Parse flags - Claude Code sends: -c -l "command"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -c) shift ;;
+            -l|-i) shift ;;
+            *) cmd="$1"; break ;;
+        esac
+    done
+
+    if [[ -n "${cmd:-}" ]]; then
+        # Extract pwd file if present
+        pwd_file=""
+        if [[ "$cmd" =~ (.*)(\\&\\&\\ pwd\\ -P\\ \\>\\|\\ ([^[:space:]]+))$ ]]; then
+            cmd="${BASH_REMATCH[1]}"
+            pwd_file="${BASH_REMATCH[3]}"
+        fi
+
+        LOCAL_CWD="$(pwd -P)"
+
+        if [[ -z "$REMOTE_HOST" ]] || [[ -z "$REMOTE_DIR" ]] || [[ -z "$LOCAL_MOUNT" ]]; then
+            # Not configured — run locally
+            /bin/bash -c "$cmd"
+            exit_code=$?
+            [[ -n "$pwd_file" ]] && pwd -P > "$pwd_file"
+            exit $exit_code
+        fi
+
+        # Check remote availability
+        if is_remote_available; then
+            # === REMOTE EXECUTION ===
+            notify "Remote instance available" "online"
+
+            REMOTE_CWD="$(local_to_remote "$LOCAL_CWD")"
+
+            # Map local paths in command to remote
+            cmd="${cmd//$LOCAL_MOUNT/$REMOTE_DIR}"
+
+            # Flush mutagen sync before command
+            mutagen sync flush >/dev/null 2>&1 || true
+
+            # Build remote command
+            # Source .profile and .bashrc (with non-interactive guard disabled)
+            MARKER="__KANBAN_REMOTE_PWD__"
+            remote_cmd="source ~/.profile 2>/dev/null; source <(sed 's/return;;/;;/' ~/.bashrc) 2>/dev/null; cd '$REMOTE_CWD' 2>/dev/null || cd '$REMOTE_DIR'; /bin/bash -c $(printf '%q' "$cmd"); echo $MARKER; pwd -P"
+
+            # Run and capture output
+            remote_output=$(/usr/bin/ssh $SSH_OPTS "$REMOTE_HOST" "$remote_cmd")
+            exit_code=$?
+
+            # Flush mutagen sync after command
+            mutagen sync flush >/dev/null 2>&1 || true
+
+            # Split output and handle pwd
+            if [[ "$remote_output" == *"$MARKER"* ]]; then
+                cmd_output="${remote_output%$MARKER*}"
+                remote_pwd="${remote_output##*$MARKER}"
+                remote_pwd=$(echo "$remote_pwd" | tr -d '\\n')
+                printf "%s" "$cmd_output"
+                if [[ -n "$pwd_file" ]]; then
+                    echo "$(remote_to_local "$remote_pwd")" > "$pwd_file"
+                fi
+            else
+                echo "$remote_output"
+                [[ -n "$pwd_file" ]] && echo "$LOCAL_CWD" > "$pwd_file"
+            fi
         else
-            printf '{"status":"online"}\\n' > "$file"
-        fi
-    }
+            # === LOCAL FALLBACK ===
+            notify "Remote unavailable - using local execution" "offline"
 
-    notify_fallback() {
-        local msg="$1"
-        write_status "offline"
-        log "$msg"
-    }
+            # Map remote paths in command to local (in case command has hardcoded remote paths)
+            cmd="${cmd//$REMOTE_DIR/$LOCAL_MOUNT}"
 
-    # ---------- Modes ----------
+            # Run locally
+            MARKER="__KANBAN_LOCAL_PWD__"
+            local_output=$(/bin/bash -c "$cmd; echo $MARKER; pwd -P" 2>&1)
+            exit_code=$?
 
-    # Interactive mode: called when Claude spawns our "shell"
-    run_interactive() {
-        if [ -z "$REMOTE_HOST" ] || [ -z "$REMOTE_PATH" ] || [ -z "$LOCAL_PATH" ]; then
-            log "Remote not configured, running locally"
-            exec /bin/zsh "$@"
-        fi
-
-        # Check connectivity
-        if ! check_remote; then
-            notify_fallback "Cannot reach $REMOTE_HOST, falling back to local"
-            exec /bin/zsh "$@"
-        fi
-
-        write_status "online"
-        flush_mutagen
-
-        # Start remote shell with working directory tracking
-        local remote_cwd
-        remote_cwd=$(replace_paths_to_remote "$(pwd)")
-
-        ssh "${SSH_OPTS[@]}" -t "$REMOTE_HOST" \\
-            "cd '$remote_cwd' 2>/dev/null || cd '$REMOTE_PATH'; exec /bin/bash"
-    }
-
-    # Command mode: called as `$SHELL -c "command"`
-    run_command() {
-        local cmd="$1"
-
-        if [ -z "$REMOTE_HOST" ] || [ -z "$REMOTE_PATH" ] || [ -z "$LOCAL_PATH" ]; then
-            exec /bin/zsh -c "$cmd"
+            # Split output and handle pwd
+            if [[ "$local_output" == *"$MARKER"* ]]; then
+                cmd_output="${local_output%$MARKER*}"
+                local_pwd="${local_output##*$MARKER}"
+                local_pwd=$(echo "$local_pwd" | tr -d '\\n')
+                printf "%s" "$cmd_output"
+                [[ -n "$pwd_file" ]] && echo "$local_pwd" > "$pwd_file"
+            else
+                echo "$local_output"
+                [[ -n "$pwd_file" ]] && echo "$LOCAL_CWD" > "$pwd_file"
+            fi
         fi
 
-        # Check connectivity
-        if ! check_remote; then
-            notify_fallback "Cannot reach $REMOTE_HOST, running locally"
-            exec /bin/zsh -c "$cmd"
-        fi
-
-        write_status "online"
-
-        # Pre-sync
-        flush_mutagen
-
-        # Replace local paths with remote paths
-        local remote_cmd
-        remote_cmd=$(replace_paths_to_remote "$cmd")
-
-        local remote_cwd
-        remote_cwd=$(replace_paths_to_remote "$(pwd)")
-
-        # Execute remotely with CWD marker
-        local output
-        output=$(ssh "${SSH_OPTS[@]}" "$REMOTE_HOST" \\
-            "cd '$remote_cwd' 2>/dev/null || cd '$REMOTE_PATH'; $remote_cmd; echo '${MARKER}'\\$(pwd)" 2>&1) || true
-
-        # Extract CWD from marker
-        local new_cwd=""
-        if [[ "$output" == *"${MARKER}"* ]]; then
-            new_cwd="${output##*${MARKER}}"
-            output="${output%${MARKER}*}"
-            new_cwd=$(replace_paths_to_local "$new_cwd")
-        fi
-
-        # Post-sync
-        flush_mutagen
-
-        # Replace remote paths back to local in output
-        local local_output
-        local_output=$(replace_paths_to_local "$output")
-        echo "$local_output"
-
-        # Track working directory changes
-        if [ -n "$new_cwd" ]; then
-            echo "$new_cwd" > "${STATE_DIR}/cwd"
-        fi
-    }
-
-    # ---------- Main ----------
-
-    if [ "$#" -eq 0 ]; then
-        run_interactive
-    elif [ "$1" = "-c" ] && [ "$#" -ge 2 ]; then
-        shift
-        run_command "$*"
-    elif [ "$1" = "-l" ] || [ "$1" = "--login" ]; then
-        run_interactive
+        exit $exit_code
     else
-        # Pass through to local shell
-        exec /bin/zsh "$@"
+        # Interactive shell
+        if [[ -z "$REMOTE_HOST" ]] || [[ -z "$REMOTE_DIR" ]] || [[ -z "$LOCAL_MOUNT" ]]; then
+            exec /bin/bash -l
+        fi
+
+        if is_remote_available; then
+            notify "Remote instance available" "online"
+            REMOTE_CWD="$(local_to_remote "$(pwd -P)")"
+            /usr/bin/ssh $SSH_OPTS -t "$REMOTE_HOST" "cd '$REMOTE_CWD' 2>/dev/null || cd '$REMOTE_DIR'; /bin/bash -l"
+        else
+            notify "Remote unavailable - using local shell" "offline"
+            /bin/bash -l
+        fi
     fi
     """
 }

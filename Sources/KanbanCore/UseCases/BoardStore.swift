@@ -358,13 +358,25 @@ public enum Reducer {
 
         case .killTerminal(let cardId, let sessionName):
             guard var link = state.links[cardId] else { return [] }
-            link.tmuxLink?.extraSessions?.removeAll { $0 == sessionName }
-            if link.tmuxLink?.extraSessions?.isEmpty == true {
-                link.tmuxLink?.extraSessions = nil
+            if sessionName == link.tmuxLink?.sessionName {
+                // Killing primary session — tear down all terminals
+                let allNames = link.tmuxLink?.allSessionNames ?? [sessionName]
+                link.tmuxLink = nil
+                link.isLaunching = nil
+                link.isRemote = false
+                link.updatedAt = .now
+                state.links[cardId] = link
+                return [.killTmuxSessions(allNames), .upsertLink(link), .cleanupTerminalCache(sessionNames: allNames)]
+            } else {
+                // Killing extra session
+                link.tmuxLink?.extraSessions?.removeAll { $0 == sessionName }
+                if link.tmuxLink?.extraSessions?.isEmpty == true {
+                    link.tmuxLink?.extraSessions = nil
+                }
+                link.updatedAt = .now
+                state.links[cardId] = link
+                return [.killTmuxSession(sessionName), .upsertLink(link), .cleanupTerminalCache(sessionNames: [sessionName])]
             }
-            link.updatedAt = .now
-            state.links[cardId] = link
-            return [.killTmuxSession(sessionName), .upsertLink(link), .cleanupTerminalCache(sessionNames: [sessionName])]
 
         case .addBranchToCard(let cardId, let branch):
             guard var link = state.links[cardId] else { return [] }
