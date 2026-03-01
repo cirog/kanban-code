@@ -19,7 +19,35 @@ final class TerminalCache {
             return existing
         }
         let terminal = LocalProcessTerminalView(frame: frame)
+
+        // Dark terminal colors matching a real terminal
+        terminal.nativeBackgroundColor = NSColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1.0)
+        terminal.nativeForegroundColor = NSColor(red: 0.93, green: 0.93, blue: 0.93, alpha: 1.0)
         terminal.caretColor = .systemGreen
+
+        // Brighter ANSI palette (SwiftTerm Color uses UInt16 0-65535, multiply 0-255 by 257)
+        let c = { (r: UInt16, g: UInt16, b: UInt16) in SwiftTerm.Color(red: r * 257, green: g * 257, blue: b * 257) }
+        terminal.installColors([
+            // Standard colors (0-7)
+            c(0x33, 0x33, 0x33),  // black (slightly visible)
+            c(0xFF, 0x5F, 0x56),  // red
+            c(0x5A, 0xF7, 0x8E),  // green
+            c(0xFF, 0xD7, 0x5F),  // yellow
+            c(0x57, 0xAC, 0xFF),  // blue
+            c(0xFF, 0x6A, 0xC1),  // magenta
+            c(0x5A, 0xF7, 0xD4),  // cyan
+            c(0xE0, 0xE0, 0xE0),  // white
+            // Bright colors (8-15)
+            c(0x66, 0x66, 0x66),  // bright black
+            c(0xFF, 0x6E, 0x67),  // bright red
+            c(0x5A, 0xF7, 0x8E),  // bright green
+            c(0xFF, 0xFC, 0x67),  // bright yellow
+            c(0x6B, 0xC1, 0xFF),  // bright blue
+            c(0xFF, 0x77, 0xD0),  // bright magenta
+            c(0x5A, 0xF7, 0xD4),  // bright cyan
+            c(0xFF, 0xFF, 0xFF),  // bright white
+        ])
+
         terminal.autoresizingMask = [.width, .height]
         terminal.isHidden = true
         terminal.startProcess(
@@ -89,9 +117,23 @@ struct TerminalContainerView: NSViewRepresentable {
 /// AppKit container that owns multiple LocalProcessTerminalView instances.
 /// Uses TerminalCache for process lifecycle — terminal processes survive view teardown.
 final class TerminalContainerNSView: NSView {
+    private static let terminalPadding: CGFloat = 6
+
     /// Ordered list of session names managed by this container.
     private var managedSessions: [String] = []
     private var activeSession: String?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1.0).cgColor
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1.0).cgColor
+    }
 
     /// Ensure a terminal for `sessionName` is attached to this container.
     func ensureTerminal(for sessionName: String) {
@@ -139,8 +181,9 @@ final class TerminalContainerNSView: NSView {
 
     override func layout() {
         super.layout()
+        let inset = bounds.insetBy(dx: Self.terminalPadding, dy: Self.terminalPadding)
         for sub in subviews {
-            sub.frame = bounds
+            sub.frame = inset
         }
     }
 }

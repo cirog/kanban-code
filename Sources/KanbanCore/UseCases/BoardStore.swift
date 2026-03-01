@@ -422,25 +422,41 @@ public enum Reducer {
             )
             state.activityMap = result.activityMap
 
-            // Merge reconciled links, but SKIP cards mid-launch (with 30s timeout)
+            // Merge reconciled links using last-writer-wins on updatedAt.
+            // Reconciliation takes seconds of async work. Any in-memory changes
+            // made during that window (launch, create terminal, move card) have a
+            // newer updatedAt than the stale snapshot the reconciler used.
             var mergedLinks = state.links
+            var preservedIds: Set<String> = []
             for link in result.links {
-                if let existing = mergedLinks[link.id], existing.isLaunching == true {
-                    // Clear stale launch locks (app restart, crash, etc.)
-                    if Date.now.timeIntervalSince(existing.updatedAt) > 30 {
+                if let existing = mergedLinks[link.id] {
+                    // Stale launch timeout: clear isLaunching after 30s (crash recovery)
+                    if existing.isLaunching == true, Date.now.timeIntervalSince(existing.updatedAt) > 30 {
                         var cleared = link
                         cleared.isLaunching = nil
                         mergedLinks[link.id] = cleared
+                        KanbanLog.info("store", "Cleared stale isLaunching on card=\(link.id.prefix(12))")
+                        continue
                     }
-                    // Otherwise preserve in-progress launch state
-                    continue
+                    // In-memory state is newer → preserve it, skip stale reconciled data.
+                    // The next reconciliation cycle (5s) will incorporate these changes.
+                    if existing.updatedAt > link.updatedAt {
+                        preservedIds.insert(link.id)
+                        continue
+                    }
                 }
                 mergedLinks[link.id] = link
             }
 
-            // Recompute columns for non-launching cards
+            if !preservedIds.isEmpty {
+                KanbanLog.info("store", "Preserved \(preservedIds.count) card(s) modified during reconciliation")
+            }
+
+            // Recompute columns for cards NOT mid-launch and NOT preserved.
+            // Preserved cards have stale tmux/activity data — skip them until
+            // the next reconciliation cycle picks up their current state.
             let liveTmuxNames = result.tmuxSessions
-            for (id, var link) in mergedLinks where link.isLaunching != true {
+            for (id, var link) in mergedLinks where link.isLaunching != true && !preservedIds.contains(id) {
                 let activity = result.activityMap[link.sessionLink?.sessionId ?? ""]
                 let hasTmux = link.tmuxLink.map { tmux in
                     // Shell-only terminals don't count as "active work" for column assignment
@@ -489,8 +505,19 @@ public enum Reducer {
             return [.persistLinks(Array(mergedLinks.values))]
 
         case .gitHubIssuesUpdated(let updatedLinks):
+            let updatedIds = Set(updatedLinks.map(\.id))
             for link in updatedLinks {
+                // Don't overwrite cards modified since the GitHub refresh started
+                if let existing = state.links[link.id], existing.updatedAt > link.updatedAt {
+                    continue
+                }
                 state.links[link.id] = link
+            }
+            // Remove stale GitHub issues no longer in the fetched set
+            for (id, link) in state.links {
+                if link.source == .githubIssue, link.column == .backlog, !updatedIds.contains(id) {
+                    state.links.removeValue(forKey: id)
+                }
             }
             state.lastGitHubRefresh = Date()
             return [.persistLinks(Array(state.links.values))]
@@ -775,7 +802,8 @@ public final class BoardStore: @unchecked Sendable {
     private func refreshGitHubIssues() async {
         guard let ghAdapter else { return }
         guard let settings = try? await settingsStore?.read() else { return }
-        guard var links = try? await coordinationStore.readLinks() else { return }
+        // Use in-memory state as source of truth — same principle as reconcile().
+        var links = Array(state.links.values)
 
         let defaultFilter = settings.github.defaultFilter
         var fetchedIssueKeys: Set<String> = []

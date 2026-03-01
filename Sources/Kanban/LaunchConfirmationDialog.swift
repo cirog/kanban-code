@@ -195,7 +195,7 @@ struct LaunchConfirmationDialog: View {
         }
 
         let truncated = Self.truncatePrompt(prompt, maxLength: 60)
-        cmd += " -p '\(truncated)'"
+        cmd += " '\(truncated)'"
 
         parts.append(cmd)
         return parts.joined(separator: " \\\n  ")

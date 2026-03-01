@@ -217,7 +217,7 @@ struct NewTaskDialog: View {
         }
 
         let truncated = LaunchConfirmationDialog.truncatePrompt(prompt, maxLength: 60)
-        cmd += " -p '\(truncated)'"
+        cmd += " '\(truncated)'"
 
         parts.append(cmd)
         return parts.joined(separator: " \\\n  ")

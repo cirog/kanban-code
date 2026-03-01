@@ -77,7 +77,7 @@ Feature: Session Launching
     Given a project without remote config
     And "Create worktree" is unchecked
     When the launch confirmation dialog appears
-    Then the command preview should show: claude -p '<truncated prompt>'
+    Then the command preview should show: claude '<prompt>'
 
   Scenario: Command preview updates live with toggles
     Given a project that is a git repo
@@ -90,7 +90,7 @@ Feature: Session Launching
     Given a project with remoteConfig (host: ubuntu@server.com)
     And "Run remotely" is checked
     Then the command preview should show:
-      SHELL=~/.kanban/remote/zsh KANBAN_REMOTE_HOST=ubuntu@server.com ... claude -p '...'
+      SHELL=~/.kanban/remote/zsh KANBAN_REMOTE_HOST=ubuntu@server.com ... claude '...'
 
   Scenario: Command preview truncates long prompts
     Given a prompt longer than 60 characters

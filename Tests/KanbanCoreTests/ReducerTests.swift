@@ -14,13 +14,15 @@ struct ReducerTests {
         worktreeLink: WorktreeLink? = nil,
         isLaunching: Bool? = nil,
         source: LinkSource = .manual,
-        name: String? = "Test card"
+        name: String? = "Test card",
+        updatedAt: Date = .now
     ) -> Link {
         Link(
             id: id,
             name: name,
             projectPath: "/test/project",
             column: column,
+            updatedAt: updatedAt,
             source: source,
             sessionLink: sessionLink,
             tmuxLink: tmuxLink,
@@ -134,11 +136,12 @@ struct ReducerTests {
         #expect(state.links["card_r2"]?.column == .inProgress)
         #expect(state.links["card_r2"]?.isLaunching == true)
 
-        // Step 2: Background reconciliation fires — should NOT override launching card
+        // Step 2: Background reconciliation fires with stale snapshot (taken BEFORE resume)
         let reconciledLink = makeLink(
             id: "card_r2",
             column: .waiting, // reconciliation would compute waiting (no activity yet)
-            sessionLink: SessionLink(sessionId: "sess_def12345")
+            sessionLink: SessionLink(sessionId: "sess_def12345"),
+            updatedAt: .now.addingTimeInterval(-5) // stale: from before the resume
         )
         let result = ReconciliationResult(
             links: [reconciledLink],
@@ -148,7 +151,7 @@ struct ReducerTests {
         )
         let _ = Reducer.reduce(state: &state, action: .reconciled(result))
 
-        // Card should STILL be inProgress (isLaunching protected it)
+        // Card should STILL be inProgress (preserved because updatedAt is newer)
         #expect(state.links["card_r2"]?.column == .inProgress)
         #expect(state.links["card_r2"]?.isLaunching == true)
     }
@@ -291,23 +294,29 @@ struct ReducerTests {
 
     // MARK: - Reconciliation
 
-    @Test("reconciled merges links but skips launching cards")
-    func reconciledSkipsLaunching() {
+    @Test("reconciled preserves cards modified during reconciliation window (updatedAt comparison)")
+    func reconciledPreservesNewerCards() {
+        // Simulate: reconciliation snapshot was taken at T=0, then user launched a card at T=1.
+        // Reconciled data is stale (from T=0 snapshot). In-memory state is fresh (from T=1).
+        let snapshotTime = Date.now.addingTimeInterval(-5) // T=0: before launch
+
         let launching = makeLink(
             id: "card_launching",
             column: .inProgress,
             tmuxLink: TmuxLink(sessionName: "claude-sess_abc"),
             isLaunching: true
+            // updatedAt defaults to .now (T=1: after snapshot)
         )
-        let idle = makeLink(id: "card_idle", column: .backlog)
+        let idle = makeLink(id: "card_idle", column: .backlog, updatedAt: snapshotTime)
         var state = stateWith([launching, idle])
 
-        // Reconciliation brings in updated data for both
+        // Reconciled data based on stale snapshot (older updatedAt)
         let reconciledLaunching = makeLink(
             id: "card_launching",
-            column: .waiting // would be computed as waiting since no activity
+            column: .waiting, // stale snapshot would compute waiting
+            updatedAt: snapshotTime
         )
-        let reconciledIdle = makeLink(id: "card_idle", column: .done)
+        let reconciledIdle = makeLink(id: "card_idle", column: .done, updatedAt: snapshotTime)
 
         let result = ReconciliationResult(
             links: [reconciledLaunching, reconciledIdle],
@@ -317,13 +326,74 @@ struct ReducerTests {
         )
         let _ = Reducer.reduce(state: &state, action: .reconciled(result))
 
-        // Launching card UNCHANGED (protected by isLaunching)
+        // Launching card UNCHANGED (preserved because updatedAt is newer than snapshot)
         #expect(state.links["card_launching"]?.column == .inProgress)
         #expect(state.links["card_launching"]?.isLaunching == true)
         #expect(state.links["card_launching"]?.tmuxLink?.sessionName == "claude-sess_abc")
 
-        // Idle card updated normally
-        #expect(state.links["card_idle"] != nil) // was updated
+        // Idle card updated normally (same updatedAt → reconciled data wins)
+        #expect(state.links["card_idle"] != nil)
+    }
+
+    @Test("terminal created during reconciliation window survives merge")
+    func terminalSurvivesReconciliation() {
+        let snapshotTime = Date.now.addingTimeInterval(-3) // reconciliation started 3s ago
+
+        // Card had no terminal at snapshot time
+        let card = makeLink(id: "card_t1", column: .backlog, updatedAt: snapshotTime)
+        var state = stateWith([card])
+
+        // User creates terminal AFTER snapshot was taken → updatedAt = .now
+        let _ = Reducer.reduce(state: &state, action: .createTerminal(cardId: "card_t1"))
+        #expect(state.links["card_t1"]?.tmuxLink != nil)
+        let tmuxName = state.links["card_t1"]!.tmuxLink!.sessionName
+
+        // Reconciliation result arrives with stale data (no terminal)
+        let staleCard = makeLink(id: "card_t1", column: .backlog, updatedAt: snapshotTime)
+        let result = ReconciliationResult(
+            links: [staleCard],
+            sessions: [],
+            activityMap: [:],
+            tmuxSessions: [tmuxName] // tmux IS live
+        )
+        let _ = Reducer.reduce(state: &state, action: .reconciled(result))
+
+        // Terminal PRESERVED (in-memory updatedAt is newer than reconciled)
+        #expect(state.links["card_t1"]?.tmuxLink?.sessionName == tmuxName)
+    }
+
+    @Test("launchCompleted survives subsequent reconciliation with stale snapshot")
+    func launchCompletedNotOverwritten() {
+        let snapshotTime = Date.now.addingTimeInterval(-3)
+
+        // Simulate: launchCard happened, then launchCompleted happened
+        let card = makeLink(
+            id: "card_lc1",
+            column: .inProgress,
+            tmuxLink: TmuxLink(sessionName: "proj-card_lc1"),
+            sessionLink: SessionLink(sessionId: "sess_new123")
+            // updatedAt = .now (after snapshot)
+        )
+        var state = stateWith([card])
+
+        // Stale reconciliation result (from snapshot before launch)
+        let staleCard = makeLink(
+            id: "card_lc1",
+            column: .backlog, // was backlog at snapshot time
+            updatedAt: snapshotTime
+        )
+        let result = ReconciliationResult(
+            links: [staleCard],
+            sessions: [],
+            activityMap: [:],
+            tmuxSessions: ["proj-card_lc1"]
+        )
+        let _ = Reducer.reduce(state: &state, action: .reconciled(result))
+
+        // Card should NOT bounce back to backlog
+        #expect(state.links["card_lc1"]?.column == .inProgress)
+        #expect(state.links["card_lc1"]?.tmuxLink?.sessionName == "proj-card_lc1")
+        #expect(state.links["card_lc1"]?.sessionLink?.sessionId == "sess_new123")
     }
 
     @Test("reconciled updates sessions and activity map")

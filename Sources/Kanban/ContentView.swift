@@ -287,15 +287,21 @@ struct ContentView: View {
                     set: { if !$0 { pendingDeleteCardId = nil } }
                 )
             ) {
-                Button("Delete", role: .destructive) {
-                    if let cardId = pendingDeleteCardId {
-                        store.dispatch(.deleteCard(cardId: cardId))
-                    }
-                    pendingDeleteCardId = nil
-                }
                 Button("Cancel", role: .cancel) {
                     pendingDeleteCardId = nil
                 }
+                Button("Delete", role: .destructive) {
+                    if let cardId = pendingDeleteCardId {
+                        // Find next card to select (the one below, or above if last)
+                        let nextId = cardIdAfterDeletion(cardId)
+                        store.dispatch(.deleteCard(cardId: cardId))
+                        if let nextId {
+                            store.dispatch(.selectCard(cardId: nextId))
+                        }
+                    }
+                    pendingDeleteCardId = nil
+                }
+                .keyboardShortcut(.defaultAction)
             } message: {
                 Text("This will permanently delete this card and its data.")
             }
@@ -465,33 +471,30 @@ struct ContentView: View {
                     .keyboardShortcut("9", modifiers: .command)
                     .hidden()
 
-                // Board navigation: Escape to deselect, Delete to delete
-                // Hidden buttons respect the responder chain — terminal/text fields get priority
+                // Board navigation
                 Button("") { store.dispatch(.selectCard(cardId: nil)) }
                     .keyboardShortcut(.escape, modifiers: [])
                     .hidden()
-                Button("") {
-                    if let cardId = store.state.selectedCardId {
-                        pendingDeleteCardId = cardId
-                    }
-                }
+                Button("") { deleteSelectedCard() }
                     .keyboardShortcut(.delete, modifiers: [])
+                    .hidden()
+                Button("") { deleteSelectedCard() }
+                    .keyboardShortcut(.deleteForward, modifiers: [])
+                    .hidden()
+                Button("") { navigateCard(.down) }
+                    .keyboardShortcut(.downArrow, modifiers: [])
+                    .hidden()
+                Button("") { navigateCard(.up) }
+                    .keyboardShortcut(.upArrow, modifiers: [])
+                    .hidden()
+                Button("") { navigateCard(.right) }
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+                    .hidden()
+                Button("") { navigateCard(.left) }
+                    .keyboardShortcut(.leftArrow, modifiers: [])
                     .hidden()
             }
         } // NavigationStack
-        .focusable()
-        .onKeyPress(.downArrow) { navigateCard(.down); return .handled }
-        .onKeyPress(.upArrow) { navigateCard(.up); return .handled }
-        .onKeyPress(.rightArrow) { navigateCard(.right); return .handled }
-        .onKeyPress(.leftArrow) { navigateCard(.left); return .handled }
-        .onKeyPress(.return) {
-            // Only navigate when nothing else should handle Enter
-            guard store.state.selectedCardId != nil,
-                  pendingDeleteCardId == nil, pendingWorktreeCleanup == nil
-            else { return .ignored }
-            navigateCard(.open)
-            return .handled
-        }
     }
 
     /// Watch ~/.kanban/hook-events.jsonl for writes → post notification.
@@ -766,6 +769,29 @@ struct ContentView: View {
         case .paused: .yellow
         case .error: .red
         case .notRunning: .secondary
+        }
+    }
+
+    /// Find the card that should be selected after deleting the given card.
+    /// Prefers the card directly below; if last in column, selects the one above.
+    private func cardIdAfterDeletion(_ cardId: String) -> String? {
+        for col in store.state.visibleColumns {
+            let colCards = store.state.cards(in: col)
+            if let idx = colCards.firstIndex(where: { $0.id == cardId }) {
+                if idx + 1 < colCards.count {
+                    return colCards[idx + 1].id
+                } else if idx > 0 {
+                    return colCards[idx - 1].id
+                }
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private func deleteSelectedCard() {
+        if let cardId = store.state.selectedCardId {
+            pendingDeleteCardId = cardId
         }
     }
 

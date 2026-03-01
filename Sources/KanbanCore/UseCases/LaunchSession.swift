@@ -33,7 +33,7 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
                     built += " --worktree \(worktreeName)"
                 }
             }
-            built += " -p \(shellEscape(prompt))"
+            built += " \(shellEscape(prompt))"
 
             // Prepend environment variables (SHELL override + KANBAN_* vars)
             let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv)

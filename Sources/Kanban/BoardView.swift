@@ -18,39 +18,54 @@ struct BoardView: View {
     }
 
     private var boardContent: some View {
-        ScrollView(.horizontal, showsIndicators: true) {
-            HStack(alignment: .top, spacing: 6) {
-                ForEach(store.state.visibleColumns, id: \.self) { column in
-                    DroppableColumnView(
-                        column: column,
-                        cards: store.state.cards(in: column),
-                        selectedCardId: Binding(
-                            get: { store.state.selectedCardId },
-                            set: { store.dispatch(.selectCard(cardId: $0)) }
-                        ),
-                        isRefreshingBacklog: store.state.isRefreshingBacklog,
-                        onMoveCard: { cardId, targetColumn in
-                            store.dispatch(.moveCard(cardId: cardId, to: targetColumn))
-                        },
-                        onRenameCard: { cardId, name in
-                            store.dispatch(.renameCard(cardId: cardId, name: name))
-                        },
-                        onArchiveCard: { cardId in
-                            store.dispatch(.archiveCard(cardId: cardId))
-                        },
-                        onStartCard: onStartCard,
-                        onResumeCard: onResumeCard,
-                        onForkCard: onForkCard,
-                        onCopyResumeCmd: onCopyResumeCmd,
-                        onCleanupWorktree: onCleanupWorktree,
-                        onDeleteCard: onDeleteCard,
-                        onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil
-                    )
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(alignment: .top, spacing: 6) {
+                    ForEach(store.state.visibleColumns, id: \.self) { column in
+                        DroppableColumnView(
+                            column: column,
+                            cards: store.state.cards(in: column),
+                            selectedCardId: Binding(
+                                get: { store.state.selectedCardId },
+                                set: { store.dispatch(.selectCard(cardId: $0)) }
+                            ),
+                            isRefreshingBacklog: store.state.isRefreshingBacklog,
+                            onMoveCard: { cardId, targetColumn in
+                                store.dispatch(.moveCard(cardId: cardId, to: targetColumn))
+                            },
+                            onRenameCard: { cardId, name in
+                                store.dispatch(.renameCard(cardId: cardId, name: name))
+                            },
+                            onArchiveCard: { cardId in
+                                store.dispatch(.archiveCard(cardId: cardId))
+                            },
+                            onStartCard: onStartCard,
+                            onResumeCard: onResumeCard,
+                            onForkCard: onForkCard,
+                            onCopyResumeCmd: onCopyResumeCmd,
+                            onCleanupWorktree: onCleanupWorktree,
+                            onDeleteCard: onDeleteCard,
+                            onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil
+                        )
+                        .id(column)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 52)
+                .padding(.bottom, 16)
+            }
+            .onChange(of: store.state.selectedCardId) {
+                // Scroll to the column containing the selected card
+                guard let selectedId = store.state.selectedCardId else { return }
+                for col in store.state.visibleColumns {
+                    if store.state.cards(in: col).contains(where: { $0.id == selectedId }) {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            proxy.scrollTo(col, anchor: .center)
+                        }
+                        break
+                    }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 52)
-            .padding(.bottom, 16)
         }
         // Error banner at bottom
         .overlay(alignment: .bottom) {
