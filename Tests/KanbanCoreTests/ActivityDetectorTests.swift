@@ -69,6 +69,62 @@ struct ActivityDetectorTests {
         #expect(resolved.count == 0)
     }
 
+    @Test("UserPromptSubmit falls back to polling after grace period (handles Ctrl+C interrupt)")
+    func interruptFallback() async {
+        let detector = ClaudeCodeActivityDetector()
+
+        // Simulate: UserPromptSubmit happened 20 seconds ago (past 15s grace period)
+        let oldEvent = HookEvent(
+            sessionId: "s1",
+            eventName: "UserPromptSubmit",
+            timestamp: Date.now.addingTimeInterval(-20)
+        )
+        await detector.handleHookEvent(oldEvent)
+
+        // Polling says needsAttention (file stopped being modified after interrupt)
+        let dir = NSTemporaryDirectory() + "kanban-interrupt-test-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = (dir as NSString).appendingPathComponent("test.jsonl")
+        try? "data".write(toFile: path, atomically: true, encoding: .utf8)
+        // Backdate the file so it looks inactive
+        let oldDate = Date.now.addingTimeInterval(-30)
+        try? FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: path)
+        // Poll twice so mtime is seen as unchanged → needsAttention
+        let _ = await detector.pollActivity(sessionPaths: ["s1": path])
+        let _ = await detector.pollActivity(sessionPaths: ["s1": path])
+
+        let state = await detector.activityState(for: "s1")
+        #expect(state == .needsAttention)
+    }
+
+    @Test("UserPromptSubmit stays activelyWorking within grace period")
+    func activeWithinGracePeriod() async {
+        let detector = ClaudeCodeActivityDetector()
+
+        // Simulate: UserPromptSubmit happened 5 seconds ago (within 15s grace)
+        let recentEvent = HookEvent(
+            sessionId: "s1",
+            eventName: "UserPromptSubmit",
+            timestamp: Date.now.addingTimeInterval(-5)
+        )
+        await detector.handleHookEvent(recentEvent)
+
+        // Even if polling says inactive, trust the hook within grace period
+        let dir = NSTemporaryDirectory() + "kanban-grace-test-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = (dir as NSString).appendingPathComponent("test.jsonl")
+        try? "data".write(toFile: path, atomically: true, encoding: .utf8)
+        let oldDate = Date.now.addingTimeInterval(-30)
+        try? FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: path)
+        let _ = await detector.pollActivity(sessionPaths: ["s1": path])
+        let _ = await detector.pollActivity(sessionPaths: ["s1": path])
+
+        let state = await detector.activityState(for: "s1")
+        #expect(state == .activelyWorking)
+    }
+
     @Test("Poll activity detects recent modification as activelyWorking")
     func pollRecent() async {
         let dir = NSTemporaryDirectory() + "kanban-activity-test-\(UUID().uuidString)"

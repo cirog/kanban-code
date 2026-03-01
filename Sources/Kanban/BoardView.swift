@@ -13,6 +13,7 @@ struct BoardView: View {
     var onMoveToProject: (String, String) -> Void = { _, _ in }
     var onRefreshBacklog: () -> Void = {}
 
+    var onDropCard: (String, KanbanColumn) -> Void = { _, _ in }
     var onNewTask: () -> Void = {}
 
     var body: some View {
@@ -33,7 +34,7 @@ struct BoardView: View {
                             ),
                             isRefreshingBacklog: store.state.isRefreshingBacklog,
                             onMoveCard: { cardId, targetColumn in
-                                store.dispatch(.moveCard(cardId: cardId, to: targetColumn))
+                                onDropCard(cardId, targetColumn)
                             },
                             onRenameCard: { cardId, name in
                                 store.dispatch(.renameCard(cardId: cardId, name: name))

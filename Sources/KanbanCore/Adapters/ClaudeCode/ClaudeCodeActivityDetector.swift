@@ -8,6 +8,8 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
     private var lastMtimes: [String: Date] = [:]
     /// Stores the last polled activity state per session.
     private var polledStates: [String: ActivityState] = [:]
+    /// Session transcript paths (populated by pollActivity, used for direct mtime checks).
+    private var sessionPaths: [String: String] = [:]
     /// Sessions that received a Stop but might get a follow-up prompt.
     private var pendingStops: [String: Date] = [:]
     /// Delay before treating a Stop as final (seconds).
@@ -30,6 +32,11 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
     }
 
     public func pollActivity(sessionPaths: [String: String]) async -> [String: ActivityState] {
+        // Cache paths for direct mtime checks in activityState()
+        for (id, path) in sessionPaths {
+            self.sessionPaths[id] = path
+        }
+
         let fileManager = FileManager.default
         var states: [String: ActivityState] = [:]
 
@@ -82,11 +89,16 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
 
         switch lastEvent.eventName {
         case "UserPromptSubmit", "SessionStart":
-            // If no follow-up event arrived within 2 minutes, fall back to polling.
-            // This handles cases where Claude finishes quickly without sending Stop.
             let timeSince = Date.now.timeIntervalSince(lastEvent.timestamp)
             if timeSince > 120 {
+                // Stale hook event — fall back to polling entirely
                 return polledStates[sessionId] ?? .idleWaiting
+            }
+            // After 15s grace period, check if polling disagrees.
+            // Handles Ctrl+C interrupts where no Stop hook fires —
+            // the jsonl file stops being modified, so polling detects inactivity.
+            if timeSince > 15, let polled = polledStates[sessionId], polled != .activelyWorking {
+                return polled
             }
             return .activelyWorking
         case "Stop":

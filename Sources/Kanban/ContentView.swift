@@ -167,6 +167,7 @@ struct ContentView: View {
                 store.dispatch(.moveCardToProject(cardId: cardId, projectPath: projectPath))
             },
             onRefreshBacklog: { Task { await store.refreshBacklog() } },
+            onDropCard: { cardId, column in handleDrop(cardId: cardId, to: column) },
             onNewTask: { showNewTask = true }
         )
             .ignoresSafeArea(edges: .top)
@@ -358,6 +359,25 @@ struct ContentView: View {
             } message: {
                 Text("This will permanently delete this card and its data.")
             }
+            .alert(
+                "Archive Card?",
+                isPresented: Binding(
+                    get: { pendingArchiveCardId != nil },
+                    set: { if !$0 { pendingArchiveCardId = nil } }
+                )
+            ) {
+                Button("Cancel", role: .cancel) {
+                    pendingArchiveCardId = nil
+                }
+                Button("Archive & Kill Terminals", role: .destructive) {
+                    if let cardId = pendingArchiveCardId {
+                        store.dispatch(.archiveCard(cardId: cardId))
+                    }
+                    pendingArchiveCardId = nil
+                }
+            } message: {
+                Text("This card has running terminals. Archiving will kill them.")
+            }
             .task {
                 // Show onboarding wizard on first launch
                 if let settings = try? await settingsStore.read(), !settings.hasCompletedOnboarding {
@@ -492,15 +512,6 @@ struct ContentView: View {
                         .padding(.horizontal, 4)
                     }
                     .help("Search sessions (⌘K)")
-                }
-
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showProcessManager = true } label: {
-                        Image(systemName: "gearshape.2")
-                    }
-                    .help("Process Manager")
                 }
 
                 ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -706,6 +717,10 @@ struct ContentView: View {
             Button("Add from path...") {
                 addFromPathText = ""
                 showAddFromPath = true
+            }
+
+            Button("Process Manager...") {
+                showProcessManager = true
             }
 
             SettingsLink {
@@ -1027,12 +1042,13 @@ struct ContentView: View {
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Don't intercept if a terminal, text field, or text view has focus
+            // Don't intercept if a terminal, text field, text view, or table has focus
             if let responder = event.window?.firstResponder {
                 let responderType = String(describing: type(of: responder))
                 if responderType.contains("Terminal")
                     || responder is NSTextView
-                    || responder is NSTextField {
+                    || responder is NSTextField
+                    || responder is NSTableView {
                     return event
                 }
             }
@@ -1283,6 +1299,50 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Drag & Drop
+
+    private func handleDrop(cardId: String, to column: KanbanColumn) {
+        guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
+
+        switch column {
+        case .inProgress:
+            if card.column == .backlog {
+                // From backlog → start dialog
+                startCard(cardId: cardId)
+            } else if card.link.sessionLink != nil && card.link.tmuxLink == nil {
+                // Has session but no terminal → resume dialog
+                resumeCard(cardId: cardId)
+            } else {
+                store.dispatch(.moveCard(cardId: cardId, to: column))
+            }
+
+        case .inReview:
+            if card.link.prLinks.isEmpty {
+                store.dispatch(.setError("Cannot move to In Review — card has no pull request"))
+            } else {
+                store.dispatch(.moveCard(cardId: cardId, to: column))
+            }
+
+        case .done:
+            let hasMergedPR = card.link.prLinks.contains { $0.status == .merged }
+            if !hasMergedPR {
+                store.dispatch(.setError("Cannot move to Done — no merged pull request"))
+            } else {
+                store.dispatch(.moveCard(cardId: cardId, to: column))
+            }
+
+        case .allSessions:
+            if card.link.tmuxLink != nil {
+                pendingArchiveCardId = cardId
+            } else {
+                store.dispatch(.archiveCard(cardId: cardId))
+            }
+
+        case .backlog, .waiting:
+            store.dispatch(.moveCard(cardId: cardId, to: column))
+        }
+    }
+
     // MARK: - Start / Resume
 
     private func startCard(cardId: String) {
@@ -1412,6 +1472,7 @@ struct ContentView: View {
 
     @State private var pendingWorktreeCleanup: WorktreeCleanupInfo?
     @State private var pendingDeleteCardId: String?
+    @State private var pendingArchiveCardId: String?
     @State private var keyMonitor: Any?
 
     struct WorktreeCleanupInfo: Identifiable {

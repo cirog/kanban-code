@@ -31,10 +31,14 @@ public enum ShellCommand {
         process.standardError = stderrPipe
 
         try process.run()
-        process.waitUntilExit()
 
+        // Read pipe data BEFORE waitUntilExit to avoid deadlock when output
+        // exceeds the pipe buffer (~64KB). If we wait first, the child process
+        // blocks on write and we block on exit — classic pipe deadlock.
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+        process.waitUntilExit()
 
         return Result(
             exitCode: process.terminationStatus,
