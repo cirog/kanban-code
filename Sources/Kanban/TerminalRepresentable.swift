@@ -12,6 +12,19 @@ import SwiftTerm
 final class TerminalCache {
     static let shared = TerminalCache()
     private var terminals: [String: LocalProcessTerminalView] = [:]
+    private var shiftEnterMonitor: Any?
+
+    private init() {
+        // Intercept Shift+Enter in terminal views to send \n (0x0a) instead of \r (0x0d).
+        // Claude Code interprets \n as "insert newline" and \r as "submit prompt".
+        shiftEnterMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 36, event.modifierFlags.contains(.shift) else { return event }
+            guard let terminal = event.window?.firstResponder as? TerminalView else { return event }
+            terminal.send([0x0a])
+            return nil
+        }
+    }
+
     /// Tracks which terminals have had their process started.
     private var startedSessions: Set<String> = []
 
