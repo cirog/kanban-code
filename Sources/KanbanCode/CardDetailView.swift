@@ -876,18 +876,17 @@ struct CardDetailView: View {
     }
 
     private var actionsMenuButton: some View {
-        Button {
-            showActionsNSMenu()
-        } label: {
+        NSMenuButton {
             Image(systemName: "ellipsis")
                 .font(.caption)
                 .frame(width: 36, height: 36)
                 .contentShape(Circle())
+        } menuItems: {
+            buildActionsMenu()
         }
-        .buttonStyle(.plain)
     }
 
-    private func showActionsNSMenu() {
+    private func buildActionsMenu() -> NSMenu {
         let menu = NSMenu()
 
         menu.addActionItem("Rename", image: "pencil") { [self] in showRenameSheet = true }
@@ -936,15 +935,13 @@ struct CardDetailView: View {
 
         if card.link.worktreeLink != nil {
             menu.addItem(NSMenuItem.separator())
-            let item = menu.addActionItem("Cleanup Worktree", image: "trash") { [self] in onCleanupWorktree() }
-            item.attributedTitle = NSAttributedString(string: "Cleanup Worktree", attributes: [.foregroundColor: NSColor.systemRed])
+            menu.addActionItem("Cleanup Worktree", image: "trash") { [self] in onCleanupWorktree() }
         }
 
         menu.addItem(NSMenuItem.separator())
-        let del = menu.addActionItem("Delete Card", image: "trash") { [self] in onDeleteCard(); onDismiss() }
-        del.attributedTitle = NSAttributedString(string: "Delete Card", attributes: [.foregroundColor: NSColor.systemRed])
+        menu.addActionItem("Delete Card", image: "trash") { [self] in onDeleteCard(); onDismiss() }
 
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        return menu
     }
 
     // MARK: - History loading
@@ -1299,6 +1296,54 @@ struct RenameSessionDialog: View {
         .onAppear {
             name = currentName
         }
+    }
+}
+
+// MARK: - NSMenuButton (SwiftUI button that shows an NSMenu anchored below it)
+
+/// A SwiftUI view that renders custom SwiftUI content but on click shows an NSMenu
+/// anchored directly below the view — no mouse-position hacks needed.
+private struct NSMenuButton<Label: View>: NSViewRepresentable {
+    let label: Label
+    let menuItems: () -> NSMenu
+
+    init(@ViewBuilder label: () -> Label, menuItems: @escaping () -> NSMenu) {
+        self.label = label()
+        self.menuItems = menuItems
+    }
+
+    func makeNSView(context: Context) -> NSMenuButtonNSView {
+        let view = NSMenuButtonNSView()
+        view.menuBuilder = menuItems
+        // Embed the SwiftUI label as a hosting view
+        let host = NSHostingView(rootView: label)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            host.topAnchor.constraint(equalTo: view.topAnchor),
+            host.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        return view
+    }
+
+    func updateNSView(_ nsView: NSMenuButtonNSView, context: Context) {
+        nsView.menuBuilder = menuItems
+        // Update SwiftUI label
+        if let host = nsView.subviews.first as? NSHostingView<Label> {
+            host.rootView = label
+        }
+    }
+}
+
+private final class NSMenuButtonNSView: NSView {
+    var menuBuilder: (() -> NSMenu)?
+
+    override func mouseDown(with event: NSEvent) {
+        guard let menu = menuBuilder?() else { return }
+        // Anchor below this view — nil positioning avoids pre-selecting an item
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: self)
     }
 }
 
