@@ -176,7 +176,8 @@ struct CardReconcilerTests {
             projectPath: "/project",
             column: .inProgress,
             source: .manual,
-            tmuxLink: TmuxLink(sessionName: "project-wt")
+            tmuxLink: TmuxLink(sessionName: "project-wt"),
+            isLaunching: true
         )
 
         let snapshot = CardReconciler.DiscoverySnapshot(
@@ -223,7 +224,8 @@ struct CardReconcilerTests {
                 sessionId: "session-1",
                 sessionPath: "/claude/projects/session-1.jsonl"
             ),
-            tmuxLink: TmuxLink(sessionName: "project-wt")
+            tmuxLink: TmuxLink(sessionName: "project-wt"),
+            isLaunching: true
         )
 
         let snapshot = CardReconciler.DiscoverySnapshot(
@@ -267,7 +269,8 @@ struct CardReconcilerTests {
             column: .inProgress,
             source: .manual,
             sessionLink: SessionLink(sessionId: "session-1", sessionPath: "/path.jsonl"),
-            tmuxLink: TmuxLink(sessionName: "project-wt")
+            tmuxLink: TmuxLink(sessionName: "project-wt"),
+            isLaunching: true
         )
 
         let snapshot = CardReconciler.DiscoverySnapshot(
@@ -730,6 +733,176 @@ struct CardReconcilerTests {
         let result = CardReconciler.reconcile(existing: [], snapshot: snapshot)
         #expect(result.count == 1)
         #expect(result[0].projectPath == "/Users/me/Projects/langwatch")
+    }
+
+    // MARK: - Fork regression
+
+    @Test("Forked card (project root) does NOT get worktreeLink re-attached")
+    func forkedCardNoWorktreeReattach() {
+        // When a card is forked with "project root" option:
+        // - manualOverrides.worktreePath = true (user chose "no worktree")
+        // - worktreeLink is nil (explicitly removed)
+        // - projectPath is the parent repo
+        // - sessionLink is set (forked .jsonl)
+        //
+        // The forked .jsonl still contains cwd pointing to the worktree.
+        // Reconciler should NOT re-attach a worktreeLink because manualOverrides.worktreePath is set.
+        //
+        // The original card still exists and owns the worktree.
+        let originalCard = Link(
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            sessionLink: SessionLink(
+                sessionId: "original-session",
+                sessionPath: "/claude/projects/original-session.jsonl"
+            ),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/jazzy-floating-bird", branch: "jazzy-floating-bird")
+        )
+
+        var forkedCard = Link(
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            sessionLink: SessionLink(
+                sessionId: "forked-session-1",
+                sessionPath: "/claude/projects/forked-session-1.jsonl"
+            )
+            // worktreeLink: nil (default) — explicitly no worktree
+        )
+        forkedCard.manualOverrides.worktreePath = true  // fork from root sets this
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(
+                    id: "original-session",
+                    projectPath: "/project/.claude/worktrees/jazzy-floating-bird",
+                    gitBranch: "jazzy-floating-bird",
+                    messageCount: 20,
+                    modifiedTime: .now,
+                    jsonlPath: "/claude/projects/original-session.jsonl"
+                ),
+                Session(
+                    id: "forked-session-1",
+                    // Forked .jsonl still has old worktree cwd
+                    projectPath: "/project/.claude/worktrees/jazzy-floating-bird",
+                    gitBranch: nil,
+                    messageCount: 10,
+                    modifiedTime: .now,
+                    jsonlPath: "/claude/projects/forked-session-1.jsonl"
+                )
+            ],
+            worktrees: [
+                "/project": [
+                    Worktree(path: "/project/.claude/worktrees/jazzy-floating-bird", branch: "jazzy-floating-bird", isBare: false)
+                ]
+            ]
+        )
+
+        let result = CardReconciler.reconcile(existing: [originalCard, forkedCard], snapshot: snapshot)
+
+        #expect(result.count == 2)
+        let forked = result.first(where: { $0.id == forkedCard.id })!
+        let original = result.first(where: { $0.id == originalCard.id })!
+
+        #expect(forked.sessionLink?.sessionId == "forked-session-1")
+        // Key assertion: worktreeLink must NOT be re-attached to the fork
+        #expect(forked.worktreeLink == nil, "Forked card should not get worktreeLink re-attached from session's old cwd")
+
+        // Original card keeps its worktreeLink
+        #expect(original.worktreeLink?.branch == "jazzy-floating-bird")
+        #expect(original.sessionLink?.sessionId == "original-session")
+    }
+
+    @Test("Fork with same worktree KEEPS worktreeLink")
+    func forkSameWorktreeKeepsLink() {
+        // Fork with keepWorktree: true — no manualOverrides, worktreeLink is copied
+        let originalCard = Link(
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            sessionLink: SessionLink(sessionId: "original", sessionPath: "/p/original.jsonl"),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat", branch: "feat")
+        )
+        let forkedCard = Link(
+            projectPath: "/project",
+            column: .waiting,
+            source: .discovered,
+            sessionLink: SessionLink(sessionId: "forked", sessionPath: "/p/forked.jsonl"),
+            worktreeLink: WorktreeLink(path: "/project/.claude/worktrees/feat", branch: "feat")
+            // manualOverrides.worktreePath is false (default) — fork kept the worktree
+        )
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(id: "original", projectPath: "/project/.claude/worktrees/feat",
+                        gitBranch: "feat", messageCount: 10, modifiedTime: .now,
+                        jsonlPath: "/p/original.jsonl"),
+                Session(id: "forked", projectPath: "/project/.claude/worktrees/feat",
+                        gitBranch: "feat", messageCount: 10, modifiedTime: .now,
+                        jsonlPath: "/p/forked.jsonl"),
+            ],
+            worktrees: ["/project": [
+                Worktree(path: "/project/.claude/worktrees/feat", branch: "feat", isBare: false)
+            ]]
+        )
+
+        let result = CardReconciler.reconcile(existing: [originalCard, forkedCard], snapshot: snapshot)
+        let forked = result.first(where: { $0.id == forkedCard.id })!
+        #expect(forked.worktreeLink?.branch == "feat", "Fork with same worktree should keep its worktreeLink")
+    }
+
+    @Test("Forked card without manualOverride still gets worktreeLink (backwards compat)")
+    func discoveredCardGetsWorktree() {
+        // A discovered card (not a fork) has no worktreeLink but session is on a branch.
+        // manualOverrides.worktreePath is false → reconciler SHOULD set worktreeLink.
+        let card = Link(
+            projectPath: "/project",
+            column: .waiting,
+            source: .discovered,
+            sessionLink: SessionLink(sessionId: "s1", sessionPath: "/p/s1.jsonl")
+            // no worktreeLink, no manualOverrides
+        )
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(id: "s1", projectPath: "/project", gitBranch: "feat-y",
+                        messageCount: 5, modifiedTime: .now, jsonlPath: "/p/s1.jsonl"),
+            ],
+            worktrees: ["/project": [
+                Worktree(path: "/project/.worktrees/feat-y", branch: "feat-y", isBare: false)
+            ]]
+        )
+
+        let result = CardReconciler.reconcile(existing: [card], snapshot: snapshot)
+        #expect(result.count == 1)
+        #expect(result[0].worktreeLink?.branch == "feat-y", "Discovered card without override should get worktreeLink")
+    }
+
+    @Test("Existing card with worktreeLink gets path updated (not duplicated)")
+    func existingWorktreeLinkPathUpdated() {
+        let card = Link(
+            projectPath: "/project",
+            column: .inProgress,
+            source: .manual,
+            sessionLink: SessionLink(sessionId: "s1", sessionPath: "/p/s1.jsonl"),
+            worktreeLink: WorktreeLink(path: "/old/path", branch: "feat-z")
+        )
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(id: "s1", projectPath: "/project", gitBranch: "feat-z",
+                        messageCount: 5, modifiedTime: .now, jsonlPath: "/p/s1.jsonl"),
+            ],
+            worktrees: ["/project": [
+                Worktree(path: "/project/.worktrees/feat-z", branch: "feat-z", isBare: false)
+            ]]
+        )
+
+        let result = CardReconciler.reconcile(existing: [card], snapshot: snapshot)
+        #expect(result.count == 1)
+        #expect(result[0].worktreeLink?.branch == "feat-z")
+        #expect(result[0].worktreeLink?.path == "/project/.worktrees/feat-z", "Path should be updated to the live worktree path")
     }
 
     @Test("Project path filled from session when card has none")

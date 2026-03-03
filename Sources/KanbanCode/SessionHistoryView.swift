@@ -25,6 +25,7 @@ struct SessionHistoryView: View {
     var onCancelCheckpoint: (() -> Void)?
     var onSelectTurn: ((ConversationTurn) -> Void)?
     var onLoadMore: (() -> Void)?
+    var onLoadAll: (() -> Void)?
 
     @State private var hoveredTurnIndex: Int?
     @State private var isAtBottom = true
@@ -35,25 +36,9 @@ struct SessionHistoryView: View {
     @State private var currentMatchPosition: Int = 0
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var didOverscrollTop = false
+    @FocusState private var isSearchFieldFocused: Bool
 
     private static let maxSearchResults = 200
-
-    /// Turns to display: either search results or all loaded turns.
-    private var displayedTurns: [ConversationTurn] {
-        if !activeQuery.isEmpty {
-            let query = activeQuery.lowercased()
-            var results: [ConversationTurn] = []
-            for turn in turns {
-                if turn.textPreview.lowercased().contains(query)
-                    || turn.contentBlocks.contains(where: { $0.text.lowercased().contains(query) }) {
-                    results.append(turn)
-                    if results.count >= Self.maxSearchResults { break }
-                }
-            }
-            return results
-        }
-        return turns
-    }
 
     var body: some View {
         if isLoading {
@@ -87,12 +72,16 @@ struct SessionHistoryView: View {
                                 checkpointBanner
                             }
 
+                            // Spacer so content isn't hidden under the search bar.
+                            // Always present to avoid content shift on dismiss.
+                            Color.clear.frame(height: showSearch ? 36 : 0)
+
                             // Loading indicator for auto-loaded earlier turns
-                            if hasMoreTurns && activeQuery.isEmpty && isLoadingMore {
+                            if hasMoreTurns && isLoadingMore {
                                 HStack(spacing: 4) {
                                     ProgressView()
                                         .controlSize(.mini)
-                                    Text("Loading earlier turns…")
+                                    Text("Loading history…")
                                         .font(.caption)
                                 }
                                 .foregroundStyle(.white.opacity(0.5))
@@ -101,7 +90,7 @@ struct SessionHistoryView: View {
                             }
 
                             VStack(alignment: .leading, spacing: 2) {
-                                ForEach(displayedTurns, id: \.index) { turn in
+                                ForEach(turns, id: \.index) { turn in
                                     TurnBlockView(
                                         turn: turn,
                                         checkpointMode: checkpointMode,
@@ -159,13 +148,15 @@ struct SessionHistoryView: View {
                 // Hidden buttons for keyboard shortcuts
                 Button("") {
                     showSearch = true
+                    isSearchFieldFocused = true
+                    // Load full history for search if not all loaded yet
+                    if hasMoreTurns { onLoadAll?() }
                 }
                 .keyboardShortcut("f", modifiers: .command)
                 .hidden()
 
-                Button("") { dismissSearch() }
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .hidden()
+                // Escape is handled via .onKeyPress on the TextField
+                // so it takes priority over the drawer's Escape handler.
             }
         }
     }
@@ -178,14 +169,20 @@ struct SessionHistoryView: View {
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.5))
 
-            TextField("Search history...", text: $searchText)
+            TextField("Search history...", text: $searchText, prompt: Text("Search history...").foregroundStyle(.white.opacity(0.3)))
                 .textFieldStyle(.plain)
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.white)
+                .focused($isSearchFieldFocused)
+                .onKeyPress(.escape) { dismissSearch(); return .handled }
                 .onSubmit { navigateSearch(forward: true) }
                 .onChange(of: searchText) { scheduleSearch() }
 
-            if !activeQuery.isEmpty {
+            if isLoadingMore {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white.opacity(0.5))
+            } else if !activeQuery.isEmpty {
                 if searchMatchIndices.isEmpty {
                     Text("0 results")
                         .font(.caption2)
@@ -224,6 +221,7 @@ struct SessionHistoryView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .padding(.horizontal, 12)
         .padding(.top, 6)
+        .environment(\.colorScheme, .dark)
     }
 
     private func scheduleSearch() {
@@ -279,10 +277,11 @@ struct SessionHistoryView: View {
     private func dismissSearch() {
         searchDebounceTask?.cancel()
         showSearch = false
+        isSearchFieldFocused = false
         searchText = ""
-        activeQuery = ""
-        searchMatchIndices = []
-        currentMatchPosition = 0
+        activeQuery = ""  // removes highlights
+        // Don't clear searchMatchIndices/currentMatchPosition — they're harmless
+        // when hidden, and clearing them would trigger onChange scroll handlers.
     }
 
     private var checkpointBanner: some View {
@@ -505,14 +504,12 @@ struct TurnBlockView: View {
             Text("  ● ")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.green)
-            Text(name)
+            styledText(name, color: .green.opacity(0.8))
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.green.opacity(0.8))
             if displayText != name {
                 let args = displayText.hasPrefix(name) ? String(displayText.dropFirst(name.count)) : "(\(displayText))"
-                Text(args)
+                styledText(args, color: Color(white: 0.5))
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.5))
                     .lineLimit(2)
             }
         }
@@ -525,9 +522,8 @@ struct TurnBlockView: View {
             Text("  ⎿ ")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(Color(white: 0.35))
-            Text(block.text)
+            styledText(block.text, color: Color(white: 0.35))
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(Color(white: 0.35))
                 .lineLimit(3)
         }
     }

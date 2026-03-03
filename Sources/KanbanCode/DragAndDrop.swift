@@ -34,6 +34,7 @@ struct DroppableColumnView: View {
     var onForkCard: (String) -> Void = { _ in }
     var onCopyResumeCmd: (String) -> Void = { _ in }
     var onCleanupWorktree: (String) -> Void = { _ in }
+    var canCleanupWorktree: (String) -> Bool = { _ in true }
     var onDeleteCard: (String) -> Void = { _ in }
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String, String) -> Void = { _, _ in }   // (cardId, projectPath)
@@ -67,6 +68,7 @@ struct DroppableColumnView: View {
                         },
                         onCopyResumeCmd: { onCopyResumeCmd(card.id) },
                         onCleanupWorktree: { onCleanupWorktree(card.id) },
+                        canCleanupWorktree: canCleanupWorktree(card.id),
                         onArchive: { onArchiveCard(card.id) },
                         onDelete: { onDeleteCard(card.id) },
                         availableProjects: availableProjects,

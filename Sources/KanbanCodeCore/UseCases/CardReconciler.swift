@@ -104,7 +104,10 @@ public enum CardReconciler {
                 }
                 // If session is in a worktree dir and card doesn't have worktreeLink yet,
                 // find the matching worktree in the snapshot to get the correct git branch name.
+                // Only do this for cards that are actively launching — avoids re-attaching
+                // a worktree to forked cards that were explicitly created without one.
                 if link.worktreeLink == nil,
+                   link.isLaunching == true,
                    let pp = session.projectPath,
                    pp.contains("/.claude/worktrees/") {
                     // Prefer real git branch from snapshot (directory name may differ from branch)
@@ -213,7 +216,11 @@ public enum CardReconciler {
                     for cardId in existingCardIds {
                         if var link = linksById[cardId] {
                             if link.worktreeLink != nil {
+                                // Already has worktreeLink — just update the path
                                 link.worktreeLink?.path = worktree.path
+                            } else if link.manualOverrides.worktreePath {
+                                // User explicitly chose no worktree (e.g. fork from root) — respect it
+                                continue
                             } else {
                                 KanbanCodeLog.info("reconciler", "Setting worktreeLink on card \(cardId.prefix(12)) for branch=\(baseName)")
                                 link.worktreeLink = WorktreeLink(path: worktree.path, branch: baseName)

@@ -28,6 +28,7 @@ struct SearchOverlay: View {
                     .font(.title3)
                     .focused($isSearchFocused)
                     .onSubmit {
+                        KanbanCodeLog.info("search", "onSubmit fired, query='\(query)' selectedIndex=\(selectedIndex)")
                         Task { await deepSearch() }
                     }
 
@@ -99,6 +100,7 @@ struct SearchOverlay: View {
             return .handled
         }
         .onKeyPress(.return) {
+            KanbanCodeLog.info("search", "onKeyPress(.return) fired, selectedIndex=\(selectedIndex) visibleItems=\(visibleItemCount) searchResults=\(searchResults.count)")
             if selectedIndex >= 0 {
                 selectCurrentItem()
             } else {
@@ -130,20 +132,24 @@ struct SearchOverlay: View {
         if query.isEmpty {
             let recent = Array(cards.prefix(10))
             guard selectedIndex < recent.count else { return }
+            KanbanCodeLog.info("search", "selectCurrentItem: selecting recent[\(selectedIndex)]")
             onSelectCard(recent[selectedIndex])
             isPresented = false
         } else if !searchResults.isEmpty {
             guard selectedIndex < searchResults.count,
                   let card = searchResults[selectedIndex].card else { return }
+            KanbanCodeLog.info("search", "selectCurrentItem: selecting searchResult[\(selectedIndex)]")
             onSelectCard(card)
             isPresented = false
         } else {
             let filtered = filterCards(query: query)
             guard selectedIndex < filtered.count else {
                 // No filtered results — trigger deep search
+                KanbanCodeLog.info("search", "selectCurrentItem: selectedIndex=\(selectedIndex) >= filtered=\(filtered.count), triggering deepSearch")
                 Task { await deepSearch() }
                 return
             }
+            KanbanCodeLog.info("search", "selectCurrentItem: selecting filtered[\(selectedIndex)]")
             onSelectCard(filtered[selectedIndex])
             isPresented = false
         }
@@ -241,30 +247,55 @@ struct SearchOverlay: View {
     private func deepSearch() async {
         guard !query.isEmpty else { return }
 
-        // Cancel previous search
-        searchTask?.cancel()
+        // Cancel previous search and wait for it to stop
+        if let old = searchTask {
+            old.cancel()
+            _ = await old.value
+            searchTask = nil
+        }
 
         let currentQuery = query
-        let task = Task {
-            isDeepSearching = true
-            defer { isDeepSearching = false }
+        let currentCards = cards
+        let t0 = ContinuousClock.now
+        KanbanCodeLog.info("search", "deepSearch START query='\(currentQuery)' cards=\(currentCards.count)")
 
-            let paths = cards.compactMap { $0.link.sessionLink?.sessionPath ?? $0.session?.jsonlPath }
+        // Build path→card lookup once
+        var cardByPath: [String: KanbanCodeCard] = [:]
+        for card in currentCards {
+            if let p = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath {
+                cardByPath[p] = card
+            }
+        }
+
+        let task = Task { @MainActor in
+            isDeepSearching = true
+            defer {
+                isDeepSearching = false
+                KanbanCodeLog.info("search", "deepSearch END query='\(currentQuery)' elapsed=\(t0.duration(to: .now)) cancelled=\(Task.isCancelled)")
+            }
+
+            let paths = Array(cardByPath.keys)
+            KanbanCodeLog.info("search", "deepSearch: \(paths.count) session paths to search")
 
             do {
-                let results = try await sessionStore.searchSessions(query: currentQuery, paths: paths)
-                guard !Task.isCancelled else { return }
-                searchResults = results.map { result in
-                    let card = cards.first { ($0.link.sessionLink?.sessionPath ?? $0.session?.jsonlPath) == result.sessionPath }
-                    return SearchResultItem(
-                        id: result.sessionPath,
-                        card: card,
-                        score: result.score,
-                        snippet: result.snippet
-                    )
+                try await sessionStore.searchSessionsStreaming(
+                    query: currentQuery, paths: paths
+                ) { [cardByPath] results in
+                    let maxScore = results.first?.score ?? 1.0
+                    searchResults = results.map { result in
+                        SearchResultItem(
+                            id: result.sessionPath,
+                            card: cardByPath[result.sessionPath],
+                            score: result.score,
+                            maxScore: maxScore,
+                            snippets: result.snippets
+                        )
+                    }
                 }
+            } catch is CancellationError {
+                KanbanCodeLog.info("search", "deepSearch cancelled after \(t0.duration(to: .now))")
             } catch {
-                // Silently fail (or cancelled)
+                KanbanCodeLog.error("search", "deepSearch error: \(error)")
             }
         }
         searchTask = task
@@ -276,7 +307,8 @@ struct SearchResultItem: Identifiable {
     let id: String
     let card: KanbanCodeCard?
     let score: Double
-    let snippet: String
+    let maxScore: Double
+    let snippets: [String]
 }
 
 struct SearchCardRow: View {
@@ -326,8 +358,8 @@ struct SearchResultRow: View {
     var isHighlighted: Bool = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
                 if let card = result.card {
                     HighlightedText(text: card.displayTitle, terms: queryTerms)
                         .font(.body)
@@ -337,21 +369,30 @@ struct SearchResultRow: View {
                         .font(.body)
                         .lineLimit(1)
                 }
-
-                HighlightedText(text: result.snippet, terms: queryTerms)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                Spacer()
             }
 
-            Spacer()
+            // Snippets (up to 3)
+            ForEach(Array(result.snippets.enumerated()), id: \.offset) { _, snippet in
+                HighlightedText(text: snippet, terms: queryTerms)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
-            // Relevance bar (vertical on the right)
-            let normalizedScore = min(result.score / 10.0, 1.0)
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color.accentColor.opacity(0.4))
-                .frame(width: 4, height: 28 * normalizedScore)
-                .frame(height: 28, alignment: .bottom)
+            // Horizontal relevance bar — normalized to max score
+            let ratio = result.maxScore > 0 ? result.score / result.maxScore : 0
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.secondary.opacity(0.1))
+                        .frame(height: 3)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor.opacity(0.5))
+                        .frame(width: geo.size.width * ratio, height: 3)
+                }
+            }
+            .frame(height: 3)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

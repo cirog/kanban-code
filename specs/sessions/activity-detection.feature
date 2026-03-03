@@ -7,19 +7,21 @@ Feature: Activity Detection
     Given the Kanban Code application is running
     And Claude Code hooks are installed
 
-  # ── Hook-Based Detection ──
-  # (Learned from cc-amphetamine: hooks fire on every tool use)
+  # ── Hook-Based Detection (Primary) ──
+  # Hooks are the ONLY way to move a card to "In Progress".
+  # Polling never returns .activelyWorking.
 
   Scenario: Detecting active session via hooks
     Given Claude Code hooks are configured for Kanban Code
     When a UserPromptSubmit hook fires for session "abc-123"
     Then the session's last_activity timestamp should update
-    And the session should be considered "active"
+    And the session should be considered "actively_working"
+    And the card should move to "In Progress"
 
   Scenario: Session stop detection
     Given a Claude session stops working
     When the Stop hook fires for session "abc-123"
-    Then the session should be flagged as "needs attention"
+    Then the session should be flagged as "needs_attention"
     And a push notification should be sent (deduplicated within 62 seconds)
 
   Scenario: Stop followed by new prompt (anti-duplicate notification)
@@ -28,40 +30,59 @@ Feature: Activity Detection
     Then the session should return to "In Progress"
     And subsequent Stop events should be deduplicated
 
-  # ── Polling-Based Detection (Fallback) ──
+  Scenario: Actively working during long tool calls (sleep 60s)
+    Given a UserPromptSubmit hook fired 65 seconds ago
+    And the .jsonl file was last modified 60 seconds ago
+    Then the session should still be "actively_working"
+    Because the 5-minute timeout has not elapsed
+    And Claude may be running a long tool call like `sleep 60s`
 
-  Scenario: Session without hooks (started externally)
+  Scenario: Fast Ctrl+C detection via jsonl interrupt marker
+    Given a UserPromptSubmit hook fired 5 seconds ago
+    And the .jsonl file was last modified 5 seconds ago (stale >3s)
+    And the last line of the .jsonl contains "[Request interrupted by user]"
+    Then the session should be flagged as "needs_attention" immediately
+    Because Claude Code writes this synthetic user message on Ctrl+C
+    And we can detect it without waiting for the 5-minute timeout
+
+  Scenario: Stale file without interrupt marker stays active (sleep 60s)
+    Given a UserPromptSubmit hook fired 65 seconds ago
+    And the .jsonl file was last modified 60 seconds ago
+    And the last line does NOT contain "[Request interrupted by user]"
+    Then the session should still be "actively_working"
+    Because Claude may be running a long tool call like `sleep 60s`
+    And the 5-minute timeout has not elapsed
+
+  Scenario: 5-minute timeout detects killed process or abandoned session
+    Given a UserPromptSubmit hook fired 6 minutes ago
+    And the .jsonl file was last modified 6 minutes ago
+    Then the session should be flagged as "needs_attention"
+    Because the 5-minute timeout matches Claude's own tool timeout
+    And this handles killed processes (kill -9) and abandoned sessions
+
+  # ── Polling-Based Detection (Fallback — Never Promotes to In Progress) ──
+
+  Scenario: Session without hooks never appears in In Progress
     Given a Claude session was started from the user's terminal (no hooks)
     When the background process polls the .jsonl file
-    And the file modification time changed in the last 60 seconds
-    Then the session should be considered "active"
+    And the file was modified within the last 5 minutes
+    Then the session should be considered "idle_waiting"
+    And the card should appear in "Requires Attention" (NOT "In Progress")
+    Because only hooks can confirm a session is actively working
 
-  Scenario: Polling the .jsonl for activity
-    Given the background process checks sessions every 10 seconds
-    When a session's .jsonl file has not been modified for 5 minutes
-    Then the session should be considered "idle"
-    And if previously in "In Progress", it may need attention
+  Scenario: Polling detects inactivity after 5 minutes
+    Given a session's .jsonl file has not been modified for 10 minutes
+    And no hook events have been received
+    Then the session should be considered "needs_attention"
+    So the user can triage it: resume, archive, or investigate
 
-  Scenario: Detecting plan mode via transcript
-    Given a Claude session enters plan mode
-    When the last line in the .jsonl contains a plan approval request
-    And no activity follows for 30 seconds
-    Then the session should be flagged as "waiting for plan approval"
+  Scenario: Polling detects ended session after 1 hour
+    Given a session's .jsonl file has not been modified for 2 hours
+    Then the session should be considered "ended"
 
-  # ── Process Detection ──
-
-  Scenario: Checking if a Claude process is running
-    Given a session "abc-123" has been idle for 10 minutes
-    When checking for a running process
-    Then `ps aux` should be searched for a process with this session ID
-    And if found, the session is "running but waiting"
-    And if not found, the session is "ended"
-
-  Scenario: Detecting process via tmux
-    Given a session is linked to tmux session "feat-login"
-    When checking activity
-    Then the tmux session existence confirms the terminal is open
-    And the tmux session attached state shows if a user is looking at it
+  Scenario: Polling detects stale session after 24 hours
+    Given a session's .jsonl file has not been modified for 2 days
+    Then the session should be considered "stale"
 
   # ── Activity States ──
 
@@ -69,18 +90,21 @@ Feature: Activity Detection
     Given a session with the following conditions:
       | Condition             | Value         |
       | Last activity         | <last_activity> |
-      | Process running       | <process>     |
       | Last hook             | <last_hook>   |
+      | File age              | <file_age>    |
     Then the activity state should be "<state>"
 
     Examples:
-      | last_activity | process | last_hook         | state              |
-      | 10 seconds    | yes     | UserPromptSubmit  | actively_working   |
-      | 2 minutes     | yes     | Stop              | needs_attention    |
-      | 2 minutes     | yes     | Notification      | needs_attention    |
-      | 30 minutes    | yes     | UserPromptSubmit  | idle_waiting       |
-      | 30 minutes    | no      | Stop              | ended              |
-      | 25 hours      | no      | Stop              | stale              |
+      | last_activity | last_hook         | file_age    | state              |
+      | 10 seconds    | UserPromptSubmit  | 2 seconds   | actively_working   |
+      | 65 seconds    | UserPromptSubmit  | 60 seconds  | actively_working   |
+      | 6 minutes     | UserPromptSubmit  | 6 minutes   | needs_attention    |
+      | 2 minutes     | Stop              | 2 minutes   | needs_attention    |
+      | 2 minutes     | Notification      | 2 minutes   | needs_attention    |
+      | 10 seconds    | (none)            | 2 seconds   | idle_waiting       |
+      | 10 minutes    | (none)            | 10 minutes  | needs_attention    |
+      | 2 hours       | (none)            | 2 hours     | ended              |
+      | 2 days        | (none)            | 2 days      | stale              |
 
   # ── Column Assignment from Activity ──
 
@@ -89,8 +113,7 @@ Feature: Activity Detection
     But no hooks have confirmed it is actively working right now
     Then it should NOT be in "In Progress"
     And it should be in "Requires Attention" (if within 24h)
-    Because "In Progress" is exclusively for Claude actively working
-    And the column shows a loading spinner to make this clear
+    Because "In Progress" is exclusively for hook-confirmed actively working sessions
 
   Scenario: Recently active but idle session goes to Requires Attention
     Given a session was last active 2 hours ago
@@ -111,6 +134,13 @@ Feature: Activity Detection
     Then the session moves to "All Sessions"
     And it is marked as manuallyArchived
     And it stays in All Sessions even on refresh
+
+  # ── Configurable Timeout ──
+
+  Scenario: Active timeout is configurable
+    Given the activity detector is initialized with activeTimeout = 300
+    Then sessions with no file activity for 5 minutes are timed out
+    And the timeout matches Claude Code's own tool timeout (~5 minutes)
 
   # ── Idle Timeout ──
 

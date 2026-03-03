@@ -15,8 +15,9 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
     /// Delay before treating a Stop as final (seconds).
     private let stopDelay: TimeInterval
 
-    public init(stopDelay: TimeInterval = 1.0) {
+    public init(stopDelay: TimeInterval = 1.0, activeTimeout: TimeInterval = 300) {
         self.stopDelay = stopDelay
+        self.activeTimeout = activeTimeout
     }
 
     public func handleHookEvent(_ event: HookEvent) async {
@@ -30,6 +31,10 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
             pendingStops.removeValue(forKey: event.sessionId)
         }
     }
+
+    /// Timeout (seconds) before treating a hook-active session as timed out.
+    /// Matches Claude Code's own ~5-minute timeout for long-running tool calls.
+    private let activeTimeout: TimeInterval
 
     public func pollActivity(sessionPaths: [String: String]) async -> [String: ActivityState] {
         // Cache paths for direct mtime checks in activityState()
@@ -47,24 +52,18 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
                 continue
             }
 
-            let previousMtime = lastMtimes[sessionId]
             lastMtimes[sessionId] = mtime
 
             let timeSinceModified = Date.now.timeIntervalSince(mtime)
 
-            if timeSinceModified < 10 {
-                // Modified in the last 10 seconds — actively working
-                states[sessionId] = .activelyWorking
-            } else if timeSinceModified < 60 {
-                // Modified in the last minute
-                if let prev = previousMtime, prev == mtime {
-                    // mtime hasn't changed — might be waiting
-                    states[sessionId] = .needsAttention
-                } else {
-                    states[sessionId] = .activelyWorking
-                }
-            } else if timeSinceModified < 3600 {
+            // Polling NEVER returns .activelyWorking — only hooks can confirm active work.
+            // This prevents false "In Progress" cards for sessions started externally.
+            if timeSinceModified < activeTimeout {
+                // Modified within timeout window — session might be active but unconfirmed by hooks
                 states[sessionId] = .idleWaiting
+            } else if timeSinceModified < 3600 {
+                // No activity for 5min-1hr — likely needs attention
+                states[sessionId] = .needsAttention
             } else if timeSinceModified < 86400 {
                 states[sessionId] = .ended
             } else {
@@ -83,28 +82,45 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
     public func activityState(for sessionId: String) async -> ActivityState {
         // Check hook-based detection first
         guard let lastEvent = lastEvents[sessionId] else {
-            // No hook events — use polled state if available
+            // No hook events — use polled state if available.
+            // Polling never returns .activelyWorking, so sessions without hooks
+            // never appear in "In Progress".
             return polledStates[sessionId] ?? .stale
         }
 
         switch lastEvent.eventName {
         case "UserPromptSubmit", "SessionStart":
-            let timeSince = Date.now.timeIntervalSince(lastEvent.timestamp)
-            if timeSince > 120 {
-                // Stale hook event — fall back to polling entirely
-                return polledStates[sessionId] ?? .idleWaiting
-            }
-            // After a short grace period, check file mtime directly.
-            // Handles Ctrl+C interrupts where no Stop hook fires —
-            // when Claude stops, the jsonl file stops being modified.
-            if timeSince > 3, let path = sessionPaths[sessionId] {
-                if let age = Self.fileAge(path), age > 3 {
-                    // File hasn't been modified in >5s — Claude is not actively working.
-                    // This catches Ctrl+C interrupts where no Stop hook fires.
-                    return .needsAttention
+            // After a prompt, Claude is actively working. Stay in this state until:
+            // 1. A Stop hook fires (handled by the "Stop" case below)
+            // 2. File stale >3s AND last jsonl line is "[Request interrupted by user]"
+            //    → Ctrl+C detected instantly without waiting for 5-minute timeout
+            // 3. File hasn't been modified for >5 minutes (safety net timeout)
+            //    Handles: killed process, Claude's own tool timeout, abandoned sessions
+            // 4. No file path cached (shouldn't happen) — fall back to hook age
+            guard let path = sessionPaths[sessionId] else {
+                let timeSince = Date.now.timeIntervalSince(lastEvent.timestamp)
+                if timeSince > activeTimeout {
+                    return polledStates[sessionId] ?? .needsAttention
                 }
+                return .activelyWorking
             }
+
+            guard let fileAge = Self.fileAge(path) else {
+                return .activelyWorking
+            }
+
+            // Safety net: 5-minute timeout for killed processes / abandoned sessions
+            if fileAge > activeTimeout {
+                return .needsAttention
+            }
+
+            // Fast Ctrl+C detection: file stopped changing >3s ago, check last line
+            if fileAge > 3, Self.lastLineContainsInterrupt(path) {
+                return .needsAttention
+            }
+
             return .activelyWorking
+
         case "Stop":
             // Stop is the definitive signal — immediately needs attention
             return .needsAttention
@@ -113,10 +129,8 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
         case "Notification":
             return .needsAttention
         default:
-            let timeSince = Date.now.timeIntervalSince(lastEvent.timestamp)
-            if timeSince < 60 { return .activelyWorking }
-            if timeSince < 3600 { return .idleWaiting }
-            return .ended
+            // Unknown hook events — use polled state, never promote to activelyWorking
+            return polledStates[sessionId] ?? .idleWaiting
         }
     }
 
@@ -125,6 +139,27 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
               let mtime = attrs[.modificationDate] as? Date else { return nil }
         return Date.now.timeIntervalSince(mtime)
+    }
+
+    /// Check if the last line of a .jsonl file contains "[Request interrupted by user]".
+    /// Claude Code writes this synthetic user message on Ctrl+C.
+    /// Reads from the end of the file for efficiency (avoids reading entire file).
+    private static func lastLineContainsInterrupt(_ path: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+        defer { try? handle.close() }
+
+        // Read the last 4KB — enough for the last jsonl line
+        let fileSize = handle.seekToEndOfFile()
+        let readSize: UInt64 = min(4096, fileSize)
+        handle.seek(toFileOffset: fileSize - readSize)
+        guard let data = try? handle.availableData,
+              let tail = String(data: data, encoding: .utf8) else { return false }
+
+        // Find the last non-empty line
+        let lines = tail.split(separator: "\n", omittingEmptySubsequences: true)
+        guard let lastLine = lines.last else { return false }
+
+        return lastLine.contains("Request interrupted by user")
     }
 
     /// Resolve all pending stops (call periodically from background orchestrator).

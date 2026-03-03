@@ -9,6 +9,7 @@ struct BoardView: View {
     var onForkCard: (String) -> Void = { _ in }
     var onCopyResumeCmd: (String) -> Void = { _ in }
     var onCleanupWorktree: (String) -> Void = { _ in }
+    var canCleanupWorktree: (String) -> Bool = { _ in true }
     var onArchiveCard: (String) -> Void = { _ in }
     var onDeleteCard: (String) -> Void = { _ in }
     var availableProjects: [(name: String, path: String)] = []
@@ -54,6 +55,7 @@ struct BoardView: View {
                             onForkCard: onForkCard,
                             onCopyResumeCmd: onCopyResumeCmd,
                             onCleanupWorktree: onCleanupWorktree,
+                            canCleanupWorktree: canCleanupWorktree,
                             onDeleteCard: onDeleteCard,
                             availableProjects: availableProjects,
                             onMoveToProject: onMoveToProject,

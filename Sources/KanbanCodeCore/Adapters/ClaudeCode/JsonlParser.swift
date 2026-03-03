@@ -117,7 +117,8 @@ public enum JsonlParser {
     }
 
     /// Scan a session JSONL for branches that were pushed to a remote.
-    /// Looks for `git push` commands in Bash tool_use blocks.
+    /// Looks for git branch activity in Bash tool_use blocks:
+    /// `git push`, `git checkout -b`, `git switch -c`, `git worktree add -b`, `git branch <name>`.
     /// Returns deduplicated branches with their repo paths (excluding main/master).
     public static func extractPushedBranches(from filePath: String) async throws -> [DiscoveredBranch] {
         guard FileManager.default.fileExists(atPath: filePath) else { return [] }
@@ -128,7 +129,13 @@ public enum JsonlParser {
 
         // Regex: git push [flags...] origin|upstream <branch>
         let pushRegex = /git\s+push\s+(?:-[^\s]+\s+)*(?:origin|upstream)\s+(\S+)/
-        // Regex: cd <path> && ... (extract the directory before && chains containing git push)
+        // Regex: git checkout -b <branch> or git checkout -B <branch>
+        let checkoutBranchRegex = /git\s+checkout\s+-[bB]\s+(\S+)/
+        // Regex: git switch -c <branch> or git switch --create <branch>
+        let switchCreateRegex = /git\s+switch\s+(?:-c|--create)\s+(\S+)/
+        // Regex: git worktree add ... -b <branch>
+        let worktreeAddRegex = /git\s+worktree\s+add\s+\S+\s+-b\s+(\S+)/
+        // Regex: cd <path> && ... (extract the directory before && chains)
         let cdRegex = /cd\s+([^\s;&]+)\s*&&/
         var branches = Set<DiscoveredBranch>()
 
@@ -159,11 +166,23 @@ public enum JsonlParser {
                     repoPath = resolveGitRoot(path)
                 }
 
-                for match in command.matches(of: pushRegex) {
-                    let branch = String(match.output.1)
+                func addBranch(_ branch: String) {
                     if branch != "main" && branch != "master" && !branch.hasPrefix("-") {
                         branches.insert(DiscoveredBranch(branch: branch, repoPath: repoPath))
                     }
+                }
+
+                for match in command.matches(of: pushRegex) {
+                    addBranch(String(match.output.1))
+                }
+                for match in command.matches(of: checkoutBranchRegex) {
+                    addBranch(String(match.output.1))
+                }
+                for match in command.matches(of: switchCreateRegex) {
+                    addBranch(String(match.output.1))
+                }
+                for match in command.matches(of: worktreeAddRegex) {
+                    addBranch(String(match.output.1))
                 }
             }
         }

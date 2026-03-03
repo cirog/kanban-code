@@ -14,11 +14,26 @@ public protocol SessionStore: Sendable {
 
     /// Full-text search across all session files.
     func searchSessions(query: String, paths: [String]) async throws -> [SearchResult]
+
+    /// Streaming full-text search — calls onResult with accumulated sorted results after each file.
+    func searchSessionsStreaming(
+        query: String, paths: [String],
+        onResult: @MainActor @Sendable ([SearchResult]) -> Void
+    ) async throws
 }
 
 extension SessionStore {
     public func forkSession(sessionPath: String) async throws -> String {
         try await forkSession(sessionPath: sessionPath, targetDirectory: nil)
+    }
+
+    /// Default: fall back to batch search, call onResult once at the end.
+    public func searchSessionsStreaming(
+        query: String, paths: [String],
+        onResult: @MainActor @Sendable ([SearchResult]) -> Void
+    ) async throws {
+        let results = try await searchSessions(query: query, paths: paths)
+        await onResult(results)
     }
 }
 
@@ -26,11 +41,11 @@ extension SessionStore {
 public struct SearchResult: Sendable {
     public let sessionPath: String
     public let score: Double
-    public let snippet: String
+    public let snippets: [String]
 
-    public init(sessionPath: String, score: Double, snippet: String) {
+    public init(sessionPath: String, score: Double, snippets: [String]) {
         self.sessionPath = sessionPath
         self.score = score
-        self.snippet = snippet
+        self.snippets = snippets
     }
 }

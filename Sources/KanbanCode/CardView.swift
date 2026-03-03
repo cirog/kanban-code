@@ -12,6 +12,7 @@ struct CardView: View {
     var onRename: () -> Void = {}
     var onCopyResumeCmd: () -> Void = {}
     var onCleanupWorktree: () -> Void = {}
+    var canCleanupWorktree: Bool = true
     var onArchive: () -> Void = {}
     var onDelete: () -> Void = {}
     var availableProjects: [(name: String, path: String)] = []
@@ -183,7 +184,7 @@ struct CardView: View {
                     Label("Open Issue #\(issue.number)", systemImage: "arrow.up.right.square")
                 }
             }
-            if card.link.worktreeLink != nil {
+            if card.link.worktreeLink != nil, canCleanupWorktree {
                 Divider()
                 Button(role: .destructive, action: onCleanupWorktree) {
                     Label("Cleanup Worktree", systemImage: "trash")

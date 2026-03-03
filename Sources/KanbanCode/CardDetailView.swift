@@ -51,11 +51,14 @@ struct CardDetailView: View {
     var onAddBranch: (String) -> Void = { _ in }
     var onAddIssue: (Int) -> Void = { _ in }
     var onCleanupWorktree: () -> Void = {}
+    var canCleanupWorktree: Bool = true
     var onDeleteCard: () -> Void = {}
     var onCreateTerminal: () -> Void = {}
     var onKillTerminal: (String) -> Void = { _ in }
     var onCancelLaunch: () -> Void = {}
     var onDiscover: () -> Void = {}
+    var availableProjects: [(name: String, path: String)] = []
+    var onMoveToProject: (String) -> Void = { _ in }
     @Binding var focusTerminal: Bool
 
     @AppStorage("preferredEditorBundleId") private var editorBundleId: String = "dev.zed.Zed"
@@ -108,7 +111,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onDiscover: @escaping () -> Void = {}, focusTerminal: Binding<Bool> = .constant(false)) {
+    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onDiscover: @escaping () -> Void = {}, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, focusTerminal: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -119,11 +122,14 @@ struct CardDetailView: View {
         self.onAddBranch = onAddBranch
         self.onAddIssue = onAddIssue
         self.onCleanupWorktree = onCleanupWorktree
+        self.canCleanupWorktree = canCleanupWorktree
         self.onDeleteCard = onDeleteCard
         self.onCreateTerminal = onCreateTerminal
         self.onKillTerminal = onKillTerminal
         self.onCancelLaunch = onCancelLaunch
         self.onDiscover = onDiscover
+        self.availableProjects = availableProjects
+        self.onMoveToProject = onMoveToProject
         self._focusTerminal = focusTerminal
         _selectedTab = State(initialValue: Self.initialTab(for: card))
     }
@@ -295,7 +301,7 @@ struct CardDetailView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
 
-                if card.link.worktreeLink != nil {
+                if card.link.worktreeLink != nil, canCleanupWorktree {
                     Spacer()
                     Button(role: .destructive, action: onCleanupWorktree) {
                         Label("Cleanup Worktree", systemImage: "trash")
@@ -322,7 +328,8 @@ struct CardDetailView: View {
                         checkpointTurn = turn
                         showCheckpointConfirm = true
                     },
-                    onLoadMore: { Task { await loadMoreHistory() } }
+                    onLoadMore: { Task { await loadMoreHistory() } },
+                    onLoadAll: { Task { await loadAllHistory() } }
                 )
             case .issue:
                 issueTabView
@@ -1082,7 +1089,7 @@ struct CardDetailView: View {
 
         if card.link.sessionLink != nil || card.link.worktreeLink != nil {
             menu.addItem(NSMenuItem.separator())
-            menu.addActionItem("Discover PRs", image: "arrow.triangle.pull") { [self] in onDiscover() }
+            menu.addActionItem("Discover Branch", image: "arrow.triangle.pull") { [self] in onDiscover() }
         }
 
         if let issue = card.link.issueLink {
@@ -1091,9 +1098,24 @@ struct CardDetailView: View {
             }
         }
 
-        if card.link.worktreeLink != nil {
+        if card.link.worktreeLink != nil, canCleanupWorktree {
             menu.addItem(NSMenuItem.separator())
             menu.addActionItem("Cleanup Worktree", image: "trash") { [self] in onCleanupWorktree() }
+        }
+
+        let currentPath = card.link.projectPath
+        let otherProjects = availableProjects.filter { $0.path != currentPath }
+        if !otherProjects.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            let moveItem = NSMenuItem(title: "Move to Project", action: nil, keyEquivalent: "")
+            moveItem.image = NSImage(systemSymbolName: "folder.badge.arrow.forward", accessibilityDescription: nil)
+            let submenu = NSMenu()
+            for project in otherProjects {
+                let item = submenu.addActionItem(project.name) { [self] in onMoveToProject(project.path) }
+                _ = item
+            }
+            moveItem.submenu = submenu
+            menu.addItem(moveItem)
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -1134,6 +1156,21 @@ struct CardDetailView: View {
             let earlier = try await TranscriptReader.readRange(from: path, turnRange: rangeStart..<rangeEnd)
             turns = earlier + turns
             hasMoreTurns = rangeStart > 0
+        } catch {
+            // Silently fail
+        }
+        isLoadingMore = false
+    }
+
+    /// Load the entire conversation history (for search).
+    private func loadAllHistory() async {
+        guard hasMoreTurns, !isLoadingMore else { return }
+        guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
+        isLoadingMore = true
+        do {
+            let all = try await TranscriptReader.readTurns(from: path)
+            turns = all
+            hasMoreTurns = false
         } catch {
             // Silently fail
         }

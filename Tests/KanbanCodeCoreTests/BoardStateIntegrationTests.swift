@@ -508,7 +508,7 @@ struct DeepSearchIntegrationTests {
         let results = try await store.searchSessions(query: "authentication", paths: [path])
         #expect(!results.isEmpty)
         #expect(results[0].score > 0)
-        #expect(!results[0].snippet.isEmpty)
+        #expect(!results[0].snippets.isEmpty)
     }
 
     @Test("Deep search handles missing files gracefully")
@@ -561,9 +561,13 @@ struct DeepSearchIntegrationTests {
             try await store.searchSessions(query: "content", paths: paths)
         }
         task.cancel()
-        let results = try await task.value
-        // Should complete (either with partial or empty results) without hanging
-        #expect(results.count <= 10)
+        // Should complete without hanging — either returns partial results or throws CancellationError
+        do {
+            let results = try await task.value
+            #expect(results.count <= 10)
+        } catch is CancellationError {
+            // Expected — cancellation is cooperative and may throw
+        }
     }
 }
 

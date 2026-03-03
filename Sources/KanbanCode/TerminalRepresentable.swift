@@ -19,6 +19,10 @@ final class TerminalCache {
     /// Tracks tmux copy-mode state per session for scroll interception.
     fileprivate var copyModeSessions: Set<String> = []
 
+    /// Cooldown: after exiting copy-mode, ignore scroll events briefly
+    /// to prevent residual momentum from re-entering copy-mode.
+    fileprivate var copyModeExitTime: [String: ContinuousClock.Instant] = [:]
+
     private init() {
         let tmux = Self.tmuxPath
 
@@ -35,7 +39,8 @@ final class TerminalCache {
             }
 
             // If in copy-mode, exit it on any non-modifier keypress.
-            // Find the session name via the container.
+            // We must consume the event and re-send the key via tmux send-keys
+            // so that the "q" (exit copy-mode) arrives before the actual key.
             if let self {
                 var view: NSView? = terminal
                 while let v = view, !(v is TerminalContainerNSView) {
@@ -45,9 +50,17 @@ final class TerminalCache {
                    let session = container.activeSession,
                    self.copyModeSessions.contains(session) {
                     self.copyModeSessions.remove(session)
+                    self.copyModeExitTime[session] = .now
+                    let chars = event.characters ?? ""
                     Task.detached {
+                        // Exit copy-mode first
                         _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session, "q"])
+                        // Then send the actual key to the shell
+                        if !chars.isEmpty {
+                            _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session, chars])
+                        }
                     }
+                    return nil // consume — key is re-sent via tmux above
                 }
             }
 
@@ -82,6 +95,13 @@ final class TerminalCache {
 
             let inCopyMode = self?.copyModeSessions.contains(session) ?? false
 
+            // After exiting copy-mode, ignore scroll events for 300ms
+            // to prevent residual trackpad momentum from re-entering.
+            if let exitTime = self?.copyModeExitTime[session],
+               exitTime.duration(to: .now) < .milliseconds(300) {
+                return nil // consume during cooldown
+            }
+
             if event.deltaY > 0 {
                 // Scroll UP — enter copy-mode if needed, then send Up keys
                 if !inCopyMode {
@@ -97,19 +117,23 @@ final class TerminalCache {
                 }
             } else if inCopyMode {
                 // Scroll DOWN in copy-mode — send Down keys.
-                // When tmux reaches the bottom it auto-exits copy-mode;
-                // we detect that asynchronously and clear our state.
                 let lines = max(1, Int(abs(event.deltaY)))
                 Task.detached {
                     let keys = Array(repeating: "Down", count: lines)
                     _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session] + keys)
-                    // Check if tmux exited copy-mode (scrolled to bottom)
+                    // Brief pause so tmux processes the Down keys before we check
+                    try? await Task.sleep(for: .milliseconds(50))
+                    // Check scroll position — tmux does NOT auto-exit copy-mode
+                    // at position 0, so we must explicitly exit.
                     let result = try? await ShellCommand.run(
-                        tmux, arguments: ["display-message", "-p", "-t", session, "#{pane_in_mode}"]
+                        tmux, arguments: ["display-message", "-p", "-t", session, "#{scroll_position}"]
                     )
                     if result?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "0" {
+                        // At the bottom — exit copy-mode
+                        _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session, "q"])
                         await MainActor.run {
                             TerminalCache.shared.copyModeSessions.remove(session)
+                            TerminalCache.shared.copyModeExitTime[session] = .now
                         }
                     }
                 }
@@ -296,12 +320,27 @@ final class TerminalContainerNSView: NSView {
             let terminal = TerminalCache.shared.terminal(for: name, frame: bounds)
             let isActive = (name == sessionName)
             terminal.isHidden = !isActive
-            if isActive, grabFocus {
-                // Defer focus grab — at makeNSView time the view may not
-                // be in the window hierarchy yet, so window is nil.
-                DispatchQueue.main.async { [weak self] in
-                    self?.window?.makeFirstResponder(terminal)
+            if isActive {
+                // Hide the scrollbar — we handle scrolling via tmux copy-mode
+                disableScrollbar(on: terminal)
+                if grabFocus {
+                    // Defer focus grab — at makeNSView time the view may not
+                    // be in the window hierarchy yet, so window is nil.
+                    DispatchQueue.main.async { [weak self] in
+                        self?.window?.makeFirstResponder(terminal)
+                    }
                 }
+            }
+        }
+    }
+
+    /// Hide SwiftTerm's built-in NSScroller.
+    /// SwiftTerm adds a private `NSScroller` as a direct subview of TerminalView.
+    /// We handle scrollback via tmux copy-mode, so the native scroller is misleading.
+    private func disableScrollbar(on terminal: NSView) {
+        for subview in terminal.subviews {
+            if let scroller = subview as? NSScroller {
+                scroller.isHidden = true
             }
         }
     }

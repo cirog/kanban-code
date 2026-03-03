@@ -158,11 +158,16 @@ struct ContentView: View {
                 NSPasteboard.general.setString(cmd, forType: .string)
             },
             onCleanupWorktree: { cardId in Task { await cleanupWorktree(cardId: cardId) } },
+            canCleanupWorktree: { cardId in
+                guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return false }
+                return canCleanupWorktree(for: card)
+            },
             onArchiveCard: { cardId in archiveCard(cardId: cardId) },
             onDeleteCard: { cardId in pendingDeleteCardId = cardId },
             availableProjects: projectList,
             onMoveToProject: { cardId, projectPath in
-                store.dispatch(.moveCardToProject(cardId: cardId, projectPath: projectPath))
+                let name = projectList.first(where: { $0.path == projectPath })?.name ?? (projectPath as NSString).lastPathComponent
+                pendingMoveToProject = (cardId: cardId, projectPath: projectPath, projectName: name)
             },
             onRefreshBacklog: { Task { await store.refreshBacklog() } },
             onDropCard: { cardId, column in handleDrop(cardId: cardId, to: column) },
@@ -210,6 +215,7 @@ struct ContentView: View {
                 onCleanupWorktree: {
                     Task { await cleanupWorktree(cardId: card.id) }
                 },
+                canCleanupWorktree: canCleanupWorktree(for: card),
                 onDeleteCard: {
                     pendingDeleteCardId = card.id
                 },
@@ -229,6 +235,11 @@ struct ContentView: View {
                         await store.reconcile()
                         store.dispatch(.setBusy(cardId: card.id, busy: false))
                     }
+                },
+                availableProjects: projectList,
+                onMoveToProject: { projectPath in
+                    let name = projectList.first(where: { $0.path == projectPath })?.name ?? (projectPath as NSString).lastPathComponent
+                    pendingMoveToProject = (cardId: card.id, projectPath: projectPath, projectName: name)
                 },
                 focusTerminal: $shouldFocusTerminal
             )
@@ -439,6 +450,27 @@ struct ContentView: View {
                     Text("This creates a duplicate session you can resume independently. Do you want the forked session to continue from the same worktree or from the project root?")
                 } else {
                     Text("This creates a duplicate session you can resume independently.")
+                }
+            }
+            .alert(
+                "Move to Project?",
+                isPresented: Binding(
+                    get: { pendingMoveToProject != nil },
+                    set: { if !$0 { pendingMoveToProject = nil } }
+                )
+            ) {
+                Button("Cancel", role: .cancel) {
+                    pendingMoveToProject = nil
+                }
+                Button("Move") {
+                    if let pending = pendingMoveToProject {
+                        store.dispatch(.moveCardToProject(cardId: pending.cardId, projectPath: pending.projectPath))
+                    }
+                    pendingMoveToProject = nil
+                }
+            } message: {
+                if let pending = pendingMoveToProject {
+                    Text("Move this card to \(pending.projectName)?")
                 }
             }
             .alert(
@@ -844,15 +876,11 @@ struct ContentView: View {
     private var projectList: [(name: String, path: String)] {
         var seen = Set<String>()
         var result: [(name: String, path: String)] = []
-        // Configured projects first
+        // Only configured projects — discovered paths are auto-assigned,
+        // "Move to Project" is for intentionally moving between configured projects.
         for project in store.state.configuredProjects {
             guard seen.insert(project.path).inserted else { continue }
             result.append((name: project.name, path: project.path))
-        }
-        // Then discovered project paths
-        for path in store.state.discoveredProjectPaths {
-            guard seen.insert(path).inserted else { continue }
-            result.append((name: (path as NSString).lastPathComponent, path: path))
         }
         return result
     }
@@ -1391,6 +1419,19 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Worktree cleanup guard
+
+    /// Whether this card's worktree can be cleaned up — false if another active card depends on it.
+    private func canCleanupWorktree(for card: KanbanCodeCard) -> Bool {
+        guard let branch = card.link.worktreeLink?.branch else { return false }
+        let otherCards = store.state.cards.filter {
+            $0.id != card.id
+            && !$0.link.manuallyArchived
+            && $0.link.worktreeLink?.branch == branch
+        }
+        return otherCards.isEmpty
+    }
+
     // MARK: - Archive
 
     private func archiveCard(cardId: String) {
@@ -1400,8 +1441,9 @@ struct ContentView: View {
         } else {
             store.dispatch(.archiveCard(cardId: cardId))
             // Only offer worktree cleanup if the card has an actual worktree directory
-            // (not just a branch reference from discovery or manual linking)
-            if let wt = card.link.worktreeLink, !wt.path.isEmpty, wt.path.contains("/.claude/worktrees/") {
+            // and no other active card depends on it
+            if let wt = card.link.worktreeLink, !wt.path.isEmpty, wt.path.contains("/.claude/worktrees/"),
+               canCleanupWorktree(for: card) {
                 pendingWorktreeCleanupCardId = cardId
             }
         }
@@ -1670,6 +1712,7 @@ struct ContentView: View {
     @State private var pendingDeleteCardId: String?
     @State private var pendingArchiveCardId: String?
     @State private var pendingForkCardId: String?
+    @State private var pendingMoveToProject: (cardId: String, projectPath: String, projectName: String)?
     @State private var pendingWorktreeCleanupCardId: String?
     @State private var shouldFocusTerminal = false
     @State private var keyMonitor: Any?
@@ -1811,13 +1854,19 @@ struct ContentView: View {
                 // When forking from a worktree (and not keeping it), use the parent project.
                 var forkProjectPath = card.link.projectPath
                 var targetDir: String? = nil
-                if !keepWorktree, let pp = card.link.projectPath,
-                   let range = pp.range(of: "/.claude/worktrees/") {
-                    forkProjectPath = String(pp[..<range.lowerBound])
-                    // Place the session file in the parent project's session dir
-                    let encoded = forkProjectPath!.replacingOccurrences(of: "/", with: "-")
-                    let home = NSHomeDirectory()
-                    targetDir = "\(home)/.claude/projects/\(encoded)"
+                if !keepWorktree {
+                    // Extract parent project if projectPath is a worktree path
+                    if let pp = forkProjectPath,
+                       let range = pp.range(of: "/.claude/worktrees/") {
+                        forkProjectPath = String(pp[..<range.lowerBound])
+                    }
+                    // Always place the forked session in the correct project dir
+                    // so `claude --resume` can find it from the project root.
+                    if let fp = forkProjectPath {
+                        let encoded = fp.replacingOccurrences(of: "/", with: "-")
+                        let home = NSHomeDirectory()
+                        targetDir = "\(home)/.claude/projects/\(encoded)"
+                    }
                 }
 
                 let newSessionId = try await store.sessionStore.forkSession(
@@ -1825,15 +1874,19 @@ struct ContentView: View {
                 )
                 let dir = targetDir ?? (sessionPath as NSString).deletingLastPathComponent
                 let newPath = (dir as NSString).appendingPathComponent("\(newSessionId).jsonl")
-                let newLink = Link(
+                var newLink = Link(
                     name: (card.link.name ?? card.link.displayTitle) + " (fork)",
                     projectPath: forkProjectPath,
                     column: .waiting,
-                    lastActivity: .now,
+                    lastActivity: card.link.lastActivity,
                     source: .discovered,
                     sessionLink: SessionLink(sessionId: newSessionId, sessionPath: newPath),
                     worktreeLink: keepWorktree ? card.link.worktreeLink : nil
                 )
+                // Mark "no worktree" as intentional so reconciler doesn't re-attach it
+                if !keepWorktree && card.link.worktreeLink != nil {
+                    newLink.manualOverrides.worktreePath = true
+                }
                 store.dispatch(.createManualTask(newLink))
                 store.dispatch(.selectCard(cardId: newLink.id))
             } catch {

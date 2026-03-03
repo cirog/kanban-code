@@ -15,7 +15,7 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
             throw SessionStoreError.fileNotFound(sessionPath)
         }
 
-        let newSessionId = UUID().uuidString
+        let newSessionId = UUID().uuidString.lowercased()
         let dir = targetDirectory ?? (sessionPath as NSString).deletingLastPathComponent
         if let targetDirectory, !fileManager.fileExists(atPath: targetDirectory) {
             try fileManager.createDirectory(atPath: targetDirectory, withIntermediateDirectories: true)
@@ -42,6 +42,16 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
         try lines.joined(separator: "\n").write(
             toFile: newPath, atomically: true, encoding: .utf8
         )
+
+        // Preserve the original file's mtime so the activity detector
+        // doesn't treat the fork as "actively working" (10-second window).
+        if let attrs = try? fileManager.attributesOfItem(atPath: sessionPath),
+           let originalMtime = attrs[.modificationDate] as? Date {
+            try? fileManager.setAttributes(
+                [.modificationDate: originalMtime],
+                ofItemAtPath: newPath
+            )
+        }
 
         return newSessionId
     }
@@ -79,14 +89,31 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
     }
 
     public func searchSessions(query: String, paths: [String]) async throws -> [SearchResult] {
+        let box = ResultBox()
+        try await searchSessionsStreaming(query: query, paths: paths) { results in
+            box.results = results
+        }
+        return box.results
+    }
+
+    /// Thread-safe box to capture streaming results for the batch API.
+    private final class ResultBox: @unchecked Sendable {
+        var results: [SearchResult] = []
+    }
+
+    public func searchSessionsStreaming(
+        query: String, paths: [String],
+        onResult: @MainActor @Sendable ([SearchResult]) -> Void
+    ) async throws {
+        let t0 = ContinuousClock.now
         let queryTerms = BM25Scorer.tokenize(query)
-        guard !queryTerms.isEmpty else { return [] }
+        guard !queryTerms.isEmpty else { return }
 
         struct DocInfo {
             let path: String
-            let matchingTokens: [String]  // only tokens that match query terms
-            let wordCount: Int            // total word count for BM25 doc length
-            let snippet: String
+            let matchingTokens: [String]
+            let wordCount: Int
+            let snippets: [String]
             let modifiedTime: Date
         }
 
@@ -104,80 +131,98 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
             return (path, mtime)
         }.sorted { $0.1 > $1.1 }
 
-        for (path, mtime) in validPaths {
-            guard !Task.isCancelled else { break }
+        KanbanCodeLog.info("search", "searchSessions: \(validPaths.count)/\(paths.count) valid files, terms=\(queryTerms)")
 
-            // Stream through file, only keeping tokens that match query terms
-            let (matchingTokens, wordCount, snippet) = extractMatchingTokens(
+        for (idx, (path, mtime)) in validPaths.enumerated() {
+            try Task.checkCancellation()
+
+            let tFile = ContinuousClock.now
+            let (matchingTokens, wordCount, snippets) = try await extractMatchingTokens(
                 from: path, queryTerms: queryTerms
             )
+            let fileName = (path as NSString).lastPathComponent
+            if idx < 5 || idx % 20 == 0 {
+                let fileSize = (try? fileManager.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
+                KanbanCodeLog.info("search", "  [\(idx+1)/\(validPaths.count)] \(fileName) (\(fileSize / 1024)KB) words=\(wordCount) matches=\(matchingTokens.count) \(tFile.duration(to: .now))")
+            }
             guard wordCount > 0 else { continue }
 
-            // Track document frequencies (which query terms appear in this doc)
+            totalWordCount += wordCount
+
+            // Only track and yield when file has matching tokens
+            guard !matchingTokens.isEmpty else { continue }
+
+            // Track global document frequencies
             let uniqueTerms = Set(matchingTokens)
             for term in uniqueTerms {
                 globalTermFreqs[term, default: 0] += 1
             }
-            totalWordCount += wordCount
 
             docs.append(DocInfo(
                 path: path,
                 matchingTokens: matchingTokens,
                 wordCount: wordCount,
-                snippet: snippet,
+                snippets: snippets,
                 modifiedTime: mtime
             ))
 
-            await Task.yield()
-        }
-
-        guard !docs.isEmpty else { return [] }
-        let avgDocLength = Double(totalWordCount) / Double(docs.count)
-
-        // Score each document
-        var results: [SearchResult] = []
-        for doc in docs {
-            let boost = BM25Scorer.recencyBoost(modifiedTime: doc.modifiedTime)
-            let score = BM25Scorer.score(
-                terms: queryTerms,
-                documentTokens: doc.matchingTokens,
-                avgDocLength: avgDocLength,
-                docCount: docs.count,
-                docFreqs: globalTermFreqs,
-                recencyBoost: boost
-            )
-            if score > 0 {
-                results.append(SearchResult(sessionPath: doc.path, score: score, snippet: doc.snippet))
+            // Score all matching docs with running stats and yield immediately
+            let avgDocLength = Double(totalWordCount) / max(Double(docs.count), 1.0)
+            var results: [SearchResult] = []
+            for doc in docs {
+                let boost = BM25Scorer.recencyBoost(modifiedTime: doc.modifiedTime)
+                let score = BM25Scorer.score(
+                    terms: queryTerms,
+                    documentTokens: doc.matchingTokens,
+                    avgDocLength: avgDocLength,
+                    docCount: docs.count,
+                    docFreqs: globalTermFreqs,
+                    recencyBoost: boost
+                )
+                if score > 0 {
+                    results.append(SearchResult(sessionPath: doc.path, score: score, snippets: doc.snippets))
+                }
             }
+            results.sort { $0.score > $1.score }
+            await onResult(results)
         }
 
-        return results.sorted { $0.score > $1.score }
+        KanbanCodeLog.info("search", "searchSessions DONE: \(docs.count) docs in \(t0.duration(to: .now))")
     }
 
-    /// Stream through a .jsonl file, extracting only tokens that match query terms.
-    /// Returns (matchingTokens, totalWordCount, bestSnippet).
-    /// Streams the entire file with no size limit — only matching tokens are kept in memory.
+    /// Stream through a .jsonl file line-by-line, extracting only tokens that match query terms.
+    /// Returns (matchingTokens, totalWordCount, snippets).
+    /// Streams via FileHandle — never loads the entire file into memory.
+    /// Throws CancellationError if the task is cancelled mid-file.
+    private static let maxSnippets = 3
+
     private func extractMatchingTokens(
         from path: String,
         queryTerms: [String]
-    ) -> (tokens: [String], wordCount: Int, snippet: String) {
-        guard let data = FileManager.default.contents(atPath: path),
-              let content = String(data: data, encoding: .utf8) else {
-            return ([], 0, "")
+    ) async throws -> (tokens: [String], wordCount: Int, snippets: [String]) {
+        guard let handle = FileHandle(forReadingAtPath: path) else {
+            return ([], 0, [])
         }
+        defer { try? handle.close() }
 
         var matchingTokens: [String] = []
         var wordCount = 0
-        var bestSnippet = ""
-        var bestSnippetScore = 0
+        // Track top snippets sorted by score (number of matching query terms)
+        var topSnippets: [(score: Int, text: String)] = []
+        var lineCount = 0
 
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+        for try await line in handle.bytes.lines {
+            // Check cancellation every 100 lines to stay responsive
+            lineCount += 1
+            if lineCount % 100 == 0 {
+                try Task.checkCancellation()
+            }
+
             // Fast string check — skip lines that aren't user/assistant messages
             guard line.contains("\"type\"") else { continue }
-            let lineStr = String(line)
-            guard lineStr.contains("\"user\"") || lineStr.contains("\"assistant\"") else { continue }
+            guard line.contains("\"user\"") || line.contains("\"assistant\"") else { continue }
 
-            guard let lineData = lineStr.data(using: .utf8),
+            guard let lineData = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   let type = obj["type"] as? String,
                   (type == "user" || type == "assistant"),
@@ -196,19 +241,26 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
                 }
             }
 
-            // Track best snippet — check if this message has more query term matches
+            // Track top snippets by number of matching query terms
             let lower = text.lowercased()
             var snippetScore = 0
             for qt in queryTerms {
                 if lower.contains(qt) { snippetScore += 1 }
             }
-            if snippetScore > bestSnippetScore {
-                bestSnippetScore = snippetScore
-                bestSnippet = extractSnippet(from: text, queryTerms: queryTerms, role: type)
+            if snippetScore > 0 {
+                let snippet = extractSnippet(from: text, queryTerms: queryTerms, role: type)
+                // Insert if we have room or this scores higher than the worst
+                if topSnippets.count < Self.maxSnippets {
+                    topSnippets.append((snippetScore, snippet))
+                    topSnippets.sort { $0.score > $1.score }
+                } else if snippetScore > topSnippets.last!.score {
+                    topSnippets[topSnippets.count - 1] = (snippetScore, snippet)
+                    topSnippets.sort { $0.score > $1.score }
+                }
             }
         }
 
-        return (matchingTokens, wordCount, bestSnippet)
+        return (matchingTokens, wordCount, topSnippets.map(\.text))
     }
 
     /// Check if a document token matches any query term (exact or prefix match).
