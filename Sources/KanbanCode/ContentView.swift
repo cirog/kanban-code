@@ -500,12 +500,26 @@ struct ContentView: View {
                     applyAppearance()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .kanbanCodeQuitRequested)) { notification in
-                if let sessions = notification.userInfo?["sessions"] as? [TmuxSession], !sessions.isEmpty {
+            .onReceive(NotificationCenter.default.publisher(for: .kanbanCodeQuitRequested)) { _ in
+                // Build session list instantly from store state
+                let sessions = store.state.cards.compactMap { card -> TmuxSession? in
+                    guard let tmux = card.link.tmuxLink else { return nil }
+                    return TmuxSession(name: tmux.sessionName, path: card.link.projectPath ?? "")
+                }
+                if sessions.isEmpty {
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                } else {
                     quitOwnedSessions = sessions
                     showQuitConfirmation = true
-                } else {
-                    NSApp.reply(toApplicationShouldTerminate: true)
+                    // Update alive status async — green dot = session exists in tmux
+                    Task.detached {
+                        let live = AppDelegate.listAllTmuxSessionsSync()
+                        let liveNames = Set(live.map(\.name))
+                        let updated = sessions.map { s in
+                            TmuxSession(name: s.name, path: s.path, attached: liveNames.contains(s.name))
+                        }
+                        await MainActor.run { quitOwnedSessions = updated }
+                    }
                 }
             }
             .sheet(isPresented: $showQuitConfirmation) {

@@ -62,25 +62,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Check for managed tmux sessions synchronously — async Tasks are unreliable
-        // during app termination as the concurrency runtime may not schedule them.
-        let owned = Self.listOwnedTmuxSessionsSync()
-
-        if owned.isEmpty {
-            return .terminateNow
-        }
-
-        // Hand off to SwiftUI sheet via notification
-        NotificationCenter.default.post(
-            name: .kanbanCodeQuitRequested,
-            object: nil,
-            userInfo: ["sessions": owned]
-        )
+        // Post notification — ContentView checks store state for managed sessions
+        NotificationCenter.default.post(name: .kanbanCodeQuitRequested, object: nil)
         return .terminateLater
     }
 
-    /// Synchronous tmux list-sessions — safe to call during applicationShouldTerminate.
-    static func listOwnedTmuxSessionsSync() -> [TmuxSession] {
+    /// Synchronous tmux list-sessions — returns all sessions (no filtering).
+    static func listAllTmuxSessionsSync() -> [TmuxSession] {
         let tmuxPath = ShellCommand.findExecutable("tmux") ?? "tmux"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tmuxPath)
@@ -102,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let parts = line.components(separatedBy: "\t")
             guard parts.count >= 3 else { return nil }
             return TmuxSession(name: parts[0], path: parts[1], attached: parts[2] == "1")
-        }.filter { $0.name.contains("card_") }
+        }
     }
 
     static func killTmuxSessionSync(name: String) {
