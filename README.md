@@ -33,6 +33,12 @@ Kanban Code combines the lessons learned from [claude-resume](https://github.com
 
 Grab the latest `.app` from [**Releases**](https://github.com/langwatch/kanban-code/releases/latest), unzip, and drag to Applications.
 
+Since the app is not notarized, macOS will block it on first launch. To open it:
+
+1. **Right-click** the app and select **Open**
+2. Click **Open** in the dialog that appears
+3. If blocked, go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**
+
 > Requires **macOS 26** (Tahoe) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed.
 
 ### Build from Source
