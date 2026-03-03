@@ -275,9 +275,6 @@ struct ContentView: View {
                         sessionStore: store.sessionStore,
                         onSelectCard: { card in
                             store.dispatch(.selectCard(cardId: card.id))
-                            if card.link.tmuxLink != nil {
-                                shouldFocusTerminal = true
-                            }
                         },
                         onResumeCard: { card in
                             resumeCard(cardId: card.id)

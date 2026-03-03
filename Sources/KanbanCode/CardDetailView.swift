@@ -103,6 +103,7 @@ struct CardDetailView: View {
     @State private var selectedTerminalSession: String?
     @State private var knownTerminalCount: Int = 0
     @State private var terminalGrabFocus: Bool = false
+    @State private var suppressTerminalFocus: Bool = false
 
     /// Launch lock older than 30s is stale — stop showing spinner, show terminal instead
     private var isLaunchStale: Bool {
@@ -357,7 +358,8 @@ struct CardDetailView: View {
             isLoadingPRBody = false
             selectedTerminalSession = nil
             terminalGrabFocus = false
-            // Reset tab to a valid one for this card
+            // Reset tab to a valid one for this card (skip auto-focus)
+            suppressTerminalFocus = true
             selectedTab = defaultTab(for: card)
             // Resolve GitHub base URL for constructing issue/PR links
             if let projectPath = card.link.projectPath {
@@ -375,7 +377,11 @@ struct CardDetailView: View {
         }
         .onChange(of: selectedTab) {
             if selectedTab == .terminal {
-                terminalGrabFocus = true
+                if suppressTerminalFocus {
+                    suppressTerminalFocus = false
+                } else {
+                    terminalGrabFocus = true
+                }
             }
             if selectedTab == .history {
                 Task { await loadHistory() }

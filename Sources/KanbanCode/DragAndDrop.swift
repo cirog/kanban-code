@@ -39,6 +39,7 @@ struct DroppableColumnView: View {
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String, String) -> Void = { _, _ in }   // (cardId, projectPath)
     var onRefreshBacklog: (() -> Void)?
+    var onCardClicked: (String) -> Void = { _ in }
 
     @State private var isTargeted = false
     @State private var renamingCardId: String?
@@ -58,7 +59,9 @@ struct DroppableColumnView: View {
                         card: card,
                         isSelected: card.id == selectedCardId,
                         onSelect: {
-                            selectedCardId = selectedCardId == card.id ? nil : card.id
+                            let newId = selectedCardId == card.id ? nil : card.id
+                            selectedCardId = newId
+                            if newId != nil { onCardClicked(card.id) }
                         },
                         onStart: { onStartCard(card.id) },
                         onResume: { onResumeCard(card.id) },

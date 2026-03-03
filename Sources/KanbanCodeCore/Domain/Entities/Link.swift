@@ -402,13 +402,25 @@ public struct ManualOverrides: Codable, Sendable {
     public var prLink: Bool
     public var issueLink: Bool
 
+    /// Byte offset into the session JSONL. Data before this point is ignored for branch discovery.
+    /// Advances as incremental scanning processes new bytes.
+    /// nil = no watermark (default). "Discover Branches" clears it.
+    public var branchWatermark: Int?
+
+    /// Whether auto-discovered branch data should be ignored for this card.
+    /// True when branchWatermark is set or legacy worktreePath is true.
+    public var isBranchDiscoveryBlocked: Bool {
+        branchWatermark != nil || worktreePath
+    }
+
     public init(
         worktreePath: Bool = false,
         tmuxSession: Bool = false,
         name: Bool = false,
         column: Bool = false,
         prLink: Bool = false,
-        issueLink: Bool = false
+        issueLink: Bool = false,
+        branchWatermark: Int? = nil
     ) {
         self.worktreePath = worktreePath
         self.tmuxSession = tmuxSession
@@ -416,6 +428,7 @@ public struct ManualOverrides: Codable, Sendable {
         self.column = column
         self.prLink = prLink
         self.issueLink = issueLink
+        self.branchWatermark = branchWatermark
     }
 
     public init(from decoder: Decoder) throws {
@@ -426,6 +439,7 @@ public struct ManualOverrides: Codable, Sendable {
         column = try c.decodeIfPresent(Bool.self, forKey: .column) ?? false
         prLink = try c.decodeIfPresent(Bool.self, forKey: .prLink) ?? false
         issueLink = try c.decodeIfPresent(Bool.self, forKey: .issueLink) ?? false
+        branchWatermark = try c.decodeIfPresent(Int.self, forKey: .branchWatermark)
     }
 }
 

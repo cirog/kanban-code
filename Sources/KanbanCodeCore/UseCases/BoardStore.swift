@@ -766,8 +766,9 @@ public enum Reducer {
                 } ?? false
                 let hasWorktree = link.worktreeLink?.branch != nil
 
-                // Clear manual column override when we have definitive data
-                if link.manualOverrides.column {
+                // Clear manual column override when we have definitive data.
+                // Backlog is sticky — the user explicitly parked this card.
+                if link.manualOverrides.column && link.column != .backlog {
                     if activity != nil && activity != .stale {
                         link.manualOverrides.column = false
                     } else if link.tmuxLink != nil && !hasTmux {

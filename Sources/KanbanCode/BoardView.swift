@@ -19,6 +19,7 @@ struct BoardView: View {
     var onDropCard: (String, KanbanCodeColumn) -> Void = { _, _ in }
     var onMergeCards: (String, String) -> Void = { _, _ in }   // (sourceId, targetId)
     var onNewTask: () -> Void = {}
+    var onCardClicked: (String) -> Void = { _ in }
 
     var body: some View {
         boardContent
@@ -59,7 +60,8 @@ struct BoardView: View {
                             onDeleteCard: onDeleteCard,
                             availableProjects: availableProjects,
                             onMoveToProject: onMoveToProject,
-                            onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil
+                            onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil,
+                            onCardClicked: onCardClicked
                         )
                         .id(column)
                     }

@@ -313,8 +313,14 @@ public final class BoardState: @unchecked Sendable {
             link.issueLink = nil
             link.manualOverrides.issueLink = true
         case .worktree:
+            if let path = link.sessionLink?.sessionPath {
+                let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
+                link.manualOverrides.branchWatermark = size
+            } else {
+                link.manualOverrides.branchWatermark = 0
+            }
+            link.discoveredBranches = nil
             link.worktreeLink = nil
-            link.manualOverrides.worktreePath = true
         case .tmux:
             link.tmuxLink = nil
             link.manualOverrides.tmuxSession = true
