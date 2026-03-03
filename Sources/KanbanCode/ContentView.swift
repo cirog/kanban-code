@@ -174,7 +174,12 @@ struct ContentView: View {
             onMergeCards: { sourceId, targetId in
                 store.dispatch(.mergeCards(sourceId: sourceId, targetId: targetId))
             },
-            onNewTask: { showNewTask = true }
+            onNewTask: { showNewTask = true },
+            onCardClicked: { cardId in
+                if store.state.cards.first(where: { $0.id == cardId })?.link.tmuxLink != nil {
+                    shouldFocusTerminal = true
+                }
+            }
         )
     }
 
@@ -231,7 +236,10 @@ struct ContentView: View {
                 onDiscover: {
                     Task {
                         store.dispatch(.setBusy(cardId: card.id, busy: true))
-                        await orchestrator.discoverBranchesForCard(cardId: card.id)
+                        if let updatedLink = await orchestrator.discoverBranchesForCard(cardId: card.id) {
+                            // Sync to in-memory state so reconcile() picks up cleared watermark
+                            store.dispatch(.createManualTask(updatedLink))
+                        }
                         await store.reconcile()
                         store.dispatch(.setBusy(cardId: card.id, busy: false))
                     }
@@ -267,6 +275,9 @@ struct ContentView: View {
                         sessionStore: store.sessionStore,
                         onSelectCard: { card in
                             store.dispatch(.selectCard(cardId: card.id))
+                            if card.link.tmuxLink != nil {
+                                shouldFocusTerminal = true
+                            }
                         },
                         onResumeCard: { card in
                             resumeCard(cardId: card.id)
@@ -1828,7 +1839,8 @@ struct ContentView: View {
     private func resumeCard(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
-        let projectPath = card.link.projectPath ?? NSHomeDirectory()
+        // For worktree cards, cd into the worktree — that's where Claude stored the session data.
+        let projectPath = card.link.worktreeLink?.path ?? card.link.projectPath ?? NSHomeDirectory()
 
         let globalRemote = store.state.globalRemoteSettings
         let projectIsUnderRemote = globalRemote.map { projectPath.hasPrefix($0.localPath) } ?? false
@@ -1883,9 +1895,14 @@ struct ContentView: View {
                     sessionLink: SessionLink(sessionId: newSessionId, sessionPath: newPath),
                     worktreeLink: keepWorktree ? card.link.worktreeLink : nil
                 )
-                // Mark "no worktree" as intentional so reconciler doesn't re-attach it
+                // Set watermark so reconciler ignores parent's baked-in gitBranch
                 if !keepWorktree && card.link.worktreeLink != nil {
-                    newLink.manualOverrides.worktreePath = true
+                    if let path = card.link.sessionLink?.sessionPath {
+                        let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
+                        newLink.manualOverrides.branchWatermark = size
+                    } else {
+                        newLink.manualOverrides.branchWatermark = 0
+                    }
                 }
                 store.dispatch(.createManualTask(newLink))
                 store.dispatch(.selectCard(cardId: newLink.id))
@@ -1899,7 +1916,8 @@ struct ContentView: View {
     private func executeResume(cardId: String, runRemotely: Bool, skipPermissions: Bool = true, commandOverride: String?) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
-        let projectPath = card.link.projectPath ?? NSHomeDirectory()
+        // For worktree cards, cd into the worktree — that's where Claude stored the session data.
+        let projectPath = card.link.worktreeLink?.path ?? card.link.projectPath ?? NSHomeDirectory()
 
         store.dispatch(.resumeCard(cardId: cardId))
         shouldFocusTerminal = true
