@@ -378,7 +378,7 @@ struct NotificationSettingsView: View {
                 statusRow("pandoc", available: pandocAvailable,
                           hint: "brew install pandoc")
                 statusRow("wkhtmltoimage", available: wkhtmltoimageAvailable,
-                          hint: "brew install wkhtmltopdf")
+                          hint: "Download .pkg from github.com/wkhtmltopdf/packaging/releases")
                 Text("Required for rendering rich notification images. Text notifications work without these.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)

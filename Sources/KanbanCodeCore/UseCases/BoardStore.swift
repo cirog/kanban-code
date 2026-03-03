@@ -144,6 +144,7 @@ public enum Action: Sendable {
     case selectCard(cardId: String?)
     case unlinkFromCard(cardId: String, linkType: LinkType)
     case killTerminal(cardId: String, sessionName: String)
+    case cancelLaunch(cardId: String)
     case addBranchToCard(cardId: String, branch: String)
     case addIssueLinkToCard(cardId: String, issueNumber: Int)
     case moveCardToProject(cardId: String, projectPath: String)
@@ -277,7 +278,12 @@ public enum Reducer {
             let tmuxName = effectiveName != nil
                 ? "\(projectName)-\(effectiveName!)"
                 : "\(projectName)-\(cardId)"
-            link.tmuxLink = TmuxLink(sessionName: tmuxName)
+            // Preserve existing shell sessions as extras
+            var extras = link.tmuxLink?.extraSessions ?? []
+            if link.tmuxLink?.isShellOnly == true, let oldPrimary = link.tmuxLink?.sessionName {
+                extras.insert(oldPrimary, at: 0)
+            }
+            link.tmuxLink = TmuxLink(sessionName: tmuxName, extraSessions: extras.isEmpty ? nil : extras)
             link.column = .inProgress
             link.isLaunching = true
             link.updatedAt = .now
@@ -290,7 +296,12 @@ public enum Reducer {
             guard var link = state.links[cardId] else { return [] }
             let sid = link.sessionLink?.sessionId ?? link.id
             let tmuxName = "claude-\(String(sid.prefix(8)))"
-            link.tmuxLink = TmuxLink(sessionName: tmuxName)
+            // Preserve existing shell sessions as extras
+            var extras = link.tmuxLink?.extraSessions ?? []
+            if link.tmuxLink?.isShellOnly == true, let oldPrimary = link.tmuxLink?.sessionName {
+                extras.insert(oldPrimary, at: 0)
+            }
+            link.tmuxLink = TmuxLink(sessionName: tmuxName, extraSessions: extras.isEmpty ? nil : extras)
             link.column = .inProgress
             link.isLaunching = true
             link.updatedAt = .now
@@ -385,24 +396,52 @@ public enum Reducer {
         case .killTerminal(let cardId, let sessionName):
             guard var link = state.links[cardId] else { return [] }
             if sessionName == link.tmuxLink?.sessionName {
-                // Killing primary session — tear down all terminals
-                let allNames = link.tmuxLink?.allSessionNames ?? [sessionName]
-                link.tmuxLink = nil
-                link.isLaunching = nil
-                link.isRemote = false
-                link.updatedAt = .now
-                state.links[cardId] = link
-                return [.killTmuxSessions(allNames), .upsertLink(link), .cleanupTerminalCache(sessionNames: allNames)]
+                // Killing primary session
+                if link.tmuxLink?.extraSessions != nil {
+                    // Extras exist — keep tmuxLink, mark primary dead
+                    link.tmuxLink?.isPrimaryDead = true
+                    link.isLaunching = nil
+                    link.isRemote = false
+                    link.updatedAt = .now
+                    state.links[cardId] = link
+                    return [.killTmuxSession(sessionName), .upsertLink(link), .cleanupTerminalCache(sessionNames: [sessionName])]
+                } else {
+                    // No extras — full teardown
+                    link.tmuxLink = nil
+                    link.isLaunching = nil
+                    link.isRemote = false
+                    link.updatedAt = .now
+                    state.links[cardId] = link
+                    return [.killTmuxSession(sessionName), .upsertLink(link), .cleanupTerminalCache(sessionNames: [sessionName])]
+                }
             } else {
                 // Killing extra session
                 link.tmuxLink?.extraSessions?.removeAll { $0 == sessionName }
                 if link.tmuxLink?.extraSessions?.isEmpty == true {
                     link.tmuxLink?.extraSessions = nil
                 }
+                // If primary is dead and no extras left, full teardown
+                if link.tmuxLink?.isPrimaryDead == true && link.tmuxLink?.extraSessions == nil {
+                    link.tmuxLink = nil
+                }
                 link.updatedAt = .now
                 state.links[cardId] = link
                 return [.killTmuxSession(sessionName), .upsertLink(link), .cleanupTerminalCache(sessionNames: [sessionName])]
             }
+
+        case .cancelLaunch(let cardId):
+            guard var link = state.links[cardId] else { return [] }
+            let tmuxName = link.tmuxLink?.sessionName
+            link.isLaunching = nil
+            link.tmuxLink = nil
+            link.updatedAt = .now
+            state.links[cardId] = link
+            var effects: [Effect] = [.upsertLink(link)]
+            if let tmuxName {
+                effects.append(.killTmuxSession(tmuxName))
+                effects.append(.cleanupTerminalCache(sessionNames: [tmuxName]))
+            }
+            return effects
 
         case .addBranchToCard(let cardId, let branch):
             guard var link = state.links[cardId] else { return [] }
@@ -530,7 +569,8 @@ public enum Reducer {
 
         case .launchCompleted(let cardId, let tmuxName, let sessionLink, let worktreeLink, let isRemote):
             guard var link = state.links[cardId] else { return [] }
-            link.tmuxLink = TmuxLink(sessionName: tmuxName)
+            let existingExtras = link.tmuxLink?.extraSessions
+            link.tmuxLink = TmuxLink(sessionName: tmuxName, extraSessions: existingExtras)
             if let sl = sessionLink { link.sessionLink = sl }
             if let wl = worktreeLink, link.worktreeLink == nil { link.worktreeLink = wl }
             // Clear isLaunching immediately so the terminal shows without waiting
@@ -564,7 +604,8 @@ public enum Reducer {
 
         case .resumeCompleted(let cardId, let tmuxName):
             guard var link = state.links[cardId] else { return [] }
-            link.tmuxLink = TmuxLink(sessionName: tmuxName)
+            let existingExtras = link.tmuxLink?.extraSessions
+            link.tmuxLink = TmuxLink(sessionName: tmuxName, extraSessions: existingExtras)
             link.isLaunching = nil
             link.lastActivity = .now
             link.updatedAt = .now

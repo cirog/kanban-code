@@ -219,6 +219,9 @@ struct ContentView: View {
                 onKillTerminal: { sessionName in
                     store.dispatch(.killTerminal(cardId: card.id, sessionName: sessionName))
                 },
+                onCancelLaunch: {
+                    store.dispatch(.cancelLaunch(cardId: card.id))
+                },
                 onDiscover: {
                     Task {
                         store.dispatch(.setBusy(cardId: card.id, busy: true))

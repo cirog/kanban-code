@@ -309,13 +309,12 @@ struct OnboardingWizard: View {
                 statusCheckRow("Mutagen", done: status?.mutagenAvailable ?? false)
             }
 
-            if !(status?.pandocAvailable ?? false) || !(status?.wkhtmltoimageAvailable ?? false) || !(status?.tmuxAvailable ?? false) || !(status?.ghAvailable ?? false) {
+            if let command = brewInstallCommand {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Install missing dependencies:")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    let command = brewInstallCommand
                     HStack {
                         Text(command)
                             .font(.system(.caption, design: .monospaced))
@@ -335,6 +334,18 @@ struct OnboardingWizard: View {
                 }
             }
 
+            if !(status?.wkhtmltoimageAvailable ?? false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("wkhtmltopdf is no longer in Homebrew. Install it manually:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Link("Download wkhtmltox-0.12.6-2.macos-cocoa.pkg",
+                         destination: URL(string: "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-2/wkhtmltox-0.12.6-2.macos-cocoa.pkg")!)
+                        .font(.system(.caption, design: .monospaced))
+                }
+            }
+
             recheckButton
 
             Spacer()
@@ -342,12 +353,12 @@ struct OnboardingWizard: View {
         .padding(24)
     }
 
-    private var brewInstallCommand: String {
+    private var brewInstallCommand: String? {
         var packages: [String] = []
         if !(status?.pandocAvailable ?? false) { packages.append("pandoc") }
-        if !(status?.wkhtmltoimageAvailable ?? false) { packages.append("wkhtmltopdf") }
         if !(status?.tmuxAvailable ?? false) { packages.append("tmux") }
         if !(status?.ghAvailable ?? false) { packages.append("gh") }
+        guard !packages.isEmpty else { return nil }
         return "brew install \(packages.joined(separator: " "))"
     }
 

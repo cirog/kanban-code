@@ -293,10 +293,20 @@ public enum CardReconciler {
                     // Both primary and all extras dead
                     link.tmuxLink = nil
                     changed = true
-                } else if tmux != link.tmuxLink {
-                    // Something changed (dead extras filtered, or primary died but extras alive)
+                } else if !primaryAlive {
+                    // Primary dead but extras alive — mark primary dead
+                    tmux.isPrimaryDead = true
                     link.tmuxLink = tmux
                     changed = true
+                } else {
+                    // Primary alive — ensure isPrimaryDead is cleared
+                    if tmux.isPrimaryDead != nil {
+                        tmux.isPrimaryDead = nil
+                    }
+                    if tmux != link.tmuxLink {
+                        link.tmuxLink = tmux
+                        changed = true
+                    }
                 }
             }
 

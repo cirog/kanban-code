@@ -152,6 +152,17 @@ Feature: Session Launching
     And Claude Code will auto-generate the worktree name
     And the reconciler should later detect the worktree and add worktreeLink
 
+  # ── Cancel Launch ──
+
+  Scenario: Cancel launch in progress
+    Given I clicked "Start" and the launch confirmation dialog confirmed
+    And the session is in "Starting session…" state (isLaunching = true)
+    When I click "Stop" on the launching spinner
+    Then the launch should be cancelled
+    And the tmux session should be killed
+    And the card should return to its previous state
+    And I should be able to start again
+
   # ── Tmux Session Resilience ──
   #
   # When Claude exits (error, crash, or normal completion), the tmux session

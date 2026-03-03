@@ -1007,4 +1007,195 @@ struct ReducerTests {
         let card = Link(id: "a", column: .inProgress)
         #expect(Link.mergeBlocked(source: card, target: card) != nil)
     }
+
+    // MARK: - Terminal Independence
+
+    @Test("killTerminal primary with extras sets isPrimaryDead, preserves extras")
+    func killPrimaryWithExtras() {
+        let link = makeLink(
+            id: "card_ti1",
+            column: .inProgress,
+            tmuxLink: TmuxLink(sessionName: "main", extraSessions: ["main-sh1", "main-sh2"])
+        )
+        var state = stateWith([link])
+
+        let effects = Reducer.reduce(state: &state, action: .killTerminal(
+            cardId: "card_ti1", sessionName: "main"
+        ))
+
+        // tmuxLink preserved with isPrimaryDead
+        #expect(state.links["card_ti1"]?.tmuxLink != nil)
+        #expect(state.links["card_ti1"]?.tmuxLink?.isPrimaryDead == true)
+        #expect(state.links["card_ti1"]?.tmuxLink?.extraSessions == ["main-sh1", "main-sh2"])
+        // Only primary killed
+        #expect(effects.contains(where: { if case .killTmuxSession("main") = $0 { return true }; return false }))
+    }
+
+    @Test("killTerminal primary without extras clears tmuxLink entirely")
+    func killPrimaryWithoutExtras() {
+        let link = makeLink(
+            id: "card_ti2",
+            column: .inProgress,
+            tmuxLink: TmuxLink(sessionName: "main")
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .killTerminal(
+            cardId: "card_ti2", sessionName: "main"
+        ))
+
+        #expect(state.links["card_ti2"]?.tmuxLink == nil)
+    }
+
+    @Test("killTerminal extra while primary is dead and no other extras clears tmuxLink")
+    func killLastExtraWhilePrimaryDead() {
+        let link = makeLink(
+            id: "card_ti3",
+            column: .inProgress,
+            tmuxLink: TmuxLink(sessionName: "main", extraSessions: ["main-sh1"], isPrimaryDead: true)
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .killTerminal(
+            cardId: "card_ti3", sessionName: "main-sh1"
+        ))
+
+        // Both primary and extras gone → full teardown
+        #expect(state.links["card_ti3"]?.tmuxLink == nil)
+    }
+
+    @Test("killTerminal extra while primary is alive preserves everything")
+    func killExtraWhilePrimaryAlive() {
+        let link = makeLink(
+            id: "card_ti4",
+            column: .inProgress,
+            tmuxLink: TmuxLink(sessionName: "main", extraSessions: ["main-sh1", "main-sh2"])
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .killTerminal(
+            cardId: "card_ti4", sessionName: "main-sh1"
+        ))
+
+        #expect(state.links["card_ti4"]?.tmuxLink?.sessionName == "main")
+        #expect(state.links["card_ti4"]?.tmuxLink?.extraSessions == ["main-sh2"])
+        #expect(state.links["card_ti4"]?.tmuxLink?.isPrimaryDead != true)
+    }
+
+    @Test("cancelLaunch clears isLaunching and tmuxLink")
+    func cancelLaunch() {
+        let link = makeLink(
+            id: "card_ti5",
+            column: .inProgress,
+            tmuxLink: TmuxLink(sessionName: "proj-card_ti5"),
+            isLaunching: true
+        )
+        var state = stateWith([link])
+
+        let effects = Reducer.reduce(state: &state, action: .cancelLaunch(cardId: "card_ti5"))
+
+        #expect(state.links["card_ti5"]?.isLaunching == nil)
+        #expect(state.links["card_ti5"]?.tmuxLink == nil)
+        #expect(effects.contains(where: { if case .killTmuxSession("proj-card_ti5") = $0 { return true }; return false }))
+    }
+
+    @Test("resumeCard with dead primary preserves extras")
+    func resumeWithDeadPrimaryPreservesExtras() {
+        let link = makeLink(
+            id: "card_ti6",
+            column: .waiting,
+            tmuxLink: TmuxLink(sessionName: "old-main", extraSessions: ["old-main-sh1"], isPrimaryDead: true),
+            sessionLink: SessionLink(sessionId: "sess_abc12345")
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .resumeCard(cardId: "card_ti6"))
+
+        // Extras carried forward into new tmuxLink
+        #expect(state.links["card_ti6"]?.tmuxLink?.extraSessions == ["old-main-sh1"])
+        // isPrimaryDead cleared (new session launching)
+        #expect(state.links["card_ti6"]?.tmuxLink?.isPrimaryDead != true)
+        #expect(state.links["card_ti6"]?.isLaunching == true)
+    }
+
+    @Test("resumeCompleted preserves extras from before resume")
+    func resumeCompletedPreservesExtras() {
+        let link = makeLink(
+            id: "card_ti7",
+            column: .inProgress,
+            tmuxLink: TmuxLink(sessionName: "claude-sess_abc", extraSessions: ["claude-sess_abc-sh1"]),
+            sessionLink: SessionLink(sessionId: "sess_abc12345"),
+            isLaunching: true
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .resumeCompleted(
+            cardId: "card_ti7", tmuxName: "claude-sess_abc"
+        ))
+
+        #expect(state.links["card_ti7"]?.tmuxLink?.extraSessions == ["claude-sess_abc-sh1"])
+        #expect(state.links["card_ti7"]?.isLaunching == nil)
+    }
+
+    @Test("launchCompleted preserves extras")
+    func launchCompletedPreservesExtras() {
+        let link = makeLink(
+            id: "card_ti8",
+            column: .inProgress,
+            tmuxLink: TmuxLink(sessionName: "proj-card_ti8", extraSessions: ["proj-card_ti8-sh1"]),
+            isLaunching: true
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .launchCompleted(
+            cardId: "card_ti8",
+            tmuxName: "proj-card_ti8",
+            sessionLink: SessionLink(sessionId: "sess_new123", sessionPath: "/path/to/sess.jsonl"),
+            worktreeLink: nil,
+            isRemote: false
+        ))
+
+        #expect(state.links["card_ti8"]?.tmuxLink?.extraSessions == ["proj-card_ti8-sh1"])
+        #expect(state.links["card_ti8"]?.isLaunching == nil)
+        #expect(state.links["card_ti8"]?.sessionLink?.sessionId == "sess_new123")
+    }
+
+    @Test("resumeCard on shell-only card moves shell to extras")
+    func resumeOnShellOnlyMovesShellToExtras() {
+        let link = makeLink(
+            id: "card_ti9",
+            column: .waiting,
+            tmuxLink: TmuxLink(sessionName: "project-card_ti9", isShellOnly: true),
+            sessionLink: SessionLink(sessionId: "sess_xyz12345")
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .resumeCard(cardId: "card_ti9"))
+
+        // Shell primary moved to extras
+        #expect(state.links["card_ti9"]?.tmuxLink?.extraSessions?.contains("project-card_ti9") == true)
+        // New Claude session is now primary
+        #expect(state.links["card_ti9"]?.tmuxLink?.isShellOnly != true)
+        #expect(state.links["card_ti9"]?.tmuxLink?.sessionName.hasPrefix("claude-") == true)
+    }
+
+    @Test("launchCard on shell-only card moves shell to extras")
+    func launchOnShellOnlyMovesShellToExtras() {
+        let link = makeLink(
+            id: "card_ti10",
+            column: .backlog,
+            tmuxLink: TmuxLink(sessionName: "project-card_ti10", isShellOnly: true)
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .launchCard(
+            cardId: "card_ti10", prompt: "test", projectPath: "/test/project",
+            worktreeName: nil, runRemotely: false, commandOverride: nil
+        ))
+
+        // Shell primary moved to extras
+        #expect(state.links["card_ti10"]?.tmuxLink?.extraSessions?.contains("project-card_ti10") == true)
+        // New Claude session is now primary
+        #expect(state.links["card_ti10"]?.tmuxLink?.isShellOnly != true)
+    }
 }

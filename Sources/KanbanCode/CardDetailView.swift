@@ -54,6 +54,7 @@ struct CardDetailView: View {
     var onDeleteCard: () -> Void = {}
     var onCreateTerminal: () -> Void = {}
     var onKillTerminal: (String) -> Void = { _ in }
+    var onCancelLaunch: () -> Void = {}
     var onDiscover: () -> Void = {}
     @Binding var focusTerminal: Bool
 
@@ -107,7 +108,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping () -> Void = {}, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, focusTerminal: Binding<Bool> = .constant(false)) {
+    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping () -> Void = {}, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onDiscover: @escaping () -> Void = {}, focusTerminal: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -121,6 +122,7 @@ struct CardDetailView: View {
         self.onDeleteCard = onDeleteCard
         self.onCreateTerminal = onCreateTerminal
         self.onKillTerminal = onKillTerminal
+        self.onCancelLaunch = onCancelLaunch
         self.onDiscover = onDiscover
         self._focusTerminal = focusTerminal
         _selectedTab = State(initialValue: Self.initialTab(for: card))
@@ -444,75 +446,70 @@ struct CardDetailView: View {
         }
     }
 
+    // MARK: - Terminal View
+
+    /// Whether the Claude tab is selected (nil = Claude tab).
+    private var isClaudeTabSelected: Bool {
+        selectedTerminalSession == nil
+    }
+
+    /// The tmux session name for the live Claude terminal, if any.
+    private var claudeTmuxSession: String? {
+        guard let tmux = card.link.tmuxLink,
+              tmux.isShellOnly != true,
+              tmux.isPrimaryDead != true else { return nil }
+        return tmux.sessionName
+    }
+
+    /// All live shell session names (extras + live shell-only primary).
+    private var shellSessions: [String] {
+        guard let tmux = card.link.tmuxLink else { return [] }
+        var sessions = tmux.extraSessions ?? []
+        if tmux.isShellOnly == true && tmux.isPrimaryDead != true {
+            sessions.insert(tmux.sessionName, at: 0)
+        }
+        return sessions
+    }
+
+    /// All live tmux sessions (Claude + shells) for TerminalContainerView.
+    private var allLiveSessions: [String] {
+        var sessions: [String] = []
+        if let claude = claudeTmuxSession { sessions.append(claude) }
+        sessions.append(contentsOf: shellSessions)
+        return sessions
+    }
+
+    /// The effective tmux session to show in the terminal, based on selected tab.
+    private var effectiveActiveSession: String? {
+        if isClaudeTabSelected { return claudeTmuxSession }
+        return selectedTerminalSession
+    }
+
+    /// Whether the tab bar should be visible.
+    private var showTabBar: Bool {
+        card.link.tmuxLink != nil || card.link.sessionLink != nil ||
+        card.link.isLaunching == true
+    }
+
     @ViewBuilder
     private var terminalView: some View {
-        if card.link.isLaunching == true, !isLaunchStale {
-            VStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Starting session…")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let tmux = card.link.tmuxLink {
-            let allSessions = tmux.allSessionNames
-            let currentSession = selectedTerminalSession ?? tmux.sessionName
+        if showTabBar {
+            let isLaunching = card.link.isLaunching == true && !isLaunchStale
+            let showOverlay = isClaudeTabSelected && effectiveActiveSession == nil
 
             VStack(spacing: 0) {
-                // Terminal tab bar: [tabs] [+]  ···spacer···  [copy tmux attach]
+                // Tab bar: [Claude] [shell tabs...] [+]  ···spacer···  [copy tmux attach]
                 HStack(spacing: 4) {
-                    // Scrollable tabs area
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 4) {
-                            ForEach(allSessions, id: \.self) { sessionName in
-                                let isPrimary = sessionName == tmux.sessionName
-                                let isSelected = sessionName == currentSession
+                            // Claude tab — always first
+                            claudeTab(isSelected: isClaudeTabSelected, isLaunching: isLaunching)
 
-                                HStack(spacing: 0) {
-                                    Button {
-                                        selectedTerminalSession = sessionName
-                                        terminalGrabFocus = true
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            let isShellOnly = tmux.isShellOnly == true
-                                            Image(systemName: isPrimary && !isShellOnly ? "brain" : "terminal")
-                                                .font(.caption2)
-                                            Text(isPrimary
-                                                 ? (isShellOnly ? "Shell" : "Claude")
-                                                 : sessionName.replacingOccurrences(
-                                                    of: "\(tmux.sessionName)-", with: ""
-                                                 ))
-                                            .font(.caption)
-                                            .lineLimit(1)
-                                        }
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    Button {
-                                        onKillTerminal(sessionName)
-                                        if selectedTerminalSession == sessionName {
-                                            // Switch to first remaining session, or clear
-                                            let remaining = allSessions.filter { $0 != sessionName }
-                                            selectedTerminalSession = remaining.first
-                                        }
-                                    } label: {
-                                        Image(systemName: "xmark")
-                                            .font(.system(size: 8, weight: .bold))
-                                            .foregroundStyle(.secondary)
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 4)
-                                            .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .help("Close terminal")
-                                }
-                                .background(
-                                    isSelected ? Color.accentColor.opacity(0.15) : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 6)
+                            // Shell session tabs
+                            ForEach(shellSessions, id: \.self) { sessionName in
+                                shellTab(
+                                    sessionName: sessionName,
+                                    isSelected: selectedTerminalSession == sessionName
                                 )
                             }
 
@@ -529,77 +526,80 @@ struct CardDetailView: View {
 
                     Spacer()
 
-                    // Copy tmux attach command — right-aligned
-                    Button {
-                        let cmd = "tmux attach -t \(currentSession)"
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(cmd, forType: .string)
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "doc.on.doc")
-                                .font(.caption2)
-                            Text("Copy tmux attach")
-                                .font(.caption)
+                    // Copy tmux attach — only for live terminal tabs
+                    if let activeTmux = effectiveActiveSession {
+                        Button {
+                            let cmd = "tmux attach -t \(activeTmux)"
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(cmd, forType: .string)
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.caption2)
+                                Text("Copy tmux attach")
+                                    .font(.caption)
+                            }
                         }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Copy: tmux attach -t \(activeTmux)")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Copy: tmux attach -t \(currentSession)")
                 }
-                .padding(.horizontal, 8)
+                .padding(.leading, 16)
+                .padding(.trailing, 8)
                 .padding(.vertical, 4)
 
                 Divider()
 
-                // Single AppKit container manages all terminal subviews.
-                // Terminals are created once inside TerminalContainerNSView and
-                // shown/hidden on tab switch — no SwiftUI view recreation.
-                TerminalContainerView(
-                    sessions: allSessions,
-                    activeSession: currentSession,
-                    grabFocus: terminalGrabFocus
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onAppear {
-                    // Reset after the view is created so the next tab switch
-                    // produces a fresh true → false → true state change.
-                    DispatchQueue.main.async { terminalGrabFocus = false }
+                // Content area: single TerminalContainerView + overlay for non-terminal states
+                ZStack {
+                    // Single terminal container for ALL live sessions — never recreated on tab switch
+                    if !allLiveSessions.isEmpty, let active = effectiveActiveSession ?? allLiveSessions.first {
+                        TerminalContainerView(
+                            sessions: allLiveSessions,
+                            activeSession: active,
+                            grabFocus: terminalGrabFocus
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .opacity(showOverlay ? 0 : 1)
+                        .onAppear {
+                            DispatchQueue.main.async { terminalGrabFocus = false }
+                        }
+                    }
+
+                    // Overlay for non-terminal Claude tab states
+                    if showOverlay {
+                        claudeTabOverlay(isLaunching: isLaunching)
+                    }
                 }
             }
             .onChange(of: card.link.tmuxLink) {
-                guard let tmux = card.link.tmuxLink else { return }
-                let allSessions = tmux.allSessionNames
-                let newCount = allSessions.count
+                let shells = shellSessions
+                let newCount = shells.count + (claudeTmuxSession != nil ? 1 : 0)
 
-                if let selected = selectedTerminalSession, !allSessions.contains(selected) {
-                    // Selected session was killed — go back to primary
-                    selectedTerminalSession = tmux.sessionName
-                } else if newCount > knownTerminalCount, let last = allSessions.last {
-                    // New terminal was added — auto-switch to it
+                if let selected = selectedTerminalSession, !shells.contains(selected) {
+                    // Selected shell was killed — go to next shell or Claude tab
+                    selectedTerminalSession = shells.first // nil if no shells left → Claude tab
+                } else if newCount > knownTerminalCount, let last = shells.last {
+                    // New shell was added — auto-switch to it
                     selectedTerminalSession = last
                 }
 
                 knownTerminalCount = newCount
             }
             .onAppear {
-                knownTerminalCount = card.link.tmuxLink?.allSessionNames.count ?? 0
+                knownTerminalCount = shellSessions.count + (claudeTmuxSession != nil ? 1 : 0)
             }
         } else {
+            // No session at all — bare placeholder
             VStack(spacing: 12) {
                 Image(systemName: "terminal")
                     .font(.system(size: 32))
                     .foregroundStyle(.tertiary)
-                Text("No tmux session attached")
+                Text("No session yet")
                     .font(.body)
                     .foregroundStyle(.secondary)
-                Text("Start a session to see the terminal here.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
                 HStack(spacing: 12) {
-                    Button(action: onResume) {
-                        Label("Resume Claude", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
                     Button(action: onCreateTerminal) {
                         Label("New Terminal", systemImage: "terminal")
                     }
@@ -608,6 +608,153 @@ struct CardDetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    // MARK: - Claude Tab
+
+    @ViewBuilder
+    private func claudeTab(isSelected: Bool, isLaunching: Bool) -> some View {
+        let claudeAlive = claudeTmuxSession != nil
+        let isDead = !claudeAlive && !isLaunching
+
+        HStack(spacing: 0) {
+            Button {
+                selectedTerminalSession = nil
+                if claudeAlive { terminalGrabFocus = true }
+            } label: {
+                HStack(spacing: 4) {
+                    ClawdIcon()
+                        .frame(width: 12, height: 12)
+                    Text("Claude")
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(isDead ? 0.5 : 1.0)
+
+            // X button only when Claude has a live tmux session
+            if claudeAlive {
+                Button {
+                    if let session = claudeTmuxSession {
+                        onKillTerminal(session)
+                    }
+                    // Stay on Claude tab (will now show Resume)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Stop Claude session")
+            }
+        }
+        .background(
+            isSelected ? Color.accentColor.opacity(0.15) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+    }
+
+    /// Overlay shown on the Claude tab when there's no live Claude terminal.
+    @ViewBuilder
+    private func claudeTabOverlay(isLaunching: Bool) -> some View {
+        if isLaunching {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Starting session…")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                Button(action: onCancelLaunch) {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if card.link.sessionLink != nil {
+            VStack(spacing: 12) {
+                ClawdIcon()
+                    .frame(width: 32, height: 32)
+                    .opacity(0.3)
+                Text("Claude session ended")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                Button(action: onResume) {
+                    Label("Resume Claude", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(spacing: 12) {
+                ClawdIcon()
+                    .frame(width: 32, height: 32)
+                    .opacity(0.3)
+                Text("No agent session")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Shell Tab
+
+    @ViewBuilder
+    private func shellTab(sessionName: String, isSelected: Bool) -> some View {
+        let primaryName = card.link.tmuxLink?.sessionName ?? ""
+        let displayName: String = {
+            let stripped = sessionName.replacingOccurrences(of: "\(primaryName)-", with: "")
+            return stripped.isEmpty || stripped == sessionName ? "sh1" : stripped
+        }()
+
+        HStack(spacing: 0) {
+            Button {
+                selectedTerminalSession = sessionName
+                terminalGrabFocus = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "terminal")
+                        .font(.caption2)
+                    Text(displayName)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                onKillTerminal(sessionName)
+                if selectedTerminalSession == sessionName {
+                    // Switch to next available shell, or Claude tab
+                    let remaining = shellSessions.filter { $0 != sessionName }
+                    selectedTerminalSession = remaining.first // nil → Claude tab
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("Close terminal")
+        }
+        .background(
+            isSelected ? Color.accentColor.opacity(0.15) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 6)
+        )
     }
 
     private static func initialTab(for card: KanbanCodeCard) -> DetailTab {

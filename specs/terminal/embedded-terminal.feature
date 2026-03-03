@@ -72,6 +72,77 @@ Feature: Embedded Terminal Emulator
     And the terminal tab should show the new tmux session
     And the tmux tab should be labeled "Shell" with terminal icon (not "Claude")
 
+  # ── Terminal Tab Independence ──
+  #
+  # The Claude (primary) tab and extra shell tabs are independent.
+  # Killing one should never affect the others. The Claude tab is
+  # always present in the tab bar when any terminal exists.
+
+  Scenario: Claude tab is always present in the tab bar
+    Given a card has a tmuxLink (any terminal exists)
+    When I view the terminal tab bar
+    Then the "Claude" tab should always be present
+    And its content depends on the primary session state:
+      | State              | Content                                    |
+      | Primary alive      | Live terminal connected to primary session  |
+      | Primary launching  | "Starting session…" spinner + Stop button   |
+      | Primary dead       | "Claude session ended" + Resume button      |
+
+  Scenario: Killing Claude tab preserves extra terminals
+    Given a card has primary tmux session "proj-abc" and extras ["proj-abc-sh1"]
+    When I click X on the "Claude" tab
+    Then only "proj-abc" tmux session should be killed
+    And "proj-abc-sh1" should remain alive
+    And the tab bar should still be visible with "sh1" tab
+    And the "Claude" tab should show "Resume" button
+    Because tmuxLink is preserved with isPrimaryDead = true
+
+  Scenario: Killing extra terminal preserves Claude
+    Given a card has primary tmux session "proj-abc" and extras ["proj-abc-sh1"]
+    When I click X on the "sh1" tab
+    Then only "proj-abc-sh1" tmux session should be killed
+    And "proj-abc" should remain alive
+    And the Claude tab should still show the live terminal
+
+  Scenario: Killing last extra while Claude is dead removes tmuxLink
+    Given a card has primary dead and extras ["proj-abc-sh1"]
+    When I click X on the "sh1" tab
+    Then both primary and extras are gone
+    And tmuxLink should be set to nil
+    And the terminal view should show "No tmux session attached"
+
+  Scenario: Resume Claude when extras exist
+    Given a card has primary dead and extras ["proj-abc-sh1"]
+    When I click "Resume Claude" on the Claude tab
+    Then a new primary tmux session should be created
+    And extras should be preserved
+    And the Claude tab should show the new terminal
+    And the "sh1" tab should remain accessible
+
+  Scenario: Creating extra terminal when Claude is dead
+    Given a card has primary dead (no live Claude session)
+    When I click the "+" button to create a new terminal
+    Then a new extra terminal should be created
+    And it should appear as a new tab in the tab bar
+
+  Scenario: Reconciler detects primary crash with extras alive
+    Given a card has primary tmux session "proj-abc" and extras ["proj-abc-sh1"]
+    And the primary tmux session crashes or is killed externally
+    When the next reconciliation cycle runs
+    Then tmuxLink should be preserved (not cleared)
+    And isPrimaryDead should be set to true
+    And the Claude tab should show "Resume" button
+    And the "sh1" tab should remain functional
+
+  # ── Cancel Launch ──
+
+  Scenario: Cancel a launching session
+    Given a card has isLaunching = true and a tmux session is being created
+    When I click the "Stop" button on the launching spinner
+    Then isLaunching should be cleared
+    And the pre-created tmux session should be killed
+    And the Claude tab should show "Resume" button
+
   Scenario: Session without tmux shows history
     Given a session "abc-123" has no linked tmux session
     When I open the card's detail view

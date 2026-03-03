@@ -20,6 +20,7 @@ public struct TmuxLink: Codable, Sendable, Equatable {
     public var sessionName: String          // Primary tmux session
     public var extraSessions: [String]?     // User-created shell terminals
     public var isShellOnly: Bool?           // true if primary session is a plain shell (not Claude)
+    public var isPrimaryDead: Bool?         // true when primary killed but extras survive
 
     /// All session names (primary + extras).
     public var allSessionNames: [String] {
@@ -31,10 +32,11 @@ public struct TmuxLink: Codable, Sendable, Equatable {
     /// Total count of terminals.
     public var terminalCount: Int { allSessionNames.count }
 
-    public init(sessionName: String, extraSessions: [String]? = nil, isShellOnly: Bool = false) {
+    public init(sessionName: String, extraSessions: [String]? = nil, isShellOnly: Bool = false, isPrimaryDead: Bool = false) {
         self.sessionName = sessionName
         self.extraSessions = extraSessions
         self.isShellOnly = isShellOnly ? true : nil // nil when false for compact JSON
+        self.isPrimaryDead = isPrimaryDead ? true : nil // nil when false for compact JSON
     }
 }
 

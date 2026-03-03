@@ -48,12 +48,27 @@ public final class TmuxAdapter: TmuxManagerPort, @unchecked Sendable {
         }
 
         if let command, !command.isEmpty {
-            let sendResult = try await ShellCommand.run(
-                tmuxPath,
-                arguments: ["send-keys", "-t", name, command, "Enter"]
-            )
-            if !sendResult.succeeded {
-                KanbanCodeLog.error("tmux", "send-keys failed for \(name): \(sendResult.stderr)")
+            if command.contains("\n") {
+                // Multi-line commands break tmux send-keys (newlines become Enter
+                // presses, splitting the command). Write to a temp file and source
+                // it — the shell parser handles newlines inside quoted strings correctly.
+                let tempFile = "/tmp/kanban-code-launch-\(name).sh"
+                try command.write(toFile: tempFile, atomically: true, encoding: .utf8)
+                let sendResult = try await ShellCommand.run(
+                    tmuxPath,
+                    arguments: ["send-keys", "-t", name, ". '\(tempFile)' ; rm -f '\(tempFile)'", "Enter"]
+                )
+                if !sendResult.succeeded {
+                    KanbanCodeLog.error("tmux", "send-keys (source) failed for \(name): \(sendResult.stderr)")
+                }
+            } else {
+                let sendResult = try await ShellCommand.run(
+                    tmuxPath,
+                    arguments: ["send-keys", "-t", name, command, "Enter"]
+                )
+                if !sendResult.succeeded {
+                    KanbanCodeLog.error("tmux", "send-keys failed for \(name): \(sendResult.stderr)")
+                }
             }
         }
     }
