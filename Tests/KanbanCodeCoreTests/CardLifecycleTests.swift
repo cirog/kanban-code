@@ -104,6 +104,34 @@ struct CardLifecycleTests {
         #expect(link.column == .allSessions)
     }
 
+    @Test("Archived card becomes actively working → clears manuallyArchived and moves to inProgress")
+    func archivedCardRevived() {
+        var link = Link(column: .allSessions, manuallyArchived: true, sessionLink: SessionLink(sessionId: "s1"))
+        UpdateCardColumn.update(link: &link, activityState: .activelyWorking, hasWorktree: false)
+        #expect(link.column == .inProgress)
+        #expect(link.manuallyArchived == false)
+    }
+
+    @Test("Archived card stays archived when idle")
+    func archivedCardStaysArchived() {
+        var link = Link(column: .allSessions, manuallyArchived: true, sessionLink: SessionLink(sessionId: "s1"))
+        UpdateCardColumn.update(link: &link, activityState: .idleWaiting, hasWorktree: false)
+        #expect(link.column == .allSessions)
+        #expect(link.manuallyArchived == true)
+    }
+
+    @Test("Revived archived card goes to waiting when work stops")
+    func revivedCardGoesToWaiting() {
+        var link = Link(column: .allSessions, manuallyArchived: true, sessionLink: SessionLink(sessionId: "s1"))
+        // First: actively working clears archive
+        UpdateCardColumn.update(link: &link, activityState: .activelyWorking, hasWorktree: false)
+        #expect(link.column == .inProgress)
+        #expect(link.manuallyArchived == false)
+        // Then: work stops → goes to waiting (not back to allSessions)
+        UpdateCardColumn.update(link: &link, activityState: .needsAttention, hasWorktree: false)
+        #expect(link.column == .waiting)
+    }
+
     @Test("Column doesn't change when state results in same column")
     func noUnnecessaryUpdate() {
         var link = Link(column: .inProgress, sessionLink: SessionLink(sessionId: "s1"))

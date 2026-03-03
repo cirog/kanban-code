@@ -12,14 +12,15 @@ public enum AssignColumn {
         allPRsDone: Bool = false,
         hasWorktree: Bool = false
     ) -> KanbanCodeColumn {
-        // Archive always wins
-        if link.manuallyArchived {
-            return .allSessions
-        }
-
-        // Actively working always shows in progress, regardless of PR state or manual drag
+        // Actively working always shows in progress — even if manually archived.
+        // If the user talks to an archived session, it should come back to life.
         if activityState == .activelyWorking {
             return .inProgress
+        }
+
+        // Archive wins over everything else
+        if link.manuallyArchived {
+            return .allSessions
         }
 
         // Terminal PR state

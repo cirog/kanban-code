@@ -22,6 +22,12 @@ public enum UpdateCardColumn {
             hasWorktree: hasWorktree
         )
 
+        // If an archived card becomes actively working, clear the archive flag
+        // so it stays in waiting (not allSessions) once work stops.
+        if link.manuallyArchived && newColumn == .inProgress {
+            link.manuallyArchived = false
+        }
+
         if newColumn != link.column {
             link.column = newColumn
             link.updatedAt = .now

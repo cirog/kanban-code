@@ -34,6 +34,20 @@ Feature: All Sessions Archive
     Then a tmux session should be created
     And Claude should be resumed with `claude --resume abc-123`
     And the card should move to "In Progress"
+    And the manuallyArchived flag should be cleared
+
+  Scenario: Revived session goes to waiting when work stops
+    Given a previously archived session that was revived by sending a message
+    And the manuallyArchived flag was cleared when it moved to "In Progress"
+    When Claude stops working and needs attention
+    Then the card should move to "Waiting"
+    And it should NOT fall back to "All Sessions"
+
+  Scenario: Archived card stays archived when idle
+    Given an archived session "abc-123" is in "All Sessions"
+    And the session receives an idle activity state update
+    Then the card should remain in "All Sessions"
+    And the manuallyArchived flag should remain set
 
   Scenario: Reviving with one-click resume button
     Given an archived session card
