@@ -69,6 +69,9 @@ final class TerminalCache {
             c(0xFF, 0xFF, 0xFF),  // bright white
         ])
 
+        // Slightly smaller font than the default
+        terminal.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+
         terminal.autoresizingMask = [.width, .height]
         terminal.isHidden = true
         terminals[sessionName] = terminal

@@ -151,7 +151,22 @@ public final class BoardState: @unchecked Sendable {
         guard let cardPath else { return false }
         let normalizedCard = ProjectDiscovery.normalizePath(cardPath)
         let normalizedSelected = ProjectDiscovery.normalizePath(selectedPath)
-        return normalizedCard == normalizedSelected || normalizedCard.hasPrefix(normalizedSelected + "/")
+
+        // Direct match: card is at or under the selected project
+        if normalizedCard == normalizedSelected || normalizedCard.hasPrefix(normalizedSelected + "/") {
+            return true
+        }
+
+        // Worktree match: card's worktree is at the git root (e.g. repo/.claude/worktrees/name)
+        // but the selected project is a subfolder of that repo (monorepo layout).
+        if let range = normalizedCard.range(of: "/.claude/worktrees/") {
+            let repoRoot = String(normalizedCard[..<range.lowerBound])
+            if normalizedSelected == repoRoot || normalizedSelected.hasPrefix(repoRoot + "/") {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// Check if a card should be excluded from the global view.
@@ -443,6 +458,12 @@ public final class BoardState: @unchecked Sendable {
 
                     if let branch = link.worktreeLink?.branch, link.prLinks.isEmpty, !coveredBranches.contains(branch) {
                         branchesByRepo[repoRoot, default: []].append((index: i, branch: branch))
+                    }
+                    // Also look up PRs for discovered branches (from git push scanning)
+                    if link.prLinks.isEmpty, let discovered = link.discoveredBranches {
+                        for branch in discovered where !coveredBranches.contains(branch) {
+                            branchesByRepo[repoRoot, default: []].append((index: i, branch: branch))
+                        }
                     }
                     for j in link.prLinks.indices {
                         let prNumber = link.prLinks[j].number

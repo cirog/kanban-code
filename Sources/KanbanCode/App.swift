@@ -62,37 +62,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Check if we have managed tmux sessions running
-        let killOnQuit = UserDefaults.standard.bool(forKey: "killTmuxOnQuit")
-        let task = Task {
-            let tmux = TmuxAdapter()
-            let sessions = (try? await tmux.listSessions()) ?? []
-            let owned = sessions.filter { $0.name.contains("card_") }
-            await MainActor.run {
-                if owned.isEmpty {
-                    // No managed sessions — quit immediately
-                    NSApp.reply(toApplicationShouldTerminate: true)
-                } else if killOnQuit {
-                    // User already chose to always kill — do it silently
-                    Task {
-                        for session in owned {
-                            try? await tmux.killSession(name: session.name)
-                            TerminalCache.shared.remove(session.name)
-                        }
-                        NSApp.reply(toApplicationShouldTerminate: true)
-                    }
-                } else {
-                    // Show confirmation dialog with sessions already loaded
-                    NotificationCenter.default.post(
-                        name: .kanbanCodeQuitRequested,
-                        object: nil,
-                        userInfo: ["sessions": owned]
-                    )
-                }
-            }
+        // Check for managed tmux sessions synchronously — async Tasks are unreliable
+        // during app termination as the concurrency runtime may not schedule them.
+        let owned = Self.listOwnedTmuxSessionsSync()
+
+        if owned.isEmpty {
+            return .terminateNow
         }
-        _ = task
+
+        // Hand off to SwiftUI sheet via notification
+        NotificationCenter.default.post(
+            name: .kanbanCodeQuitRequested,
+            object: nil,
+            userInfo: ["sessions": owned]
+        )
         return .terminateLater
+    }
+
+    /// Synchronous tmux list-sessions — safe to call during applicationShouldTerminate.
+    static func listOwnedTmuxSessionsSync() -> [TmuxSession] {
+        let tmuxPath = ShellCommand.findExecutable("tmux") ?? "tmux"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["list-sessions", "-F", "#{session_name}\t#{session_path}\t#{session_attached}"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
+        }
+        guard process.terminationStatus == 0 else { return [] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8), !output.isEmpty else { return [] }
+
+        return output.components(separatedBy: "\n").compactMap { line -> TmuxSession? in
+            let parts = line.components(separatedBy: "\t")
+            guard parts.count >= 3 else { return nil }
+            return TmuxSession(name: parts[0], path: parts[1], attached: parts[2] == "1")
+        }.filter { $0.name.contains("card_") }
+    }
+
+    static func killTmuxSessionSync(name: String) {
+        let tmuxPath = ShellCommand.findExecutable("tmux") ?? "tmux"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["kill-session", "-t", name]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
     }
 
     // Show notifications even when the app is in the foreground

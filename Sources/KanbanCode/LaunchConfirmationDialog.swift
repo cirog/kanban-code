@@ -54,111 +54,117 @@ struct LaunchConfirmationDialog: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(isResume ? "Resume Session" : "Launch Session")
-                .font(.title3)
-                .fontWeight(.semibold)
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(isResume ? "Resume Session" : "Launch Session")
+                        .font(.title3)
+                        .fontWeight(.semibold)
 
-            // Project path (read-only)
-            HStack(spacing: 6) {
-                Image(systemName: "folder")
-                    .foregroundStyle(.secondary)
-                Text(projectPath)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            // Worktree name (if applicable, launch only)
-            if !isResume, let name = worktreeName {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .foregroundStyle(.secondary)
-                    Text(name)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // Session ID (resume only)
-            if isResume, let sid = sessionId {
-                HStack(spacing: 6) {
-                    ClawdIcon()
-                        .frame(width: 14, height: 14)
-                        .opacity(0.5)
-                    Text(sid)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-
-            // Editable prompt (launch only)
-            if !isResume {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Prompt")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    PromptEditor(
-                        text: $prompt,
-                        onSubmit: submitForm
-                    )
-                    .frame(minHeight: 120, maxHeight: 300)
-                    .padding(4)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-                }
-            }
-
-            // Checkboxes
-            VStack(alignment: .leading, spacing: 6) {
-                if !isResume && !hasExistingWorktree {
-                    Toggle("Create worktree", isOn: isGitRepo ? $createWorktree : .constant(false))
-                        .font(.callout)
-                        .disabled(!isGitRepo)
-                    if !isGitRepo {
-                        Label("Not a git repository", systemImage: "info.circle")
-                            .font(.caption2)
+                    // Project path (read-only)
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder")
                             .foregroundStyle(.secondary)
-                            .padding(.leading, 20)
+                        Text(projectPath)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                }
 
-                Toggle("Run remotely", isOn: hasRemoteConfig ? $runRemotely : .constant(false))
-                    .font(.callout)
-                    .disabled(!hasRemoteConfig)
-                if !hasRemoteConfig {
-                    Label("Configure remote execution in Settings > Remote", systemImage: "info.circle")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 20)
-                }
-
-                Toggle("Dangerously skip permissions", isOn: $dangerouslySkipPermissions)
-                    .font(.callout)
-            }
-
-            // Editable command
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Command")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $command)
-                    .font(.caption.monospaced())
-                    .frame(minHeight: 36, maxHeight: 80)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(4)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-                    .onChange(of: command) {
-                        if command != commandPreview {
-                            commandEdited = true
+                    // Worktree name (if applicable, launch only)
+                    if !isResume, let name = worktreeName {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .foregroundStyle(.secondary)
+                            Text(name)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
+
+                    // Session ID (resume only)
+                    if isResume, let sid = sessionId {
+                        HStack(spacing: 6) {
+                            ClawdIcon()
+                                .frame(width: 14, height: 14)
+                                .opacity(0.5)
+                            Text(sid)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+
+                    // Editable prompt (launch only)
+                    if !isResume {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Prompt")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            PromptEditor(
+                                text: $prompt,
+                                onSubmit: submitForm
+                            )
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(minHeight: 120, maxHeight: 400)
+                            .padding(4)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+
+                    // Checkboxes
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !isResume && !hasExistingWorktree {
+                            Toggle("Create worktree", isOn: isGitRepo ? $createWorktree : .constant(false))
+                                .font(.callout)
+                                .disabled(!isGitRepo)
+                            if !isGitRepo {
+                                Label("Not a git repository", systemImage: "info.circle")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.leading, 20)
+                            }
+                        }
+
+                        Toggle("Run remotely", isOn: hasRemoteConfig ? $runRemotely : .constant(false))
+                            .font(.callout)
+                            .disabled(!hasRemoteConfig)
+                        if !hasRemoteConfig {
+                            Label("Configure remote execution in Settings > Remote", systemImage: "info.circle")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 20)
+                        }
+
+                        Toggle("Dangerously skip permissions", isOn: $dangerouslySkipPermissions)
+                            .font(.callout)
+                    }
+
+                    // Editable command
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Command")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $command)
+                            .font(.caption.monospaced())
+                            .frame(minHeight: 36, maxHeight: 80)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(4)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                            .onChange(of: command) {
+                                if command != commandPreview {
+                                    commandEdited = true
+                                }
+                            }
+                    }
+                }
+                .padding(20)
             }
 
-            // Buttons
+            // Buttons pinned outside scroll area
             HStack {
                 Spacer()
                 Button("Cancel") {
@@ -171,9 +177,12 @@ struct LaunchConfirmationDialog: View {
                 .disabled(!isResume && prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .buttonStyle(.borderedProminent)
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+            .padding(.top, 8)
         }
-        .padding(20)
         .frame(width: 500)
+        .frame(maxHeight: 700)
         .onAppear {
             command = commandPreview
         }

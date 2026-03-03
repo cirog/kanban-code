@@ -226,7 +226,10 @@ struct CardView: View {
 
 /// Loads the clawd mascot PNG from the SPM bundle resource.
 struct ClawdIcon: View {
-    private let image: NSImage? = {
+    /// When set, pre-sizes the NSImage so Menu Label icon slots respect the dimensions.
+    var size: CGFloat?
+
+    private static let sourceImage: NSImage? = {
         guard let url = Bundle.appResources.url(forResource: "clawd@2x", withExtension: "png", subdirectory: "Resources")
                 ?? Bundle.appResources.url(forResource: "clawd", withExtension: "png", subdirectory: "Resources") else {
             return nil
@@ -235,11 +238,25 @@ struct ClawdIcon: View {
     }()
 
     var body: some View {
-        if let image {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+        if let src = Self.sourceImage {
+            if let size {
+                // Pre-sized image for contexts like Menu Labels that ignore .frame()
+                Image(nsImage: Self.resized(src, to: size))
+            } else {
+                Image(nsImage: src)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            }
         }
+    }
+
+    private static func resized(_ img: NSImage, to size: CGFloat) -> NSImage {
+        let result = NSImage(size: NSSize(width: size, height: size))
+        result.lockFocus()
+        img.draw(in: NSRect(x: 0, y: 0, width: size, height: size),
+                 from: .zero, operation: .sourceOver, fraction: 1.0)
+        result.unlockFocus()
+        return result
     }
 }
 

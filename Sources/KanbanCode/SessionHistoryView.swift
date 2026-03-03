@@ -110,14 +110,14 @@ struct SessionHistoryView: View {
                                         highlightText: activeQuery.isEmpty ? nil : activeQuery
                                     )
                                     .id(turn.index)
-                                    .onHover { isHovering in
+                                    .overlay {
                                         if checkpointMode {
-                                            hoveredTurnIndex = isHovering ? turn.index : nil
-                                        }
-                                    }
-                                    .onTapGesture {
-                                        if checkpointMode {
-                                            onSelectTurn?(turn)
+                                            Color.clear
+                                                .contentShape(Rectangle())
+                                                .onTapGesture { onSelectTurn?(turn) }
+                                                .onHover { isHovering in
+                                                    hoveredTurnIndex = isHovering ? turn.index : nil
+                                                }
                                         }
                                     }
                                 }

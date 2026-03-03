@@ -74,7 +74,6 @@ struct CardDetailView: View {
 
     // Fork
     @State private var showForkConfirm = false
-    @State private var forkResult: String?
 
     // Add link popover
     @State private var showAddLink = false
@@ -168,6 +167,7 @@ struct CardDetailView: View {
                                 Image(systemName: "chevron.left.forwardslash.chevron.right")
                                     .font(.system(size: 13))
                                     .frame(width: 36, height: 36)
+                                    .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
                             .glassEffect(.regular, in: .capsule)
@@ -415,7 +415,7 @@ struct CardDetailView: View {
         }
         .alert("Fork Session?", isPresented: $showForkConfirm) {
             Button("Cancel", role: .cancel) {}
-            Button("Fork") { performFork() }
+            Button("Fork") { onFork() }
         } message: {
             Text("This creates a duplicate session you can resume independently.")
         }
@@ -894,7 +894,7 @@ struct CardDetailView: View {
                     Label {
                         Text("Copy Session ID")
                     } icon: {
-                        ClawdIcon().frame(width: 11, height: 11)
+                        ClawdIcon(size: 14)
                     }
                 }
             }
@@ -947,6 +947,8 @@ struct CardDetailView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.caption)
+                .frame(width: 36, height: 36)
+                .contentShape(Circle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -1040,20 +1042,7 @@ struct CardDetailView: View {
         historyPollTask = nil
     }
 
-    // MARK: - Fork
-
-    private func performFork() {
-        guard let path = card.link.sessionLink?.sessionPath else { return }
-        Task {
-            do {
-                let newId = try await sessionStore.forkSession(sessionPath: path)
-                forkResult = newId
-                onFork()
-            } catch {
-                // Could show error toast
-            }
-        }
-    }
+    // MARK: - Fork (handled by onFork callback)
 
     // MARK: - Checkpoint
 

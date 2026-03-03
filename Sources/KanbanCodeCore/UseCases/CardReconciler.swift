@@ -62,6 +62,14 @@ public enum CardReconciler {
             if let branch = link.worktreeLink?.branch {
                 cardIdsByBranch[branch, default: []].append(link.id)
             }
+            // Also index discovered branches (from git push scanning) for PR matching
+            if let discovered = link.discoveredBranches {
+                for branch in discovered {
+                    if !(cardIdsByBranch[branch]?.contains(link.id) ?? false) {
+                        cardIdsByBranch[branch, default: []].append(link.id)
+                    }
+                }
+            }
         }
 
         // Track which sessions we've matched so we can detect new ones
@@ -172,15 +180,34 @@ public enum CardReconciler {
 
                 let existingCardIds = cardIdsByBranch[baseName] ?? []
                 if existingCardIds.isEmpty {
-                    // Orphan worktree — create a new card
-                    KanbanCodeLog.info("reconciler", "Orphan worktree branch=\(baseName) → new card")
-                    let newLink = Link(
-                        projectPath: repoRoot,
-                        source: .discovered,
-                        worktreeLink: WorktreeLink(path: worktree.path, branch: baseName)
-                    )
-                    linksById[newLink.id] = newLink
-                    cardIdsByBranch[baseName, default: []].append(newLink.id)
+                    // Check if a card is currently launching in this repo — associate the worktree
+                    // with it instead of creating an orphan (avoids launch race condition).
+                    let launchingCard = linksById.first { (_, link) in
+                        link.isLaunching == true
+                            && link.projectPath != nil
+                            && (repoRoot == link.projectPath
+                                || repoRoot.hasPrefix(link.projectPath! + "/")
+                                || link.projectPath!.hasPrefix(repoRoot + "/"))
+                    }
+                    if let (launchingId, _) = launchingCard {
+                        KanbanCodeLog.info("reconciler", "Associating worktree branch=\(baseName) with launching card \(launchingId.prefix(12))")
+                        var link = linksById[launchingId]!
+                        if link.worktreeLink == nil {
+                            link.worktreeLink = WorktreeLink(path: worktree.path, branch: baseName)
+                        }
+                        linksById[launchingId] = link
+                        cardIdsByBranch[baseName, default: []].append(launchingId)
+                    } else {
+                        // Orphan worktree — create a new card
+                        KanbanCodeLog.info("reconciler", "Orphan worktree branch=\(baseName) → new card")
+                        let newLink = Link(
+                            projectPath: repoRoot,
+                            source: .discovered,
+                            worktreeLink: WorktreeLink(path: worktree.path, branch: baseName)
+                        )
+                        linksById[newLink.id] = newLink
+                        cardIdsByBranch[baseName, default: []].append(newLink.id)
+                    }
                 } else {
                     // Update existing card's worktree link
                     for cardId in existingCardIds {

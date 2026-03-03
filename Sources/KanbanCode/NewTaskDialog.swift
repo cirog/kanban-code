@@ -41,7 +41,8 @@ struct NewTaskDialog: View {
                     placeholder: "Describe what you want Claude to do...",
                     onSubmit: submitForm
                 )
-                .frame(minHeight: 80, maxHeight: 200)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 80, maxHeight: 400)
                 .padding(4)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
             }

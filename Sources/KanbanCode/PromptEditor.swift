@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 /// A TextEditor replacement where Enter submits and Shift+Enter inserts a newline.
+/// Reports its intrinsic height so SwiftUI can auto-size via `fixedSize(horizontal:vertical:)`.
 struct PromptEditor: NSViewRepresentable {
     @Binding var text: String
     var font: NSFont = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
@@ -12,8 +13,8 @@ struct PromptEditor: NSViewRepresentable {
         Coordinator(self)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+    func makeNSView(context: Context) -> PromptEditorScrollView {
+        let scrollView = PromptEditorScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -42,7 +43,7 @@ struct PromptEditor: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ scrollView: PromptEditorScrollView, context: Context) {
         guard let textView = scrollView.documentView as? SubmitTextView else { return }
         if textView.string != text {
             textView.string = text
@@ -53,6 +54,9 @@ struct PromptEditor: NSViewRepresentable {
         // Update placeholder
         context.coordinator.placeholder = placeholder
         context.coordinator.updatePlaceholder(textView)
+
+        // Recalculate intrinsic height after text/font changes
+        scrollView.recalcIntrinsicHeight()
     }
 
     @MainActor class Coordinator: NSObject, NSTextViewDelegate {
@@ -68,15 +72,40 @@ struct PromptEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
             updatePlaceholder(textView)
+            // Recalculate height when user types
+            (textView.enclosingScrollView as? PromptEditorScrollView)?.recalcIntrinsicHeight()
         }
 
         func updatePlaceholder(_ textView: NSTextView) {
-            // Use the attributedPlaceholder approach via insertion point color
             if textView.string.isEmpty && !placeholder.isEmpty {
                 textView.insertionPointColor = .tertiaryLabelColor
             } else {
                 textView.insertionPointColor = .labelColor
             }
+        }
+    }
+}
+
+/// NSScrollView subclass that reports intrinsic content height based on the text content,
+/// so SwiftUI can auto-size the editor with `fixedSize(horizontal:vertical:)`.
+final class PromptEditorScrollView: NSScrollView {
+    private var contentHeight: CGFloat = 80
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: contentHeight)
+    }
+
+    func recalcIntrinsicHeight() {
+        guard let textView = documentView as? NSTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let textHeight = layoutManager.usedRect(for: textContainer).height
+            + textView.textContainerInset.height * 2
+        let newHeight = max(80, textHeight)
+        if abs(newHeight - contentHeight) > 1 {
+            contentHeight = newHeight
+            invalidateIntrinsicContentSize()
         }
     }
 }
