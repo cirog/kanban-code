@@ -963,6 +963,7 @@ public final class BoardStore: @unchecked Sendable {
         defer { isReconciling = false }
 
         dispatch(.setLoading(true))
+        let reconcileStart = ContinuousClock.now
 
         do {
             // Load settings for project filtering
@@ -970,27 +971,32 @@ public final class BoardStore: @unchecked Sendable {
             var excludedPaths: [String] = []
             var globalRemoteSettings: RemoteSettings?
             if let store = settingsStore {
+                let t = ContinuousClock.now
                 let settings = try await store.read()
                 configuredProjects = settings.projects
                 excludedPaths = settings.globalView.excludedPaths
                 globalRemoteSettings = settings.remote
+                KanbanCodeLog.info("reconcile", "settings: \(t.duration(to: .now))")
             }
 
             // Show cached data immediately while discovery runs
             if state.links.isEmpty {
+                let t = ContinuousClock.now
                 let cached = try await coordinationStore.readLinks()
                 if !cached.isEmpty {
                     for link in cached {
                         state.links[link.id] = link
                     }
                 }
+                KanbanCodeLog.info("reconcile", "cached links: \(t.duration(to: .now)) (\(cached.count) links)")
             }
 
+            let t1 = ContinuousClock.now
             let allSessions = try await discovery.discoverSessions()
-            // Filter out sessions the user deliberately deleted
             let sessions = allSessions.filter { !state.deletedSessionIds.contains($0.id) }
+            KanbanCodeLog.info("reconcile", "discoverSessions: \(t1.duration(to: .now)) (\(sessions.count) sessions)")
+
             // Use in-memory state as source of truth — NOT disk.
-            // Disk reads race with async effect writes, causing duplicates.
             let existingLinks = Array(state.links.values)
 
             // Deduplicate repo roots — multiple projects can share the same repo
@@ -999,27 +1005,94 @@ public final class BoardStore: @unchecked Sendable {
             // Scan worktrees once per unique repo
             var worktreesByRepo: [String: [Worktree]] = [:]
             if let worktreeAdapter {
+                let t = ContinuousClock.now
                 for repoRoot in uniqueRepoRoots {
                     if let worktrees = try? await worktreeAdapter.listWorktrees(repoRoot: repoRoot) {
                         worktreesByRepo[repoRoot] = worktrees
                     }
                 }
+                let total = worktreesByRepo.values.flatMap { $0 }.count
+                KanbanCodeLog.info("reconcile", "worktrees: \(t.duration(to: .now)) (\(total) across \(uniqueRepoRoots.count) repos)")
             }
 
-            // Fetch PRs once per unique repo
-            var pullRequests: [String: PullRequest] = [:]
-            if let ghAdapter {
-                for repoRoot in uniqueRepoRoots {
-                    if let prs = try? await ghAdapter.fetchPRs(repoRoot: repoRoot) {
-                        pullRequests.merge(prs, uniquingKeysWith: { existing, _ in existing })
+            // Collect branches + PR numbers from active cards only (inProgress..done).
+            // We skip backlog (no PRs yet) and allSessions (archived, don't need refresh).
+            let activeColumns: Set<KanbanCodeColumn> = [.inProgress, .waiting, .inReview, .done]
+            var branchesByRepo: [String: Set<String>] = [:]
+            var prNumbersByRepo: [String: Set<Int>] = [:]
+            for link in existingLinks {
+                guard activeColumns.contains(link.column) || !link.prLinks.isEmpty else { continue }
+                guard let repoRoot = link.projectPath, !repoRoot.isEmpty else { continue }
+                // Collect branches to discover PRs for
+                if let branch = link.worktreeLink?.branch {
+                    branchesByRepo[repoRoot, default: []].insert(branch)
+                }
+                if let discovered = link.discoveredBranches {
+                    for branch in discovered {
+                        branchesByRepo[repoRoot, default: []].insert(branch)
                     }
+                }
+                // Collect existing PR numbers to refresh status
+                for pr in link.prLinks {
+                    prNumbersByRepo[repoRoot, default: []].insert(pr.number)
                 }
             }
 
-            // Scan tmux sessions
-            let tmuxSessions = (try? await tmuxAdapter?.listSessions()) ?? []
+            // Fetch PR data via targeted GraphQL — concurrent across repos (max 5)
+            var pullRequests: [String: PullRequest] = [:]  // branch → PR for reconciler
+            var prsByRepoAndNumber: [String: [Int: PullRequest]] = [:]  // repo → number → PR
+            if let ghAdapter {
+                let t = ContinuousClock.now
+                let allRepos = Set(branchesByRepo.keys).union(prNumbersByRepo.keys)
+                typealias PRResult = (String, [String: PullRequest], [Int: PullRequest])
+                let results: [PRResult] = await withTaskGroup(of: PRResult.self) { group in
+                    var pending = 0
+                    var collected: [PRResult] = []
+                    for repoRoot in allRepos {
+                        let branches = Array(branchesByRepo[repoRoot] ?? [])
+                        let numbers = Array(prNumbersByRepo[repoRoot] ?? [])
+                        guard !branches.isEmpty || !numbers.isEmpty else { continue }
 
-            // Reconcile
+                        // Concurrency limit: drain one before adding more
+                        if pending >= 5, let result = await group.next() {
+                            collected.append(result)
+                            pending -= 1
+                        }
+
+                        group.addTask {
+                            let tBatch = ContinuousClock.now
+                            let (byBranch, byNumber) = (try? await ghAdapter.batchPRLookup(
+                                repoRoot: repoRoot, branches: branches, prNumbers: numbers
+                            )) ?? ([:], [:])
+                            let repoName = (repoRoot as NSString).lastPathComponent
+                            KanbanCodeLog.info("reconcile", "  batchPRLookup(\(repoName)): \(tBatch.duration(to: .now)) (\(branches.count) branches, \(numbers.count) PRs)")
+                            return (repoRoot, byBranch, byNumber)
+                        }
+                        pending += 1
+                    }
+                    for await result in group { collected.append(result) }
+                    return collected
+                }
+
+                for (repoRoot, byBranch, byNumber) in results {
+                    for (branch, pr) in byBranch {
+                        pullRequests[branch] = pr
+                    }
+                    if !byNumber.isEmpty {
+                        prsByRepoAndNumber[repoRoot] = byNumber
+                    }
+                }
+                let totalByNumber = prsByRepoAndNumber.values.reduce(0) { $0 + $1.count }
+                KanbanCodeLog.info("reconcile", "PR lookup: \(t.duration(to: .now)) (\(pullRequests.count) by branch, \(totalByNumber) by number, \(allRepos.count) repos)")
+            }
+
+            // Scan tmux sessions
+            let t2 = ContinuousClock.now
+            let tmuxSessions = (try? await tmuxAdapter?.listSessions()) ?? []
+            KanbanCodeLog.info("reconcile", "tmux: \(t2.duration(to: .now)) (\(tmuxSessions.count) sessions)")
+
+            // Reconcile — pullRequests map feeds branch→PR matching in the reconciler
+            let t3 = ContinuousClock.now
             let snapshot = CardReconciler.DiscoverySnapshot(
                 sessions: sessions,
                 tmuxSessions: tmuxSessions,
@@ -1028,61 +1101,27 @@ public final class BoardStore: @unchecked Sendable {
                 pullRequests: pullRequests
             )
             var mergedLinks = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
+            KanbanCodeLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) merged)")
 
-            // Post-reconciliation: targeted PR discovery via batched GraphQL
-            if let ghAdapter {
-                let coveredBranches = Set(pullRequests.keys)
-                let coveredPRNumbers = Set(pullRequests.values.map(\.number))
-
-                var branchesByRepo: [String: [(index: Int, branch: String)]] = [:]
-                var prNumbersByRepo: [String: [(index: Int, prIndex: Int, number: Int)]] = [:]
-
+            // Update existing PR statuses from the by-number results (scoped by repo
+            // to avoid cross-repo collisions — e.g., PR #1 in repo A vs PR #1 in repo B)
+            if !prsByRepoAndNumber.isEmpty {
                 for i in mergedLinks.indices {
-                    let link = mergedLinks[i]
-                    guard !link.manuallyArchived else { continue }
-                    guard let repoRoot = link.projectPath, !repoRoot.isEmpty else { continue }
-
-                    if let branch = link.worktreeLink?.branch, link.prLinks.isEmpty, !coveredBranches.contains(branch) {
-                        branchesByRepo[repoRoot, default: []].append((index: i, branch: branch))
-                    }
-                    // Also look up PRs for discovered branches (from git push scanning)
-                    if link.prLinks.isEmpty, let discovered = link.discoveredBranches {
-                        for branch in discovered where !coveredBranches.contains(branch) {
-                            branchesByRepo[repoRoot, default: []].append((index: i, branch: branch))
-                        }
-                    }
-                    for j in link.prLinks.indices {
-                        let prNumber = link.prLinks[j].number
-                        if !coveredPRNumbers.contains(prNumber) {
-                            prNumbersByRepo[repoRoot, default: []].append((index: i, prIndex: j, number: prNumber))
-                        }
-                    }
-                }
-
-                let allRepos = Set(branchesByRepo.keys).union(prNumbersByRepo.keys)
-                for repoRoot in allRepos {
-                    let branches = (branchesByRepo[repoRoot] ?? []).map(\.branch)
-                    let numbers = (prNumbersByRepo[repoRoot] ?? []).map(\.number)
-                    guard !branches.isEmpty || !numbers.isEmpty else { continue }
-
-                    let (byBranch, byNumber) = (try? await ghAdapter.batchPRLookup(repoRoot: repoRoot, branches: branches, prNumbers: numbers)) ?? ([:], [:])
-
-                    for entry in branchesByRepo[repoRoot] ?? [] {
-                        if let pr = byBranch[entry.branch] {
-                            mergedLinks[entry.index].prLinks.append(PRLink(number: pr.number, url: pr.url, status: pr.status, title: pr.title))
-                        }
-                    }
-                    for entry in prNumbersByRepo[repoRoot] ?? [] {
-                        if let pr = byNumber[entry.number] {
-                            mergedLinks[entry.index].prLinks[entry.prIndex].status = pr.status
-                            mergedLinks[entry.index].prLinks[entry.prIndex].title = pr.title
-                            mergedLinks[entry.index].prLinks[entry.prIndex].url = pr.url
+                    guard let repoRoot = mergedLinks[i].projectPath,
+                          let repoPRs = prsByRepoAndNumber[repoRoot] else { continue }
+                    for j in mergedLinks[i].prLinks.indices {
+                        let number = mergedLinks[i].prLinks[j].number
+                        if let pr = repoPRs[number] {
+                            mergedLinks[i].prLinks[j].status = pr.status
+                            mergedLinks[i].prLinks[j].title = pr.title
+                            mergedLinks[i].prLinks[j].url = pr.url
                         }
                     }
                 }
             }
 
             // Build activity map
+            let t4 = ContinuousClock.now
             var activityMap: [String: ActivityState] = [:]
             for link in mergedLinks {
                 if let sessionId = link.sessionLink?.sessionId {
@@ -1091,6 +1130,7 @@ public final class BoardStore: @unchecked Sendable {
                     }
                 }
             }
+            KanbanCodeLog.info("reconcile", "activityMap: \(t4.duration(to: .now)) (\(activityMap.count) active)")
 
             // Compute discovered project paths
             let sessionPaths = mergedLinks.map { $0.projectPath }
@@ -1100,6 +1140,7 @@ public final class BoardStore: @unchecked Sendable {
             )
 
             // Dispatch reconciled result — reducer handles all state mutations atomically
+            let t5 = ContinuousClock.now
             let result = ReconciliationResult(
                 links: mergedLinks,
                 sessions: sessions,
@@ -1111,10 +1152,16 @@ public final class BoardStore: @unchecked Sendable {
                 globalRemoteSettings: globalRemoteSettings
             )
             dispatch(.reconciled(result))
+            KanbanCodeLog.info("reconcile", "dispatch: \(t5.duration(to: .now))")
 
             // Fetch GitHub issues if enough time has elapsed
+            let t6 = ContinuousClock.now
             await refreshGitHubIssuesIfNeeded()
+            KanbanCodeLog.info("reconcile", "gitHubIssues: \(t6.duration(to: .now))")
+
+            KanbanCodeLog.info("reconcile", "TOTAL: \(reconcileStart.duration(to: .now))")
         } catch {
+            KanbanCodeLog.info("reconcile", "FAILED after \(reconcileStart.duration(to: .now)): \(error)")
             dispatch(.setError(error.localizedDescription))
             dispatch(.setLoading(false))
         }
