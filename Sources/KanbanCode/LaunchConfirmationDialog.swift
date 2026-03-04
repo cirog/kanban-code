@@ -106,6 +106,7 @@ struct LaunchConfirmationDialog: View {
 
                             PromptEditor(
                                 text: $prompt,
+                                maxHeight: 400,
                                 onSubmit: submitForm
                             )
                             .fixedSize(horizontal: false, vertical: true)

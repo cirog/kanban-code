@@ -39,6 +39,7 @@ struct NewTaskDialog: View {
                 PromptEditor(
                     text: $prompt,
                     placeholder: "Describe what you want Claude to do...",
+                    maxHeight: 400,
                     onSubmit: submitForm
                 )
                 .fixedSize(horizontal: false, vertical: true)

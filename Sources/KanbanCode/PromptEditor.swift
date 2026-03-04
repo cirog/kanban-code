@@ -7,6 +7,7 @@ struct PromptEditor: NSViewRepresentable {
     @Binding var text: String
     var font: NSFont = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
     var placeholder: String = ""
+    var maxHeight: CGFloat = 400
     var onSubmit: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
@@ -14,7 +15,7 @@ struct PromptEditor: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> PromptEditorScrollView {
-        let scrollView = PromptEditorScrollView()
+        let scrollView = PromptEditorScrollView(maxHeight: maxHeight)
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -88,8 +89,20 @@ struct PromptEditor: NSViewRepresentable {
 
 /// NSScrollView subclass that reports intrinsic content height based on the text content,
 /// so SwiftUI can auto-size the editor with `fixedSize(horizontal:vertical:)`.
+/// Height is capped at `maxContentHeight` so the view scrolls instead of overflowing.
 final class PromptEditorScrollView: NSScrollView {
     private var contentHeight: CGFloat = 80
+    private let maxContentHeight: CGFloat
+
+    init(maxHeight: CGFloat = 400) {
+        self.maxContentHeight = maxHeight
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        self.maxContentHeight = 400
+        super.init(coder: coder)
+    }
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: contentHeight)
@@ -102,7 +115,7 @@ final class PromptEditorScrollView: NSScrollView {
         layoutManager.ensureLayout(for: textContainer)
         let textHeight = layoutManager.usedRect(for: textContainer).height
             + textView.textContainerInset.height * 2
-        let newHeight = max(80, textHeight)
+        let newHeight = min(maxContentHeight, max(80, textHeight))
         if abs(newHeight - contentHeight) > 1 {
             contentHeight = newHeight
             invalidateIntrinsicContentSize()
