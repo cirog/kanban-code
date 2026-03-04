@@ -90,6 +90,108 @@ public enum TranscriptReader {
         )
     }
 
+    /// Stream all conversation turns from a .jsonl file, yielding each turn as it's parsed.
+    /// Callers receive turns incrementally without waiting for the full file to load.
+    public static func streamAllTurns(from filePath: String) -> AsyncStream<ConversationTurn> {
+        AsyncStream { continuation in
+            let task = Task.detached {
+                guard FileManager.default.fileExists(atPath: filePath) else {
+                    continuation.finish()
+                    return
+                }
+                do {
+                    let url = URL(fileURLWithPath: filePath)
+                    let handle = try FileHandle(forReadingFrom: url)
+                    defer { try? handle.close() }
+
+                    var lineNumber = 0
+                    var turnIndex = 0
+
+                    for try await line in handle.bytes.lines {
+                        if Task.isCancelled { break }
+                        lineNumber += 1
+                        guard !line.isEmpty, line.contains("\"type\"") else { continue }
+
+                        guard let data = line.data(using: .utf8),
+                              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let type = obj["type"] as? String,
+                              type == "user" || type == "assistant" else { continue }
+
+                        let blocks: [ContentBlock]
+                        let textPreview: String
+
+                        if type == "user" {
+                            blocks = extractUserBlocks(from: obj)
+                            textPreview = buildTextPreview(blocks: blocks, role: type)
+                        } else {
+                            blocks = extractAssistantBlocks(from: obj)
+                            textPreview = buildTextPreview(blocks: blocks, role: type)
+                        }
+
+                        let timestamp = obj["timestamp"] as? String
+
+                        continuation.yield(ConversationTurn(
+                            index: turnIndex,
+                            lineNumber: lineNumber,
+                            role: type,
+                            textPreview: textPreview,
+                            timestamp: timestamp,
+                            contentBlocks: blocks
+                        ))
+                        turnIndex += 1
+                    }
+                } catch {
+                    // File read error — just finish the stream
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Lightweight scan for matching turn indices — no JSON parsing for non-matches.
+    /// Yields each matching turn index as found. Scans the full file but only does
+    /// case-insensitive string search on raw line text.
+    public static func scanForMatches(
+        from filePath: String,
+        query: String
+    ) -> AsyncStream<Int> {
+        AsyncStream { continuation in
+            let task = Task.detached {
+                guard FileManager.default.fileExists(atPath: filePath) else {
+                    continuation.finish()
+                    return
+                }
+                do {
+                    let url = URL(fileURLWithPath: filePath)
+                    let handle = try FileHandle(forReadingFrom: url)
+                    defer { try? handle.close() }
+
+                    var turnIndex = 0
+
+                    for try await line in handle.bytes.lines {
+                        if Task.isCancelled { break }
+                        guard !line.isEmpty, line.contains("\"type\"") else { continue }
+
+                        // Minimal JSON parse — just check if it's a user/assistant line
+                        guard let data = line.data(using: .utf8),
+                              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let type = obj["type"] as? String,
+                              type == "user" || type == "assistant" else { continue }
+
+                        // Case-insensitive search on the raw line text (covers all content)
+                        if line.range(of: query, options: .caseInsensitive) != nil {
+                            continuation.yield(turnIndex)
+                        }
+                        turnIndex += 1
+                    }
+                } catch { }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// Load earlier turns before the current set (for "load more" pagination).
     public static func readRange(from filePath: String, turnRange: Range<Int>) async throws -> [ConversationTurn] {
         guard FileManager.default.fileExists(atPath: filePath) else { return [] }

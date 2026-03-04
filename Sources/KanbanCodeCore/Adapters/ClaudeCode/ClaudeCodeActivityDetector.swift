@@ -89,7 +89,7 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
         }
 
         switch lastEvent.eventName {
-        case "UserPromptSubmit", "SessionStart":
+        case "UserPromptSubmit":
             // After a prompt, Claude is actively working. Stay in this state until:
             // 1. A Stop hook fires (handled by the "Stop" case below)
             // 2. File stale >3s AND last jsonl line is "[Request interrupted by user]"
@@ -120,6 +120,11 @@ public actor ClaudeCodeActivityDetector: ActivityDetector {
             }
 
             return .activelyWorking
+
+        case "SessionStart":
+            // Session opened or resumed — Claude is at the prompt waiting for input.
+            // NOT actively working yet (that requires UserPromptSubmit).
+            return .idleWaiting
 
         case "Stop":
             // Stop is the definitive signal — immediately needs attention

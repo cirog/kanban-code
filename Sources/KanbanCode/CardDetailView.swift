@@ -337,7 +337,8 @@ struct CardDetailView: View {
                         showCheckpointConfirm = true
                     },
                     onLoadMore: { Task { await loadMoreHistory() } },
-                    onLoadAll: { Task { await loadAllHistory() } }
+                    onLoadAroundTurn: { turnIndex in Task { await loadAroundTurn(turnIndex) } },
+                    sessionPath: card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath
                 )
             case .issue:
                 issueTabView
@@ -1183,18 +1184,24 @@ struct CardDetailView: View {
         isLoadingMore = false
     }
 
-    /// Load the entire conversation history (for search).
-    private func loadAllHistory() async {
-        guard hasMoreTurns, !isLoadingMore else { return }
+    /// Load turns around a specific turn index (for search match navigation).
+    /// Loads a page-sized chunk around the target, merging with existing turns.
+    private func loadAroundTurn(_ targetIndex: Int) async {
         guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
         isLoadingMore = true
+
+        let halfPage = Self.pageSize / 2
+        let rangeStart = max(0, targetIndex - halfPage)
+        let rangeEnd = targetIndex + halfPage
+
         do {
-            let all = try await TranscriptReader.readTurns(from: path)
-            turns = all
-            hasMoreTurns = false
-        } catch {
-            // Silently fail
-        }
+            let chunk = try await TranscriptReader.readRange(from: path, turnRange: rangeStart..<rangeEnd)
+            var byIndex: [Int: ConversationTurn] = [:]
+            for t in turns { byIndex[t.index] = t }
+            for t in chunk { byIndex[t.index] = t }
+            turns = byIndex.values.sorted { $0.index < $1.index }
+            hasMoreTurns = (turns.first?.index ?? 0) > 0
+        } catch { }
         isLoadingMore = false
     }
 

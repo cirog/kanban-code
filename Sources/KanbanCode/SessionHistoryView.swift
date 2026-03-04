@@ -25,20 +25,23 @@ struct SessionHistoryView: View {
     var onCancelCheckpoint: (() -> Void)?
     var onSelectTurn: ((ConversationTurn) -> Void)?
     var onLoadMore: (() -> Void)?
-    var onLoadAll: (() -> Void)?
+    var onLoadAroundTurn: ((Int) -> Void)?
+    var sessionPath: String?
 
     @State private var hoveredTurnIndex: Int?
     @State private var isAtBottom = true
     @State private var showSearch = false
     @State private var searchText = ""
     @State private var activeQuery = ""  // debounced, min 2 chars
-    @State private var searchMatchIndices: [Int] = []
-    @State private var currentMatchPosition: Int = 0
+    @State private var searchMatchIndices: [Int] = []  // all found match turn indices (ascending)
+    @State private var currentMatchPosition: Int = 0   // index into searchMatchIndices, 0 = most recent (last)
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var searchScanTask: Task<Void, Never>?
+    @State private var isSearchScanning = false
     @State private var didOverscrollTop = false
     @FocusState private var isSearchFieldFocused: Bool
 
-    private static let maxSearchResults = 200
+    private static let maxSearchResults = 500
 
     var body: some View {
         if isLoading {
@@ -121,7 +124,18 @@ struct SessionHistoryView: View {
                     }
                     .onAppear { scrollToBottom(proxy: proxy, force: true) }
                     .onChange(of: turns.count) {
-                        scrollToBottom(proxy: proxy)
+                        if activeQuery.isEmpty {
+                            scrollToBottom(proxy: proxy)
+                        } else if !searchMatchIndices.isEmpty,
+                                  currentMatchPosition < searchMatchIndices.count {
+                            // Turns loaded during search — scroll to current match
+                            let idx = searchMatchIndices[currentMatchPosition]
+                            if turns.contains(where: { $0.index == idx }) {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    proxy.scrollTo(idx, anchor: .center)
+                                }
+                            }
+                        }
                         didOverscrollTop = false
                     }
                     .onChange(of: didOverscrollTop) {
@@ -130,11 +144,24 @@ struct SessionHistoryView: View {
                         }
                     }
                     .onChange(of: currentMatchPosition) {
-                        guard !searchMatchIndices.isEmpty,
+                        guard !isSearchScanning,
+                              !searchMatchIndices.isEmpty,
                               currentMatchPosition < searchMatchIndices.count else { return }
                         let idx = searchMatchIndices[currentMatchPosition]
                         withAnimation(.easeInOut(duration: 0.2)) {
                             proxy.scrollTo(idx, anchor: .center)
+                        }
+                    }
+                    .onChange(of: isSearchScanning) {
+                        if !isSearchScanning && !searchMatchIndices.isEmpty {
+                            let idx = searchMatchIndices[currentMatchPosition]
+                            if turns.contains(where: { $0.index == idx }) {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    proxy.scrollTo(idx, anchor: .center)
+                                }
+                            } else {
+                                onLoadAroundTurn?(idx)
+                            }
                         }
                     }
                 }
@@ -149,8 +176,6 @@ struct SessionHistoryView: View {
                 Button("") {
                     showSearch = true
                     isSearchFieldFocused = true
-                    // Load full history for search if not all loaded yet
-                    if hasMoreTurns { onLoadAll?() }
                 }
                 .keyboardShortcut("f", modifiers: .command)
                 .hidden()
@@ -178,17 +203,19 @@ struct SessionHistoryView: View {
                 .onSubmit { navigateSearch(forward: true) }
                 .onChange(of: searchText) { scheduleSearch() }
 
-            if isLoadingMore {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(.white.opacity(0.5))
-            } else if !activeQuery.isEmpty {
-                if searchMatchIndices.isEmpty {
+            if !activeQuery.isEmpty {
+                if isSearchScanning {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white.opacity(0.5))
+                }
+
+                if searchMatchIndices.isEmpty && !isSearchScanning {
                     Text("0 results")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.4))
-                } else {
-                    Text("\(currentMatchPosition + 1)/\(searchMatchIndices.count)\(searchMatchIndices.count >= Self.maxSearchResults ? "+" : "")")
+                } else if !searchMatchIndices.isEmpty {
+                    Text("\(currentMatchPosition + 1)/\(searchMatchIndices.count)\(isSearchScanning ? "…" : "")")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.6))
 
@@ -232,6 +259,8 @@ struct SessionHistoryView: View {
             activeQuery = ""
             searchMatchIndices = []
             currentMatchPosition = 0
+            searchScanTask?.cancel()
+            isSearchScanning = false
             return
         }
 
@@ -242,27 +271,42 @@ struct SessionHistoryView: View {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             activeQuery = searchText
-            updateSearchMatches()
+            startScan()
         }
     }
 
-    private func updateSearchMatches() {
-        guard !activeQuery.isEmpty else {
-            searchMatchIndices = []
-            currentMatchPosition = 0
-            return
-        }
-        let query = activeQuery.lowercased()
-        var indices: [Int] = []
-        for turn in turns {
-            if turn.textPreview.lowercased().contains(query)
-                || turn.contentBlocks.contains(where: { $0.text.lowercased().contains(query) }) {
-                indices.append(turn.index)
-                if indices.count >= Self.maxSearchResults { break }
+    private func startScan() {
+        searchScanTask?.cancel()
+        searchMatchIndices = []
+        currentMatchPosition = 0
+
+        guard let path = sessionPath, !activeQuery.isEmpty else { return }
+
+        isSearchScanning = true
+        let query = activeQuery
+        let maxResults = Self.maxSearchResults
+
+        searchScanTask = Task {
+            var matches: [Int] = []
+
+            for await matchIndex in TranscriptReader.scanForMatches(from: path, query: query) {
+                if Task.isCancelled { break }
+                matches.append(matchIndex)
+                if matches.count >= maxResults { break }
+
+                // Batch update UI every 20 matches or on first match
+                if matches.count == 1 || matches.count % 20 == 0 {
+                    searchMatchIndices = matches
+                    currentMatchPosition = max(0, matches.count - 1)
+                }
             }
+
+            guard !Task.isCancelled else { return }
+
+            searchMatchIndices = matches
+            currentMatchPosition = max(0, matches.count - 1)
+            isSearchScanning = false
         }
-        searchMatchIndices = indices
-        currentMatchPosition = max(0, indices.count - 1)
     }
 
     private func navigateSearch(forward: Bool) {
@@ -272,10 +316,17 @@ struct SessionHistoryView: View {
         } else {
             currentMatchPosition = (currentMatchPosition - 1 + searchMatchIndices.count) % searchMatchIndices.count
         }
+        // Ensure the target match turn is loaded
+        let targetIndex = searchMatchIndices[currentMatchPosition]
+        if !turns.contains(where: { $0.index == targetIndex }) {
+            onLoadAroundTurn?(targetIndex)
+        }
     }
 
     private func dismissSearch() {
         searchDebounceTask?.cancel()
+        searchScanTask?.cancel()
+        isSearchScanning = false
         showSearch = false
         isSearchFieldFocused = false
         searchText = ""
