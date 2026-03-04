@@ -21,6 +21,9 @@ final class BatchedTerminalView: LocalProcessTerminalView {
     /// Long enough to coalesce a tmux full-screen redraw,
     /// short enough to feel instant for interactive typing.
     private static let batchDelay: TimeInterval = 0.016
+    /// Max bytes to parse per runloop iteration. Keeps main thread responsive
+    /// even when Claude streams huge conversations through the terminal.
+    private static let maxChunkSize = 16_384
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
         pendingData.append(contentsOf: slice)
@@ -32,11 +35,28 @@ final class BatchedTerminalView: LocalProcessTerminalView {
     }
 
     private func flushPendingData() {
-        flushScheduled = false
-        guard !pendingData.isEmpty else { return }
-        let batch = pendingData
-        pendingData.removeAll(keepingCapacity: true)
-        feed(byteArray: batch[...])
+        guard !pendingData.isEmpty else {
+            flushScheduled = false
+            return
+        }
+
+        if pendingData.count <= Self.maxChunkSize {
+            // Small batch — feed all at once
+            let batch = pendingData
+            pendingData.removeAll(keepingCapacity: true)
+            flushScheduled = false
+            feed(byteArray: batch[...])
+        } else {
+            // Large batch — feed one chunk, yield to runloop between chunks
+            // so the UI stays responsive. flushScheduled stays true so new
+            // incoming data just appends without scheduling a second drain.
+            let chunk = pendingData[0..<Self.maxChunkSize]
+            feed(byteArray: chunk)
+            pendingData = Array(pendingData[Self.maxChunkSize...])
+            DispatchQueue.main.async { [weak self] in
+                self?.flushPendingData()
+            }
+        }
     }
 
     // MARK: - Cmd+hover URL detection
