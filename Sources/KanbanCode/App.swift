@@ -8,7 +8,7 @@ struct KanbanCodeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        WindowGroup {
+        Window("Kanban Code", id: "main") {
             ContentView()
                 .frame(minWidth: 900, minHeight: 500)
         }
@@ -102,6 +102,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         process.standardError = FileHandle.nullDevice
         try? process.run()
         process.waitUntilExit()
+    }
+
+    // Handle kanbancode:// deep links (from Pushover tap, browser, etc.)
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard url.scheme == "kanbancode" else { continue }
+            // kanbancode://card/{cardId}
+            if url.host == "card",
+               let cardId = url.pathComponents.dropFirst().first, !cardId.isEmpty {
+                NotificationCenter.default.post(
+                    name: .kanbanCodeSelectCard, object: nil,
+                    userInfo: ["cardId": cardId]
+                )
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     // Show notifications even when the app is in the foreground

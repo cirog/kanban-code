@@ -32,6 +32,11 @@ public final class PushoverClient: NotifierPort, @unchecked Sendable {
         addField("message", message)
         addField("html", "1")
 
+        if let cardId {
+            addField("url", "kanbancode://card/\(cardId)")
+            addField("url_title", "Open in Kanban Code")
+        }
+
         if let imageData {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"attachment\"; filename=\"image.png\"\r\n".data(using: .utf8)!)
