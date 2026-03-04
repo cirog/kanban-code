@@ -49,6 +49,11 @@ public struct PullRequest: Identifiable, Sendable {
         if unresolvedThreads > 0 { return .unresolved }
         if reviewDecision == "CHANGES_REQUESTED" { return .changesRequested }
         if reviewDecision == "REVIEW_REQUIRED" || reviewDecision == "" || reviewDecision == nil {
+            // Repos without required reviews return empty reviewDecision even with approvals
+            if approvalCount > 0 {
+                if checksStatus == .pending { return .pendingCI }
+                return .approved
+            }
             return .reviewNeeded
         }
         if checksStatus == .pending { return .pendingCI }

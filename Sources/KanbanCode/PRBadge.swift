@@ -8,12 +8,18 @@ struct PRBadge: View {
     let prNumber: Int
 
     var body: some View {
-        Text(verbatim: "#\(prNumber)")
-            .font(.system(size: 10, weight: .medium, design: .rounded))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(badgeColor.opacity(0.15)))
-            .foregroundStyle(badgeColor)
+        HStack(spacing: 2) {
+            if status == .approved {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            Text(verbatim: "#\(prNumber)")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(badgeColor.opacity(0.15)))
+        .foregroundStyle(badgeColor)
     }
 
     private var badgeColor: Color {
