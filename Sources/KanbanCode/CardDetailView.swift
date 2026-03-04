@@ -227,7 +227,7 @@ struct CardDetailView: View {
                     .fixedSize()
                 }
 
-                // Badge row (only when not a session — sessions show clawd icon on the ID row)
+                // Badge row (only when not a session — sessions show session icon on the ID row)
                 if card.link.cardLabel != .session {
                     HStack(spacing: 6) {
                         CardLabelBadge(label: card.link.cardLabel)
@@ -728,7 +728,7 @@ struct CardDetailView: View {
                 if claudeAlive { terminalGrabFocus = true }
             } label: {
                 HStack(spacing: 4) {
-                    ClawdIcon()
+                    SessionIcon()
                         .frame(width: 12, height: 12)
                     Text("Claude")
                         .font(.caption)
@@ -785,7 +785,7 @@ struct CardDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if card.link.sessionLink != nil {
             VStack(spacing: 12) {
-                ClawdIcon()
+                SessionIcon()
                     .frame(width: 32, height: 32)
                     .opacity(0.3)
                 Text("Claude session ended")
@@ -799,7 +799,7 @@ struct CardDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 12) {
-                ClawdIcon()
+                SessionIcon()
                     .frame(width: 32, height: 32)
                     .opacity(0.3)
                 Text("No agent session")
@@ -1274,10 +1274,10 @@ struct CardDetailView: View {
 
         if let sessionId = card.link.sessionLink?.sessionId {
             let sessionItem = menu.addActionItem("Copy Session ID") { [self] in copyToClipboard(sessionId) }
-            if let clawdImg = ClawdIcon.menuImage {
+            if let sessionImg = SessionIcon.menuImage {
                 let sized = NSImage(size: NSSize(width: 16, height: 16))
                 sized.lockFocus()
-                clawdImg.draw(in: NSRect(x: 0, y: 0, width: 16, height: 16))
+                sessionImg.draw(in: NSRect(x: 0, y: 0, width: 16, height: 16))
                 sized.unlockFocus()
                 sized.isTemplate = true
                 sessionItem.image = sized
@@ -1555,7 +1555,7 @@ private struct SessionIdRow: View {
     var body: some View {
         HStack(spacing: 4) {
             HStack(spacing: 4) {
-                ClawdIcon()
+                SessionIcon()
                     .frame(width: 12, height: 12)
                     .opacity(0.5)
                 Text(sessionId)

@@ -265,13 +265,13 @@ struct GeneralSettingsView: View {
 // MARK: - Amphetamine
 
 struct AmphetamineSettingsView: View {
-    @AppStorage("clawdLingerTimeout") private var lingerTimeout: Double = 60
+    @AppStorage("sessionLingerTimeout") private var lingerTimeout: Double = 60
 
     var body: some View {
         Form {
             Section("Setup") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Kanban spawns a **clawd** helper process when Claude sessions are actively working. Configure Amphetamine to detect it:")
+                    Text("Kanban spawns a **kanban-code-active-session** helper process when Claude sessions are actively working. Configure Amphetamine to detect it:")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -279,7 +279,7 @@ struct AmphetamineSettingsView: View {
                         instructionRow(1, "Install **Amphetamine** from the Mac App Store")
                         instructionRow(2, "Open Amphetamine → Preferences → **Triggers**")
                         instructionRow(3, "Add new trigger → select **Application**")
-                        instructionRow(4, "Search for **\"clawd\"** and select it")
+                        instructionRow(4, "Search for **\"kanban-code-active-session\"** and select it")
                     }
 
                     Text("Amphetamine will keep your Mac awake whenever Claude is working, and allow sleep when all sessions finish.")
@@ -297,7 +297,7 @@ struct AmphetamineSettingsView: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 50, alignment: .trailing)
                     }
-                    Text("Keep clawd running for this long after the last active session ends, so Amphetamine doesn't immediately allow sleep.")
+                    Text("Keep the helper running for this long after the last active session ends, so Amphetamine doesn't immediately allow sleep.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }

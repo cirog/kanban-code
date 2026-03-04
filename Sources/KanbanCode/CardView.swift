@@ -44,7 +44,7 @@ struct CardView: View {
             // Bottom row: badge + time + link indicators
             HStack(spacing: 6) {
                 if card.link.cardLabel == .session {
-                    ClawdIcon()
+                    SessionIcon()
                         .frame(width: 14, height: 14)
                         .opacity(0.4)
                 } else {
@@ -214,10 +214,10 @@ struct CardView: View {
     }
 }
 
-// MARK: - Clawd Icon
+// MARK: - Session Icon
 
-/// Loads the clawd mascot PNG from the SPM bundle resource.
-struct ClawdIcon: View {
+/// Loads the session mascot PNG from the SPM bundle resource.
+struct SessionIcon: View {
     /// When set, pre-sizes the NSImage so Menu Label icon slots respect the dimensions.
     var size: CGFloat?
 

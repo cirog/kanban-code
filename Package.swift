@@ -8,7 +8,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "KanbanCode", targets: ["KanbanCode"]),
-        .executable(name: "clawd", targets: ["Clawd"]),
+        .executable(name: "kanban-code-active-session", targets: ["KanbanCodeActiveSession"]),
         .library(name: "KanbanCodeCore", targets: ["KanbanCodeCore"]),
     ],
     dependencies: [
@@ -23,8 +23,8 @@ let package = Package(
             resources: [.copy("Resources")]
         ),
         .executableTarget(
-            name: "Clawd",
-            path: "Sources/Clawd"
+            name: "KanbanCodeActiveSession",
+            path: "Sources/KanbanCodeActiveSession"
         ),
         .target(
             name: "KanbanCodeCore",
