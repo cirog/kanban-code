@@ -92,6 +92,8 @@ struct CardDetailView: View {
     // Lazy PR body loading
     @State private var prBody: String?
     @State private var isLoadingPRBody = false
+    @State private var isMerging = false
+    @State private var mergeError: String?
 
 
     // File watcher for real-time history
@@ -1120,21 +1122,49 @@ struct CardDetailView: View {
     @ViewBuilder
     private func mergeButton(pr: PRLink) -> some View {
         Button {
-            if let urlStr = pr.url, let url = URL(string: urlStr) {
-                NSWorkspace.shared.open(url)
+            guard !isMerging, let repoRoot = card.link.projectPath else { return }
+            isMerging = true
+            mergeError = nil
+            Task {
+                let gh = GhCliAdapter()
+                let result = try await gh.mergePR(repoRoot: repoRoot, prNumber: pr.number)
+                isMerging = false
+                switch result {
+                case .success:
+                    copyToast = "PR #\(pr.number) merged"
+                case .failure(let msg):
+                    mergeError = msg
+                }
             }
         } label: {
-            Label("Merge", systemImage: "arrow.triangle.merge")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.green.opacity(0.8))
-                .padding(.horizontal, 12)
-                .frame(height: 36)
-                .background(Color.green.opacity(0.08), in: Capsule())
-                .background(.ultraThinMaterial, in: Capsule())
+            HStack(spacing: 4) {
+                if isMerging {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.triangle.merge")
+                }
+                Text("Merge")
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(Color.green.opacity(0.8))
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(Color.green.opacity(0.08), in: Capsule())
+            .background(.ultraThinMaterial, in: Capsule())
         }
         .buttonStyle(HoverFeedbackStyle())
         .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+        .disabled(isMerging)
         .help("Merge pull request")
+        .popover(isPresented: .init(get: { mergeError != nil }, set: { if !$0 { mergeError = nil } })) {
+            if let err = mergeError {
+                Text(err)
+                    .font(.caption)
+                    .padding(8)
+                    .frame(maxWidth: 300)
+            }
+        }
     }
 
     private var actionsMenuButton: some View {

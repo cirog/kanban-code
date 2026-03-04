@@ -387,6 +387,26 @@ public final class GhCliAdapter: PRTrackerPort, @unchecked Sendable {
             return GitHubIssue(number: number, title: title, body: body, url: url, labels: labels)
         }
     }
+
+    /// Merge a PR (respects repo's default merge strategy).
+    public func mergePR(repoRoot: String, prNumber: Int) async throws -> MergeResult {
+        let result = try await ShellCommand.run(
+            ghPath,
+            arguments: ["pr", "merge", "\(prNumber)"],
+            currentDirectory: repoRoot
+        )
+        if result.succeeded {
+            return .success
+        } else {
+            let msg = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(msg)
+        }
+    }
+}
+
+public enum MergeResult: Sendable {
+    case success
+    case failure(String)
 }
 
 public enum GhCliError: Error, LocalizedError {
