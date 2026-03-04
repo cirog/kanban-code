@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Popover for manually adding a Branch or Issue link to a card.
-/// PRs are never manually linked — they are discovered from branches.
+/// Popover for manually adding a Branch, Issue, or PR link to a card.
 struct AddLinkPopover: View {
     var onAddBranch: (String) -> Void = { _ in }
     var onAddIssue: (Int) -> Void = { _ in }
+    var onAddPR: (Int) -> Void = { _ in }
 
     @State private var linkType = "branch"
     @State private var branchText = ""
@@ -18,6 +18,7 @@ struct AddLinkPopover: View {
             Picker("Type", selection: $linkType) {
                 Text("Branch").tag("branch")
                 Text("Issue").tag("issue")
+                Text("PR").tag("pr")
             }
             .pickerStyle(.segmented)
 
@@ -44,7 +45,11 @@ struct AddLinkPopover: View {
                     } else {
                         guard let number = Int(numberText.trimmingCharacters(in: .whitespaces)),
                               number > 0 else { return }
-                        onAddIssue(number)
+                        if linkType == "pr" {
+                            onAddPR(number)
+                        } else {
+                            onAddIssue(number)
+                        }
                     }
                 }
                 .keyboardShortcut(.defaultAction)

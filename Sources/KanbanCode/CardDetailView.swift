@@ -50,6 +50,7 @@ struct CardDetailView: View {
     var onUnlink: (Action.LinkType) -> Void = { _ in }
     var onAddBranch: (String) -> Void = { _ in }
     var onAddIssue: (Int) -> Void = { _ in }
+    var onAddPR: (Int) -> Void = { _ in }
     var onCleanupWorktree: () -> Void = {}
     var canCleanupWorktree: Bool = true
     var onDeleteCard: () -> Void = {}
@@ -112,7 +113,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onDiscover: @escaping () -> Void = {}, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, focusTerminal: Binding<Bool> = .constant(false)) {
+    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onAddPR: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onDiscover: @escaping () -> Void = {}, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, focusTerminal: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -122,6 +123,7 @@ struct CardDetailView: View {
         self.onUnlink = onUnlink
         self.onAddBranch = onAddBranch
         self.onAddIssue = onAddIssue
+        self.onAddPR = onAddPR
         self.onCleanupWorktree = onCleanupWorktree
         self.canCleanupWorktree = canCleanupWorktree
         self.onDeleteCard = onDeleteCard
@@ -242,7 +244,7 @@ struct CardDetailView: View {
                         linkPropertyRow(
                             icon: "arrow.triangle.pull", label: "PR", value: "#\(String(pr.number))\(detail)",
                             url: prURL,
-                            onUnlink: { onUnlink(.pr) }
+                            onUnlink: { onUnlink(.pr(number: pr.number)) }
                         )
                     }
                     if let issue = card.link.issueLink {
@@ -281,6 +283,10 @@ struct CardDetailView: View {
                             },
                             onAddIssue: { number in
                                 onAddIssue(number)
+                                showAddLink = false
+                            },
+                            onAddPR: { number in
+                                onAddPR(number)
                                 showAddLink = false
                             }
                         )

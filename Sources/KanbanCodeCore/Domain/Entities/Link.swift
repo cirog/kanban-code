@@ -402,6 +402,10 @@ public struct ManualOverrides: Codable, Sendable {
     public var prLink: Bool
     public var issueLink: Bool
 
+    /// PR numbers the user explicitly dismissed. Prevents re-discovery of specific PRs
+    /// while allowing other PRs to still be attached.
+    public var dismissedPRs: [Int]?
+
     /// Byte offset into the session JSONL. Data before this point is ignored for branch discovery.
     /// Advances as incremental scanning processes new bytes.
     /// nil = no watermark (default). "Discover Branches" clears it.
@@ -413,6 +417,13 @@ public struct ManualOverrides: Codable, Sendable {
         branchWatermark != nil || worktreePath
     }
 
+    /// Whether a specific PR number has been dismissed by the user.
+    public func isPRDismissed(_ number: Int) -> Bool {
+        // Legacy: prLink == true means all PRs were dismissed (old format)
+        if prLink { return true }
+        return dismissedPRs?.contains(number) == true
+    }
+
     public init(
         worktreePath: Bool = false,
         tmuxSession: Bool = false,
@@ -420,6 +431,7 @@ public struct ManualOverrides: Codable, Sendable {
         column: Bool = false,
         prLink: Bool = false,
         issueLink: Bool = false,
+        dismissedPRs: [Int]? = nil,
         branchWatermark: Int? = nil
     ) {
         self.worktreePath = worktreePath
@@ -428,6 +440,7 @@ public struct ManualOverrides: Codable, Sendable {
         self.column = column
         self.prLink = prLink
         self.issueLink = issueLink
+        self.dismissedPRs = dismissedPRs
         self.branchWatermark = branchWatermark
     }
 
@@ -439,6 +452,7 @@ public struct ManualOverrides: Codable, Sendable {
         column = try c.decodeIfPresent(Bool.self, forKey: .column) ?? false
         prLink = try c.decodeIfPresent(Bool.self, forKey: .prLink) ?? false
         issueLink = try c.decodeIfPresent(Bool.self, forKey: .issueLink) ?? false
+        dismissedPRs = try c.decodeIfPresent([Int].self, forKey: .dismissedPRs)
         branchWatermark = try c.decodeIfPresent(Int.self, forKey: .branchWatermark)
     }
 }

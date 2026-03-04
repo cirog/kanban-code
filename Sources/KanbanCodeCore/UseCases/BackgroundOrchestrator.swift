@@ -71,6 +71,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
             links[idx].manualOverrides.branchWatermark = nil
             links[idx].manualOverrides.worktreePath = false
             links[idx].manualOverrides.prLink = false
+            links[idx].manualOverrides.dismissedPRs = nil
             links[idx].discoveredBranches = nil
             links[idx].discoveredRepos = nil
             let scanned = (try? await JsonlParser.extractPushedBranches(from: sessionPath)) ?? []

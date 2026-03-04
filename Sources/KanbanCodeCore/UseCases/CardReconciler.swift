@@ -300,8 +300,8 @@ public enum CardReconciler {
             }
             for cardId in cardIds {
                 if var link = linksById[cardId] {
-                    // User dismissed PRs on this card — don't re-add
-                    if link.manualOverrides.prLink { continue }
+                    // User dismissed this PR — don't re-add
+                    if link.manualOverrides.isPRDismissed(pr.number) { continue }
                     if let idx = link.prLinks.firstIndex(where: { $0.number == pr.number }) {
                         KanbanCodeLog.info("reconciler", "Updating PR #\(pr.number) on card \(cardId.prefix(12)): status=\(pr.status)")
                         link.prLinks[idx].status = pr.status

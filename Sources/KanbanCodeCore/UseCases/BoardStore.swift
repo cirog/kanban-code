@@ -147,6 +147,7 @@ public enum Action: Sendable {
     case cancelLaunch(cardId: String)
     case addBranchToCard(cardId: String, branch: String)
     case addIssueLinkToCard(cardId: String, issueNumber: Int)
+    case addPRToCard(cardId: String, prNumber: Int)
     case moveCardToProject(cardId: String, projectPath: String)
     case mergeCards(sourceId: String, targetId: String)
 
@@ -176,7 +177,7 @@ public enum Action: Sendable {
     case setIsRefreshingBacklog(Bool)
 
     public enum LinkType: Sendable {
-        case pr, issue, worktree, tmux
+        case pr(number: Int), issue, worktree, tmux
     }
 }
 
@@ -378,9 +379,11 @@ public enum Reducer {
         case .unlinkFromCard(let cardId, let linkType):
             guard var link = state.links[cardId] else { return [] }
             switch linkType {
-            case .pr:
-                link.prLinks = []
-                link.manualOverrides.prLink = true
+            case .pr(let number):
+                link.prLinks.removeAll { $0.number == number }
+                var dismissed = link.manualOverrides.dismissedPRs ?? []
+                if !dismissed.contains(number) { dismissed.append(number) }
+                link.manualOverrides.dismissedPRs = dismissed
             case .issue:
                 link.issueLink = nil
                 link.manualOverrides.issueLink = true
@@ -468,6 +471,21 @@ public enum Reducer {
             guard var link = state.links[cardId] else { return [] }
             link.issueLink = IssueLink(number: issueNumber)
             link.manualOverrides.issueLink = true
+            link.updatedAt = .now
+            state.links[cardId] = link
+            return [.upsertLink(link)]
+
+        case .addPRToCard(let cardId, let prNumber):
+            guard var link = state.links[cardId] else { return [] }
+            if !link.prLinks.contains(where: { $0.number == prNumber }) {
+                link.prLinks.append(PRLink(number: prNumber))
+            }
+            // Un-dismiss if it was previously dismissed
+            link.manualOverrides.dismissedPRs?.removeAll { $0 == prNumber }
+            if link.manualOverrides.dismissedPRs?.isEmpty == true {
+                link.manualOverrides.dismissedPRs = nil
+            }
+            link.manualOverrides.prLink = false
             link.updatedAt = .now
             state.links[cardId] = link
             return [.upsertLink(link)]

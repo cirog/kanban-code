@@ -202,20 +202,16 @@ struct ContentView: View {
                 onFork: { keepWorktree in forkCard(cardId: card.id, keepWorktree: keepWorktree) },
                 onDismiss: { store.dispatch(.selectCard(cardId: nil)) },
                 onUnlink: { linkType in
-                    let actionType: Action.LinkType
-                    switch linkType {
-                    case .pr: actionType = .pr
-                    case .issue: actionType = .issue
-                    case .worktree: actionType = .worktree
-                    case .tmux: actionType = .tmux
-                    }
-                    store.dispatch(.unlinkFromCard(cardId: card.id, linkType: actionType))
+                    store.dispatch(.unlinkFromCard(cardId: card.id, linkType: linkType))
                 },
                 onAddBranch: { branch in
                     store.dispatch(.addBranchToCard(cardId: card.id, branch: branch))
                 },
                 onAddIssue: { number in
                     store.dispatch(.addIssueLinkToCard(cardId: card.id, issueNumber: number))
+                },
+                onAddPR: { number in
+                    store.dispatch(.addPRToCard(cardId: card.id, prNumber: number))
                 },
                 onCleanupWorktree: {
                     Task { await cleanupWorktree(cardId: card.id) }

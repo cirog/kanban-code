@@ -299,16 +299,18 @@ public final class BoardState: @unchecked Sendable {
 
     /// Remove a typed link from a card (e.g. unlink PR or issue).
     public enum LinkType: Sendable {
-        case pr, issue, worktree, tmux
+        case pr(number: Int), issue, worktree, tmux
     }
 
     public func unlinkFromCard(cardId: String, linkType: LinkType) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
         var link = cards[index].link
         switch linkType {
-        case .pr:
-            link.prLinks = []
-            link.manualOverrides.prLink = true
+        case .pr(let number):
+            link.prLinks.removeAll { $0.number == number }
+            var dismissed = link.manualOverrides.dismissedPRs ?? []
+            if !dismissed.contains(number) { dismissed.append(number) }
+            link.manualOverrides.dismissedPRs = dismissed
         case .issue:
             link.issueLink = nil
             link.manualOverrides.issueLink = true
