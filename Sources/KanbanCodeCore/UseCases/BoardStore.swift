@@ -156,7 +156,7 @@ public enum Action: Sendable {
     case launchCompleted(cardId: String, tmuxName: String, sessionLink: SessionLink?, worktreeLink: WorktreeLink?, isRemote: Bool)
     case launchTmuxReady(cardId: String)
     case launchFailed(cardId: String, error: String)
-    case resumeCompleted(cardId: String, tmuxName: String)
+    case resumeCompleted(cardId: String, tmuxName: String, isRemote: Bool)
     case resumeFailed(cardId: String, error: String)
     case terminalCreated(cardId: String, tmuxName: String)
     case terminalFailed(cardId: String, error: String)
@@ -639,10 +639,11 @@ public enum Reducer {
             state.error = "Launch failed: \(error)"
             return [.upsertLink(link)]
 
-        case .resumeCompleted(let cardId, let tmuxName):
+        case .resumeCompleted(let cardId, let tmuxName, let isRemote):
             guard var link = state.links[cardId] else { return [] }
             let existingExtras = link.tmuxLink?.extraSessions
             link.tmuxLink = TmuxLink(sessionName: tmuxName, extraSessions: existingExtras)
+            link.isRemote = isRemote
             link.isLaunching = nil
             link.lastActivity = .now
             link.updatedAt = .now

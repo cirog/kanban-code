@@ -17,7 +17,8 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         shellOverride: String?,
         extraEnv: [String: String] = [:],
         commandOverride: String? = nil,
-        skipPermissions: Bool = false
+        skipPermissions: Bool = false,
+        preamble: String? = nil
     ) async throws -> String {
 
         let cmd: String
@@ -47,7 +48,11 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         }
 
         // Prepend cd to ensure we're in the right directory even if zshrc changes it
-        let fullCmd = "cd \(shellEscape(projectPath)) && \(cmd)"
+        var fullCmd = "cd \(shellEscape(projectPath))"
+        if let preamble, !preamble.isEmpty {
+            fullCmd += " && \(preamble)"
+        }
+        fullCmd += " && \(cmd)"
 
         // Kill any stale session with the same name before launching.
         // This handles disconnected cards where the old tmux session lingers.
@@ -63,7 +68,8 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         shellOverride: String?,
         extraEnv: [String: String] = [:],
         commandOverride: String? = nil,
-        skipPermissions: Bool = false
+        skipPermissions: Bool = false,
+        preamble: String? = nil
     ) async throws -> String {
         // Check if there's already a tmux session for this
         let existing = try await tmux.listSessions()
@@ -88,7 +94,11 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         }
 
         // Prepend cd to ensure we're in the right directory even if zshrc changes it
-        let fullCmd = "cd \(shellEscape(projectPath)) && \(cmd)"
+        var fullCmd = "cd \(shellEscape(projectPath))"
+        if let preamble, !preamble.isEmpty {
+            fullCmd += " && \(preamble)"
+        }
+        fullCmd += " && \(cmd)"
 
         try await tmux.createSession(name: sessionName, path: projectPath, command: fullCmd)
         return sessionName

@@ -168,13 +168,14 @@ struct ReducerTests {
         var state = stateWith([link])
 
         let _ = Reducer.reduce(state: &state, action: .resumeCompleted(
-            cardId: "card_r3", tmuxName: "claude-sess_abc"
+            cardId: "card_r3", tmuxName: "claude-sess_abc", isRemote: false
         ))
 
         // isLaunching cleared immediately — terminal shows without waiting for reconciliation
         #expect(state.links["card_r3"]?.isLaunching == nil)
         #expect(state.links["card_r3"]?.column == .inProgress)
         #expect(state.links["card_r3"]?.lastActivity != nil)
+        #expect(state.links["card_r3"]?.isRemote == false)
     }
 
     // MARK: - Launch Failure
@@ -1130,11 +1131,12 @@ struct ReducerTests {
         var state = stateWith([link])
 
         let _ = Reducer.reduce(state: &state, action: .resumeCompleted(
-            cardId: "card_ti7", tmuxName: "claude-sess_abc"
+            cardId: "card_ti7", tmuxName: "claude-sess_abc", isRemote: true
         ))
 
         #expect(state.links["card_ti7"]?.tmuxLink?.extraSessions == ["claude-sess_abc-sh1"])
         #expect(state.links["card_ti7"]?.isLaunching == nil)
+        #expect(state.links["card_ti7"]?.isRemote == true)
     }
 
     @Test("launchCompleted preserves extras")

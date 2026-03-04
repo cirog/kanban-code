@@ -1567,6 +1567,7 @@ struct ContentView: View {
                 let shellOverride: String?
                 let extraEnv: [String: String]
                 let isRemote: Bool
+                let preamble: String?
 
                 let globalRemote = settings?.remote
                 if runRemotely, let remote = globalRemote, projectPath.hasPrefix(remote.localPath) {
@@ -1584,10 +1585,13 @@ struct ContentView: View {
                         name: syncName,
                         ignores: ignores
                     )
+
+                    preamble = Self.remotePreamble(host: remote.host)
                 } else {
                     shellOverride = nil
                     extraEnv = [:]
                     isRemote = false
+                    preamble = nil
                 }
 
                 // Snapshot existing .jsonl files for session detection
@@ -1622,7 +1626,8 @@ struct ContentView: View {
                     shellOverride: shellOverride,
                     extraEnv: extraEnv,
                     commandOverride: commandOverride,
-                    skipPermissions: skipPermissions
+                    skipPermissions: skipPermissions,
+                    preamble: preamble
                 )
                 KanbanCodeLog.info("launch", "Tmux session created: \(tmuxName)")
 
@@ -1716,6 +1721,12 @@ struct ContentView: View {
         guard let branchName, !branchName.isEmpty else { return nil }
         KanbanCodeLog.info("launch", "Extracted worktreeLink: branch=\(branchName) path=\(worktreePath)")
         return WorktreeLink(path: worktreePath, branch: branchName)
+    }
+
+    /// Build a shell preamble that flushes mutagen and shows remote uname before launching claude.
+    private static func remotePreamble(host: String) -> String {
+        // Use ; instead of && so a flush failure doesn't block claude from starting
+        "printf '\\e[2mSyncing files...\\e[0m' && mutagen sync flush 2>/dev/null; printf '\\e[2mRemote: %s\\e[0m\\n' \"$(ssh -o ConnectTimeout=5 \(host) uname -snr 2>/dev/null || echo 'unavailable')\""
     }
 
     @State private var pendingWorktreeCleanup: WorktreeCleanupInfo?
@@ -1928,12 +1939,15 @@ struct ContentView: View {
 
                 let shellOverride: String?
                 let extraEnv: [String: String]
+                let isRemote: Bool
+                let preamble: String?
 
                 let globalRemote = settings?.remote
                 if runRemotely, let remote = globalRemote, projectPath.hasPrefix(remote.localPath) {
                     try? RemoteShellManager.deploy()
                     shellOverride = RemoteShellManager.shellOverridePath()
                     extraEnv = RemoteShellManager.setupEnvironment(remote: remote, projectPath: projectPath)
+                    isRemote = true
 
                     let syncName = "kanban-code-\((projectPath as NSString).lastPathComponent)"
                     let remoteDest = "\(remote.host):\(remote.remotePath)"
@@ -1944,9 +1958,13 @@ struct ContentView: View {
                         name: syncName,
                         ignores: ignores
                     )
+
+                    preamble = Self.remotePreamble(host: remote.host)
                 } else {
                     shellOverride = nil
                     extraEnv = [:]
+                    isRemote = false
+                    preamble = nil
                 }
 
                 let actualTmuxName = try await launcher.resume(
@@ -1955,11 +1973,12 @@ struct ContentView: View {
                     shellOverride: shellOverride,
                     extraEnv: extraEnv,
                     commandOverride: commandOverride,
-                    skipPermissions: skipPermissions
+                    skipPermissions: skipPermissions,
+                    preamble: preamble
                 )
                 KanbanCodeLog.info("resume", "Resume launched for card=\(cardId.prefix(12)) actualTmux=\(actualTmuxName)")
 
-                store.dispatch(.resumeCompleted(cardId: cardId, tmuxName: actualTmuxName))
+                store.dispatch(.resumeCompleted(cardId: cardId, tmuxName: actualTmuxName, isRemote: isRemote))
             } catch {
                 KanbanCodeLog.info("resume", "Resume failed for card=\(cardId.prefix(12)): \(error.localizedDescription)")
                 store.dispatch(.resumeFailed(cardId: cardId, error: error.localizedDescription))
