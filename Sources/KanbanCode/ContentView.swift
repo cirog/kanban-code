@@ -1992,6 +1992,25 @@ struct ContentView: View {
         // For worktree cards, cd into the worktree — that's where Claude stored the session data.
         let projectPath = card.link.worktreeLink?.path ?? card.link.projectPath ?? NSHomeDirectory()
 
+        // If the session file lives under a different project key (e.g. a cleaned-up worktree),
+        // move it to the current projectPath so `claude --resume` can find it.
+        if let sessionLink = card.link.sessionLink,
+           let sessionPath = sessionLink.sessionPath {
+            let expectedDir = NSHomeDirectory() + "/.claude/projects/" + projectPath.replacingOccurrences(of: "/", with: "-")
+            let expectedPath = expectedDir + "/" + sessionId + ".jsonl"
+            if sessionPath != expectedPath,
+               FileManager.default.fileExists(atPath: sessionPath) {
+                KanbanCodeLog.info("resume", "Moving session file from worktree project key to \(expectedDir)")
+                if let newPath = try? SessionFileMover.moveSession(
+                    sessionId: sessionId, fromPath: sessionPath, toProjectPath: projectPath
+                ) {
+                    var updatedLink = card.link
+                    updatedLink.sessionLink = SessionLink(sessionId: sessionId, sessionPath: newPath)
+                    store.dispatch(.createManualTask(updatedLink))
+                }
+            }
+        }
+
         store.dispatch(.resumeCard(cardId: cardId))
         shouldFocusTerminal = true
         KanbanCodeLog.info("resume", "Starting resume for card=\(cardId.prefix(12)) session=\(sessionId.prefix(8))")
