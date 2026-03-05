@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.15](https://github.com/langwatch/kanban-code/compare/v0.1.14...v0.1.15) (2026-03-05)
+
+
+### Features
+
+* add configurable UI text size and terminal font size ([09e7465](https://github.com/langwatch/kanban-code/commit/09e7465ae9d35be22b206641325cf6d0a786c705)), closes [#19](https://github.com/langwatch/kanban-code/issues/19)
+* fix worktree paths for remote sync, redesign merge button, add rate limit badges ([7de7f21](https://github.com/langwatch/kanban-code/commit/7de7f210c93a225523991b0e355c1e2b3222c3ca))
+
+
+### Bug Fixes
+
+* merge button never loads forever, hide for multiple open PRs ([9ba72f5](https://github.com/langwatch/kanban-code/commit/9ba72f574dc37bb838dfc3cdc6c79e5b3d0f100f))
+* only fetch GitHub issues for projects with explicit filter ([604c5c1](https://github.com/langwatch/kanban-code/commit/604c5c1f2714216debfcebe9bc8d14af7b34e2f8))
+* prevent cross-project branch matching in session reconciliation ([10b9b2f](https://github.com/langwatch/kanban-code/commit/10b9b2f5deb27eb12a01f02a220c0520a152ce3e))
+* skip main repo checkout in worktree reconciliation ([b5cbd02](https://github.com/langwatch/kanban-code/commit/b5cbd029831c39059dad4dfb52f12284809e8bd6))
+* split GitHub issues filter into separate args for gh CLI ([e4d9ece](https://github.com/langwatch/kanban-code/commit/e4d9ecefafefcb5e5e6a0aa69b86b2005350bea5))
+
 ## [0.1.14](https://github.com/langwatch/kanban-code/compare/v0.1.13...v0.1.14) (2026-03-04)
 
 
