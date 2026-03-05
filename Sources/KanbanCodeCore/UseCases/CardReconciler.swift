@@ -177,6 +177,9 @@ public enum CardReconciler {
         for (repoRoot, worktrees) in snapshot.worktrees {
             for worktree in worktrees {
                 guard !worktree.isBare else { continue }
+                // Skip the main repo checkout — git worktree list always includes it
+                // as the first entry, but it's not an actual worktree.
+                guard worktree.path != repoRoot else { continue }
                 liveWorktreePaths.insert(worktree.path)
 
                 guard let branch = worktree.branch else { continue }
