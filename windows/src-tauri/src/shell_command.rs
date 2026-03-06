@@ -239,10 +239,11 @@ pub async fn open_in_editor(path: &str, editor: Option<&str>) -> Result<()> {
 
         if is_wsl_path {
             let linux_path = unc_to_linux_path(path);
+            // cursor --folder-uri "vscode-remote://wsl+Ubuntu/home/user/project"
+            let folder_uri = format!("vscode-remote://wsl+Ubuntu{}", linux_path);
             for ed in &editors_to_try {
-                // .cmd files must be invoked through cmd.exe
                 let result = tokio::process::Command::new("cmd")
-                    .args(["/c", ed, "--remote", "wsl+Ubuntu", &linux_path])
+                    .args(["/c", ed, "--folder-uri", &folder_uri])
                     .spawn();
                 if result.is_ok() {
                     return Ok(());
