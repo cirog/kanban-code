@@ -236,10 +236,19 @@ pub async fn open_in_editor(path: &str, editor: Option<&str>) -> Result<()> {
             format!(r"{}\Programs\Microsoft VS Code\bin\code.cmd", localappdata),
         ];
 
-        let is_wsl_path = path.starts_with("\\\\wsl") || path.contains("\\wsl$\\") || path.contains("\\wsl.localhost\\");
+        // Detect WSL paths: UNC (\\wsl$\...) or Linux-native (/home/...)
+        let is_wsl_path = path.starts_with("\\\\wsl")
+            || path.contains("\\wsl$\\")
+            || path.contains("\\wsl.localhost\\")
+            || path.starts_with("/");
 
         if is_wsl_path {
-            let linux_path = unc_to_linux_path(path);
+            // If it's already a Linux path, use it directly; otherwise convert UNC → Linux
+            let linux_path = if path.starts_with("/") {
+                path.to_string()
+            } else {
+                unc_to_linux_path(path)
+            };
             let folder_uri = format!("vscode-remote://wsl+Ubuntu{}", linux_path);
             for ed in &editors_to_try {
                 // Check the .cmd file actually exists before trying
