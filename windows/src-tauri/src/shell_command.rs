@@ -222,10 +222,60 @@ pub async fn open_in_editor(path: &str, editor: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    tokio::process::Command::new(editor_cmd)
-        .arg(path)
-        .spawn()
-        .with_context(|| format!("open in editor '{editor_cmd}'"))?;
+    #[cfg(target_os = "windows")]
+    {
+        // If the path is a WSL UNC path, convert to wsl:// URI for editors that support it,
+        // or try launching through wsl.exe
+        let is_wsl_path = path.starts_with("\\\\wsl") || path.contains("\\wsl$\\") || path.contains("\\wsl.localhost\\");
+
+        if is_wsl_path {
+            let linux_path = unc_to_linux_path(path);
+            // Try editors in order: configured editor, cursor, code
+            let editors_to_try: Vec<&str> = if editor_cmd != "code" && editor_cmd != "cursor" {
+                vec![editor_cmd, "cursor", "code"]
+            } else {
+                vec!["cursor", "code"]
+            };
+            for ed in &editors_to_try {
+                // Editors like Cursor/VS Code handle WSL paths via: cursor --remote wsl+Ubuntu <path>
+                let result = tokio::process::Command::new(ed)
+                    .args(["--remote", "wsl+Ubuntu", &linux_path])
+                    .spawn();
+                if result.is_ok() {
+                    return Ok(());
+                }
+                // Try with .cmd extension (WSL PATH compatibility)
+                let cmd_variant = format!("{}.cmd", ed);
+                let result2 = tokio::process::Command::new(&cmd_variant)
+                    .args(["--remote", "wsl+Ubuntu", &linux_path])
+                    .spawn();
+                if result2.is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+
+        // Non-WSL path or WSL editors failed: try plain open
+        let editors_to_try: Vec<&str> = if editor_cmd != "code" && editor_cmd != "cursor" {
+            vec![editor_cmd, "cursor", "code"]
+        } else {
+            vec!["cursor", "code"]
+        };
+        for ed in &editors_to_try {
+            if tokio::process::Command::new(ed).arg(path).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        anyhow::bail!("could not open editor; install Cursor or VS Code");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        tokio::process::Command::new(editor_cmd)
+            .arg(path)
+            .spawn()
+            .with_context(|| format!("open in editor '{editor_cmd}'"))?;
+    }
 
     Ok(())
 }
