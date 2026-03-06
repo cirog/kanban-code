@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBoardStore } from "../store/boardStore";
 
 export default function NewTaskDialog() {
-  const { createCard, setNewTaskOpen, cards } = useBoardStore();
+  const { createCard, setNewTaskOpen, selectCard, cards } = useBoardStore();
   const [prompt, setPrompt] = useState("");
   const [title, setTitle] = useState("");
   const [project, setProject] = useState("");
@@ -28,8 +28,12 @@ export default function NewTaskDialog() {
     if (!prompt.trim()) return;
     setSubmitting(true);
     try {
-      await createCard(prompt.trim(), title.trim() || null, project || ".", launch);
+      const cardId = await createCard(prompt.trim(), title.trim() || null, project || ".", launch);
       setNewTaskOpen(false);
+      if (launch && cardId) {
+        // Auto-select the card so the drawer opens with embedded terminal
+        selectCard(cardId);
+      }
     } finally {
       setSubmitting(false);
     }

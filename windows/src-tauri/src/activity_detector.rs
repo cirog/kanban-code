@@ -33,14 +33,15 @@ impl ActivityState {
 
 /// Detect session activity from JSONL mtime.
 ///
-/// WSL note: the JSONL file may live under /mnt/c/… (Windows FS).
-/// Windows filesystem timestamps are accurate to 100ns so mtime works fine.
+/// Without hook events we can only approximate from file modification time.
+/// Critically, mtime alone CANNOT confirm "actively working" — a file touched
+/// 10 seconds ago might just be a session sitting at a prompt. Only hooks
+/// (UserPromptSubmit → Stop) can confirm Claude is processing.
 ///
-/// Thresholds mirror what the macOS hook-based detector produces in practice:
-///   < 30s   → actively working
-///   < 5min  → needs attention (Claude just finished, waiting for user)
-///   < 24h   → idle waiting
-///   < 7d    → ended
+/// Thresholds match the macOS poll-only path (no hooks):
+///   < 5min  → idle/waiting (session recently active, possibly at prompt)
+///   < 1hr   → needs attention (Claude likely finished, waiting for user)
+///   < 24h   → ended
 ///   else    → stale
 pub fn detect_activity(jsonl_path: &str) -> ActivityState {
     let mtime = std::fs::metadata(jsonl_path)
@@ -51,13 +52,13 @@ pub fn detect_activity(jsonl_path: &str) -> ActivityState {
         .duration_since(mtime)
         .unwrap_or(Duration::MAX);
 
-    if elapsed < Duration::from_secs(30) {
-        ActivityState::ActivelyWorking
-    } else if elapsed < Duration::from_secs(5 * 60) {
-        ActivityState::NeedsAttention
-    } else if elapsed < Duration::from_secs(24 * 60 * 60) {
+    if elapsed < Duration::from_secs(5 * 60) {
+        // Recently active — but without hooks we can't confirm Claude is working.
+        // Show as idle/waiting (no spinner), matching macOS poll behaviour.
         ActivityState::IdleWaiting
-    } else if elapsed < Duration::from_secs(7 * 24 * 60 * 60) {
+    } else if elapsed < Duration::from_secs(3600) {
+        ActivityState::NeedsAttention
+    } else if elapsed < Duration::from_secs(86400) {
         ActivityState::Ended
     } else {
         ActivityState::Stale
