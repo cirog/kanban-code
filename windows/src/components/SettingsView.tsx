@@ -51,7 +51,18 @@ export default function SettingsView() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] shrink-0">
-        <h1 className="text-base font-semibold text-zinc-200">Settings</h1>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSettingsOpen(false)}
+            className="text-zinc-500 hover:text-zinc-200 transition-colors"
+            title="Back to board"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+            </svg>
+          </button>
+          <h1 className="text-base font-semibold text-zinc-200">Settings</h1>
+        </div>
         <div className="flex items-center gap-2">
           {saved && (
             <span className="text-xs text-[#3fb950] animate-fade-in">Saved</span>
