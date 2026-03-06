@@ -36,7 +36,7 @@ interface BoardStore {
     title: string | null,
     project: string,
     launch?: boolean
-  ) => Promise<void>;
+  ) => Promise<string | null>;
   setSearchOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setNewTaskOpen: (open: boolean) => void;
@@ -141,10 +141,12 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
 
   createCard: async (prompt, title, project, launch = false) => {
     try {
-      await invoke("create_card", { prompt, title, project, launch });
+      const link = await invoke<{ id: string }>("create_card", { prompt, title, project, launch });
       await get().refresh();
+      return link.id;
     } catch (e) {
       set({ error: String(e) });
+      return null;
     }
   },
 

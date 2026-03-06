@@ -76,18 +76,9 @@ async fn create_card(
         .await
         .map_err(|e| e.to_string())?;
 
-    if launch.unwrap_or(false) {
-        // Mark as launching so the spinner shows immediately
-        link.is_launching = Some(true);
-        let _ = state.coordination_store.upsert_link(&link).await;
-
-        // Fire-and-forget: open a terminal with `claude '<prompt>'` in project dir
-        let p = prompt.clone();
-        let proj = project.clone();
-        tauri::async_runtime::spawn(async move {
-            let _ = shell_command::launch_new_claude_session(&p, &proj).await;
-        });
-    }
+    // launch flag is handled client-side now — the frontend auto-selects
+    // the card and starts the embedded terminal with `claude '<prompt>'`
+    let _ = launch; // suppress unused warning
 
     Ok(link)
 }

@@ -62,7 +62,8 @@ export default function CardDetailView() {
 
   useEffect(() => {
     if (!card) return;
-    setActiveTab(card.link.sessionLink?.sessionId ? "terminal" : "history");
+    const hasTerminal = !!card.link.sessionLink?.sessionId || !!card.link.promptBody;
+    setActiveTab(hasTerminal ? "terminal" : "history");
     setTurns([]);
     setTranscriptPage(null);
     setTerminalActive(false);
@@ -91,6 +92,10 @@ export default function CardDetailView() {
   const branch = card.link.worktreeLink?.branch;
   const pr = card.link.prLinks[0];
   const issue = card.link.issueLink;
+  const promptBody = card.link.promptBody;
+
+  // Can launch a terminal if we have a session to resume OR a prompt to start fresh
+  const canTerminal = !!sessionId || !!promptBody;
 
   const handleRename = () => {
     if (editName.trim()) renameCard(card.id, editName.trim());
@@ -99,20 +104,30 @@ export default function CardDetailView() {
 
   const shellCommand = ["wsl.exe"];
   const cdCmd = projectPath ? `cd ${projectPath.replace(/ /g, "\\ ")} && ` : "";
-  const resumeInput = `${cdCmd}claude --resume ${sessionId}\r`;
+  // Resume existing session or start new one with prompt
+  const terminalInput = sessionId
+    ? `${cdCmd}claude --resume ${sessionId}\r`
+    : `${cdCmd}claude '${(promptBody ?? "").replace(/'/g, "'\\''")}'\r`;
 
   const handleStartTerminal = () => {
     setTerminalActive(true);
     setActiveTab("terminal");
   };
 
+  // Auto-start terminal for freshly created tasks (has prompt but no session yet)
+  useEffect(() => {
+    if (!sessionId && promptBody && !terminalActive) {
+      handleStartTerminal();
+    }
+  }, [card.id]);
+
   // Only show tabs that have data
   const availableTabs: Tab[] = (["terminal", "history", "issue", "pr", "prompt"] as Tab[]).filter((tab) => {
-    if (tab === "terminal") return !!sessionId;
+    if (tab === "terminal") return canTerminal;
     if (tab === "history") return !!sessionId;
     if (tab === "issue") return !!issue;
     if (tab === "pr") return !!pr;
-    if (tab === "prompt") return !!card.link.promptBody;
+    if (tab === "prompt") return !!promptBody;
     return false;
   });
 
@@ -202,7 +217,7 @@ export default function CardDetailView() {
 
         {/* Actions */}
         <div className="flex gap-2.5 mt-4">
-          {sessionId && (
+          {canTerminal && (
             <button
               onClick={handleStartTerminal}
               className="flex-1 flex items-center justify-center gap-2 h-9 rounded-lg text-[13px] font-semibold transition-all duration-150"
@@ -212,12 +227,12 @@ export default function CardDetailView() {
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "#5e9aff"; e.currentTarget.style.transform = "translateY(-0.5px)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "#4f8ef7"; e.currentTarget.style.transform = ""; }}
-              title={terminalActive ? "Switch to terminal view" : "Resume this session in an embedded terminal"}
+              title={terminalActive ? "Switch to terminal view" : sessionId ? "Resume this session" : "Start Claude session"}
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" />
               </svg>
-              {terminalActive ? "Terminal" : "Resume"}
+              {terminalActive ? "Terminal" : sessionId ? "Resume" : "Start"}
             </button>
           )}
           {projectPath && (
@@ -281,12 +296,12 @@ export default function CardDetailView() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-        {activeTab === "terminal" && sessionId && (
+        {activeTab === "terminal" && canTerminal && (
           terminalActive ? (
             <TerminalView
-              ptyId={`resume-${card.id}`}
+              ptyId={`term-${card.id}`}
               command={shellCommand}
-              initialInput={resumeInput}
+              initialInput={terminalInput}
               onExit={() => {}}
             />
           ) : (
