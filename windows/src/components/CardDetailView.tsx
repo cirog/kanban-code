@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
   getTranscript,
   openInEditor,
@@ -23,6 +23,35 @@ export default function CardDetailView() {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [terminalActive, setTerminalActive] = useState(false);
+  const [drawerWidth, setDrawerWidth] = useState(420);
+  const isResizing = useRef(false);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    const startX = e.clientX;
+    const startWidth = drawerWidth;
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const delta = startX - e.clientX;
+      const newWidth = Math.min(Math.max(startWidth + delta, 300), 900);
+      setDrawerWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      isResizing.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [drawerWidth]);
 
   useEffect(() => {
     if (!card) return;
@@ -74,12 +103,20 @@ export default function CardDetailView() {
 
   return (
     <div
-      className="w-[420px] min-w-[420px] flex flex-col overflow-hidden"
+      className="flex flex-col overflow-hidden relative"
       style={{
+        width: drawerWidth,
+        minWidth: 300,
+        maxWidth: 900,
         background: c.bgDetail,
         borderLeft: `1px solid ${c.border}`,
       }}
     >
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-[#4f8ef7]/20 active:bg-[#4f8ef7]/30 transition-colors"
+      />
       {/* Header */}
       <div className="px-4 pt-4 pb-3 shrink-0" style={{ borderBottom: `1px solid ${c.border}` }}>
         <div className="flex items-start justify-between gap-2">
