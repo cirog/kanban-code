@@ -1,11 +1,13 @@
 use crate::activity_detector::{detect_activity, ActivityState};
+use crate::assign_column::update_card_column;
+use crate::card_reconciler::reconcile;
 use crate::coordination_store::{CoordinationStore, Link};
 use crate::session_discovery::{Session, SessionDiscovery};
 use crate::settings_store::SettingsStore;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,7 +36,7 @@ pub struct BoardState {
 }
 
 impl BoardState {
-    /// Refresh board state: discover sessions, load links, reconcile.
+    /// Refresh board state: discover sessions, load links, reconcile, assign columns.
     pub async fn refresh(
         &mut self,
         discovery: &SessionDiscovery,
@@ -42,66 +44,42 @@ impl BoardState {
         _settings: &SettingsStore,
     ) -> Result<()> {
         let sessions = discovery.discover_sessions().await?;
-        let links = store.read_links().await?;
+        let existing_links = store.read_links().await?;
 
+        // --- Reconcile: merge sessions into links without duplicates ---
+        let mut all_links = reconcile(existing_links.clone(), sessions.clone());
+
+        // --- Detect activity + assign columns ---
         let sessions_by_id: HashMap<String, Session> =
-            sessions.iter().map(|s| (s.id.clone(), s.clone())).collect();
+            sessions.into_iter().map(|s| (s.id.clone(), s)).collect();
 
-        // Upsert discovered sessions into links
-        let mut all_links = links.clone();
-        let existing_session_ids: std::collections::HashSet<String> = links
-            .iter()
-            .filter_map(|l| l.session_link.as_ref().map(|s| s.session_id.clone()))
-            .collect();
+        for link in &mut all_links {
+            let session_path = link
+                .session_link
+                .as_ref()
+                .and_then(|sl| sl.session_path.as_deref());
 
-        for session in &sessions {
-            if existing_session_ids.contains(&session.id) {
-                continue;
-            }
-            // Create a new link for this discovered session
-            let now = Utc::now();
-            let link = Link {
-                id: format!("card_{}", session.id),
-                name: session.name.clone(),
-                project_path: session.project_path.clone(),
-                column: "all_sessions".to_string(),
-                created_at: session.modified_time,
-                updated_at: session.modified_time,
-                last_activity: Some(session.modified_time),
-                manual_overrides: Default::default(),
-                manually_archived: false,
-                source: "discovered".to_string(),
-                prompt_body: session.first_prompt.clone(),
-                session_link: Some(crate::coordination_store::SessionLink {
-                    session_id: session.id.clone(),
-                    session_path: session.jsonl_path.clone(),
-                    session_number: None,
-                }),
-                worktree_link: session.git_branch.as_ref().map(|b| {
-                    crate::coordination_store::WorktreeLink {
-                        path: String::new(),
-                        branch: Some(b.clone()),
-                    }
-                }),
-                pr_links: vec![],
-                issue_link: None,
-                discovered_branches: None,
-                is_remote: false,
-                is_launching: None,
-            };
-            all_links.push(link);
-            let _ = now; // used in future for updatedAt
+            let activity = session_path.map(detect_activity);
+
+            // has_worktree = worktree_link exists with a non-empty path
+            let has_worktree = link
+                .worktree_link
+                .as_ref()
+                .map(|wl| !wl.path.is_empty())
+                .unwrap_or(false);
+
+            update_card_column(link, activity.as_ref(), has_worktree);
         }
 
-        // Persist newly discovered links
-        let existing_ids: std::collections::HashSet<String> =
-            links.iter().map(|l| l.id.clone()).collect();
-        let has_new = all_links.iter().any(|l| !existing_ids.contains(&l.id));
-        if has_new {
+        // --- Persist if anything changed ---
+        let old_ids: HashSet<String> = existing_links.iter().map(|l| l.id.clone()).collect();
+        let has_changes = all_links.iter().any(|l| !old_ids.contains(&l.id))
+            || all_links.len() != existing_links.len();
+        if has_changes {
             let _ = store.write_links(&all_links).await;
         }
 
-        // Build cards
+        // --- Build CardDtos ---
         let mut cards = Vec::new();
         for link in &all_links {
             let session = link
@@ -116,11 +94,7 @@ impl BoardState {
                 .and_then(|sl| sl.session_path.as_deref())
                 .map(detect_activity);
 
-            let activity_str = activity.as_ref().map(|a| match a {
-                ActivityState::ActivelyWorking => "activelyWorking",
-                ActivityState::WaitingForInput => "waitingForInput",
-                ActivityState::Idle => "idle",
-            });
+            let activity_str = activity.as_ref().map(ActivityState::as_str);
 
             let display_title = if let Some(name) = &link.name {
                 if !name.is_empty() {
@@ -142,13 +116,11 @@ impl BoardState {
                 .and_then(|n| n.to_str())
                 .map(|s| s.to_string());
 
-            let relative_time = format_relative_time(
-                link.last_activity
-                    .unwrap_or(link.updated_at),
-            );
+            let relative_time =
+                format_relative_time(link.last_activity.unwrap_or(link.updated_at));
 
-            let show_spinner =
-                activity == Some(ActivityState::ActivelyWorking) || link.is_launching == Some(true);
+            let show_spinner = activity == Some(ActivityState::ActivelyWorking)
+                || link.is_launching == Some(true);
 
             cards.push(CardDto {
                 id: link.id.clone(),
@@ -161,19 +133,6 @@ impl BoardState {
                 show_spinner,
             });
         }
-
-        // Sort newest first within each column
-        cards.sort_by(|a, b| {
-            let ta = a
-                .link
-                .last_activity
-                .unwrap_or(a.link.updated_at);
-            let tb = b
-                .link
-                .last_activity
-                .unwrap_or(b.link.updated_at);
-            tb.cmp(&ta)
-        });
 
         self.cards = cards;
         self.last_refresh = Some(Utc::now());

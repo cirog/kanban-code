@@ -1,5 +1,7 @@
 mod activity_detector;
+mod assign_column;
 mod board_state;
+mod card_reconciler;
 mod coordination_store;
 mod gh_cli;
 mod git_worktree;
