@@ -150,12 +150,12 @@ struct NewTaskDialog: View {
         .padding(20)
         .frame(width: 450)
         .onAppear {
-            if !lastSelectedProjectPath.isEmpty,
-               projects.contains(where: { $0.path == lastSelectedProjectPath }) {
-                selectedProjectPath = lastSelectedProjectPath
-            } else if let defaultPath = defaultProjectPath,
+            if let defaultPath = defaultProjectPath,
                projects.contains(where: { $0.path == defaultPath }) {
                 selectedProjectPath = defaultPath
+            } else if !lastSelectedProjectPath.isEmpty,
+               projects.contains(where: { $0.path == lastSelectedProjectPath }) {
+                selectedProjectPath = lastSelectedProjectPath
             } else if let first = projects.first {
                 selectedProjectPath = first.path
             }
