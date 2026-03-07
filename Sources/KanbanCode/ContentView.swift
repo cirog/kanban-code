@@ -768,7 +768,6 @@ struct ContentView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(width: 64)
                 }
 
                 ToolbarItem(placement: .navigation) {
@@ -1142,14 +1141,21 @@ struct ContentView: View {
             HStack(spacing: 4) {
                 Image(systemName: syncStatusIcon(currentSyncStatus))
                     .foregroundStyle(syncStatusColor(currentSyncStatus))
-                Text("Sync")
+                Text(syncStatusLabel(currentSyncStatus))
                     .font(.app(.headline))
                     .lineLimit(1)
             }
+            .padding(.horizontal, 4)
         }
         .buttonStyle(.plain)
         .help("Mutagen file sync status")
-        .task { await refreshSyncStatus() }
+        .task {
+            await refreshSyncStatus()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                await refreshSyncStatus()
+            }
+        }
         .popover(isPresented: $showSyncPopover) {
             syncStatusPopover
         }
