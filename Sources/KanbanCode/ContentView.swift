@@ -1150,7 +1150,7 @@ struct ContentView: View {
         Button { showSyncPopover.toggle() } label: {
             HStack(spacing: 4) {
                 Image(systemName: syncStatusIcon(currentSyncStatus))
-                    .foregroundStyle(syncStatusColor(currentSyncStatus))
+                    .foregroundStyle(currentSyncStatus == .watching ? .primary : syncStatusColor(currentSyncStatus))
                 Text(syncStatusLabel(currentSyncStatus))
                     .font(.app(.headline))
                     .lineLimit(1)
