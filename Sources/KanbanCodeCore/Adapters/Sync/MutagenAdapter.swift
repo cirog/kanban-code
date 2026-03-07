@@ -39,7 +39,6 @@ public final class MutagenAdapter: SyncManagerPort, @unchecked Sendable {
             "--sync-mode", "two-way-resolved",
             "--default-file-mode-beta", "0644",
             "--default-directory-mode-beta", "0755",
-            "--ignore-vcs",
         ]
         for pattern in ignores {
             args.append(contentsOf: ["--ignore", pattern])
