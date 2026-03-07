@@ -1911,7 +1911,7 @@ struct ContentView: View {
     /// Build a shell preamble that flushes mutagen and shows remote uname before launching claude.
     private static func remotePreamble(host: String) -> String {
         // Use ; instead of && so a flush failure doesn't block claude from starting
-        "printf '\\e[2mSyncing files...\\e[0m' && mutagen sync flush 2>/dev/null; printf '\\e[2mRemote: %s\\e[0m\\n' \"$(ssh -o ConnectTimeout=5 \(host) uname -snr 2>/dev/null || echo 'unavailable')\""
+        "printf '\\e[2mSyncing files...\\e[0m' && mutagen sync flush --label-selector kanban=true 2>/dev/null; printf '\\e[2mRemote: %s\\e[0m\\n' \"$(ssh -o ConnectTimeout=5 \(host) uname -snr 2>/dev/null || echo 'unavailable')\""
     }
 
     @State private var pendingWorktreeCleanup: WorktreeCleanupInfo?

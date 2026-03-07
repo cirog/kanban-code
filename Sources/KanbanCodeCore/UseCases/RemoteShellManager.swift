@@ -222,7 +222,7 @@ public enum RemoteShellManager {
             cmd="${cmd//$LOCAL_MOUNT/$REMOTE_DIR}"
 
             # Flush mutagen sync before command
-            mutagen sync flush >/dev/null 2>&1 || true
+            mutagen sync flush --label-selector kanban=true >/dev/null 2>&1 || true
 
             # Build remote command
             # Source .profile and .bashrc (with non-interactive guard disabled)
@@ -237,7 +237,7 @@ public enum RemoteShellManager {
             exit_code=$?
 
             # Flush mutagen sync after command
-            mutagen sync flush >/dev/null 2>&1 || true
+            mutagen sync flush --label-selector kanban=true >/dev/null 2>&1 || true
 
             # Split output and handle pwd
             if [[ "$remote_output" == *"$MARKER"* ]]; then
