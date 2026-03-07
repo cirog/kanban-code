@@ -18,7 +18,7 @@ struct LaunchConfirmationDialog: View {
     var onLaunch: (String, Bool, Bool, Bool, String?, [ImageAttachment]) -> Void = { _, _, _, _, _, _ in } // (editedPrompt, createWorktree, runRemotely, skipPermissions, commandOverride, images)
 
     @State private var prompt: String
-    @State private var images: [ImageAttachment] = []
+    @State private var images: [ImageAttachment]
     @State private var command: String = ""
     @State private var commandEdited: Bool = false
     @AppStorage("createWorktree") private var createWorktree = true
@@ -36,6 +36,7 @@ struct LaunchConfirmationDialog: View {
         remoteHost: String? = nil,
         isResume: Bool = false,
         sessionId: String? = nil,
+        promptImagePaths: [String] = [],
         isPresented: Binding<Bool>,
         onLaunch: @escaping (String, Bool, Bool, Bool, String?, [ImageAttachment]) -> Void = { _, _, _, _, _, _ in }
     ) {
@@ -52,6 +53,7 @@ struct LaunchConfirmationDialog: View {
         self._isPresented = isPresented
         self.onLaunch = onLaunch
         self._prompt = State(initialValue: initialPrompt)
+        self._images = State(initialValue: promptImagePaths.compactMap { ImageAttachment.fromPath($0) })
     }
 
     var body: some View {

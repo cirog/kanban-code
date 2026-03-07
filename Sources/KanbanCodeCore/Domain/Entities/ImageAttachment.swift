@@ -22,6 +22,17 @@ public struct ImageAttachment: Identifiable, Sendable {
         return path
     }
 
+    /// Save image data to persistent storage (~/.kanban-code/images/). Returns the path.
+    @discardableResult
+    public mutating func saveToPersistent() throws -> String {
+        let dir = (NSHomeDirectory() as NSString).appendingPathComponent(".kanban-code/images")
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let path = (dir as NSString).appendingPathComponent("\(id).png")
+        try data.write(to: URL(fileURLWithPath: path))
+        tempPath = path
+        return path
+    }
+
     /// Load an ImageAttachment from a temp file path.
     public static func fromPath(_ path: String) -> ImageAttachment? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }

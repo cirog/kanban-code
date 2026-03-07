@@ -161,6 +161,7 @@ public enum Action: Sendable {
     case moveCardToProject(cardId: String, projectPath: String)
     case markPRMerged(cardId: String, prNumber: Int)
     case mergeCards(sourceId: String, targetId: String)
+    case updatePrompt(cardId: String, body: String, imagePaths: [String]?)
     case reorderCard(cardId: String, targetCardId: String, above: Bool)
 
     // Queued prompts
@@ -249,6 +250,7 @@ public enum Effect: Sendable {
     case moveSessionFile(cardId: String, sessionId: String, oldPath: String, newProjectPath: String)
     case sendPromptToTmux(sessionName: String, promptBody: String)
     case sendPromptWithImagesToTmux(sessionName: String, promptBody: String, imagePaths: [String])
+    case deleteFiles([String])
 }
 
 // MARK: - Reducer
@@ -388,6 +390,21 @@ public enum Reducer {
             }
             return effects
 
+        case .updatePrompt(let cardId, let body, let imagePaths):
+            guard var link = state.links[cardId] else { return [] }
+            let oldImages = link.promptImagePaths ?? []
+            let newImages = Set(imagePaths ?? [])
+            let removedImages = oldImages.filter { !newImages.contains($0) }
+            link.promptBody = body
+            link.promptImagePaths = imagePaths
+            link.updatedAt = .now
+            state.links[cardId] = link
+            var effects: [Effect] = [.upsertLink(link)]
+            if !removedImages.isEmpty {
+                effects.append(.deleteFiles(removedImages))
+            }
+            return effects
+
         case .archiveCard(let cardId):
             guard var link = state.links[cardId] else { return [] }
             link.manuallyArchived = true
@@ -419,6 +436,12 @@ public enum Reducer {
             }
             if let sessionPath = link.sessionLink?.sessionPath {
                 effects.append(.deleteSessionFile(sessionPath))
+            }
+            // Clean up prompt and queued prompt images
+            var imagesToDelete = link.promptImagePaths ?? []
+            imagesToDelete += (link.queuedPrompts ?? []).flatMap { $0.imagePaths ?? [] }
+            if !imagesToDelete.isEmpty {
+                effects.append(.deleteFiles(imagesToDelete))
             }
             return effects
 

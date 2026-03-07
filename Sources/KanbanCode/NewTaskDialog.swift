@@ -6,8 +6,8 @@ struct NewTaskDialog: View {
     var projects: [Project] = []
     var defaultProjectPath: String?
     var globalRemoteSettings: RemoteSettings?
-    /// (prompt, projectPath, title, startImmediately) — creates task, optionally starts via LaunchConfirmation
-    var onCreate: (String, String?, String?, Bool) -> Void = { _, _, _, _ in }
+    /// (prompt, projectPath, title, startImmediately, images) — creates task, optionally starts via LaunchConfirmation
+    var onCreate: (String, String?, String?, Bool, [ImageAttachment]) -> Void = { _, _, _, _, _ in }
     /// (prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images) — creates and launches directly (skips LaunchConfirmation)
     var onCreateAndLaunch: (String, String?, String?, Bool, Bool, Bool, String?, [ImageAttachment]) -> Void = { _, _, _, _, _, _, _, _ in }
 
@@ -22,6 +22,7 @@ struct NewTaskDialog: View {
     @AppStorage("createWorktree") private var createWorktree = true
     @AppStorage("runRemotely") private var runRemotely = true
     @AppStorage("dangerouslySkipPermissions") private var dangerouslySkipPermissions = true
+    @AppStorage("lastSelectedProjectPath") private var lastSelectedProjectPath = ""
 
     private static let customPathSentinel = "__custom__"
 
@@ -137,7 +138,10 @@ struct NewTaskDialog: View {
         .padding(20)
         .frame(width: 450)
         .onAppear {
-            if let defaultPath = defaultProjectPath,
+            if !lastSelectedProjectPath.isEmpty,
+               projects.contains(where: { $0.path == lastSelectedProjectPath }) {
+                selectedProjectPath = lastSelectedProjectPath
+            } else if let defaultPath = defaultProjectPath,
                projects.contains(where: { $0.path == defaultPath }) {
                 selectedProjectPath = defaultPath
             } else if let first = projects.first {
@@ -168,6 +172,7 @@ struct NewTaskDialog: View {
         guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let proj = resolvedProjectPath
         let titleOrNil = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let proj { lastSelectedProjectPath = proj }
         if startImmediately {
             onCreateAndLaunch(
                 prompt,
@@ -180,7 +185,7 @@ struct NewTaskDialog: View {
                 images
             )
         } else {
-            onCreate(prompt, proj, titleOrNil, false)
+            onCreate(prompt, proj, titleOrNil, false, images)
         }
         isPresented = false
     }

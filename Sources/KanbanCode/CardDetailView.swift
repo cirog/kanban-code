@@ -63,6 +63,7 @@ struct CardDetailView: View {
     var onRemoveQueuedPrompt: (String) -> Void = { _ in }
     var onSendQueuedPrompt: (String) -> Void = { _ in }
     var onDiscover: () -> Void = {}
+    var onUpdatePrompt: (String, [String]?) -> Void = { _, _ in } // body, imagePaths
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String) -> Void = { _ in }
     @Binding var focusTerminal: Bool
@@ -105,6 +106,9 @@ struct CardDetailView: View {
     @State private var showQueuedPromptDialog = false
     @State private var editingQueuedPrompt: QueuedPrompt?
 
+    // Edit prompt
+    @State private var showEditPromptSheet = false
+
     // File watcher for real-time history
     @State private var historyWatcherFD: Int32 = -1
     @State private var historyWatcherSource: DispatchSourceFileSystemObject?
@@ -124,7 +128,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onAddPR: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onPRMerged: @escaping (Int) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, focusTerminal: Binding<Bool> = .constant(false)) {
+    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onAddPR: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onPRMerged: @escaping (Int) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, focusTerminal: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -147,6 +151,7 @@ struct CardDetailView: View {
         self.onRemoveQueuedPrompt = onRemoveQueuedPrompt
         self.onSendQueuedPrompt = onSendQueuedPrompt
         self.onDiscover = onDiscover
+        self.onUpdatePrompt = onUpdatePrompt
         self.availableProjects = availableProjects
         self.onMoveToProject = onMoveToProject
         self._focusTerminal = focusTerminal
@@ -492,13 +497,32 @@ struct CardDetailView: View {
                 onSave: { body, sendAuto, images in
                     let imagePaths: [String]? = images.isEmpty ? nil : images.compactMap { img in
                         var mutable = img
-                        return try? mutable.saveToTemp()
+                        return try? mutable.saveToPersistent()
                     }
                     if let existing = editingQueuedPrompt {
                         onUpdateQueuedPrompt(existing.id, body, sendAuto)
                     } else {
                         onAddQueuedPrompt(QueuedPrompt(body: body, sendAutomatically: sendAuto, imagePaths: imagePaths))
                     }
+                }
+            )
+        }
+        .sheet(isPresented: $showEditPromptSheet) {
+            let existingPaths = Set(card.link.promptImagePaths ?? [])
+            EditPromptSheet(
+                isPresented: $showEditPromptSheet,
+                body: card.link.promptBody ?? "",
+                existingImagePaths: card.link.promptImagePaths ?? [],
+                onSave: { body, images in
+                    let imagePaths: [String]? = images.isEmpty ? nil : images.compactMap { img in
+                        // Already persisted — keep existing path
+                        if let path = img.tempPath, existingPaths.contains(path) {
+                            return path
+                        }
+                        var mutable = img
+                        return try? mutable.saveToPersistent()
+                    }
+                    onUpdatePrompt(body, imagePaths)
                 }
             )
         }
@@ -1026,14 +1050,58 @@ struct CardDetailView: View {
     private var promptTabView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Prompt")
-                    .font(.app(.subheadline, weight: .bold))
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Prompt")
+                        .font(.app(.subheadline, weight: .bold))
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button {
+                        if let body = card.link.promptBody {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(body, forType: .string)
+                            showCopyToast("Copied prompt")
+                        }
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.app(.caption))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy prompt")
+
+                    Button { showEditPromptSheet = true } label: {
+                        Image(systemName: "pencil")
+                            .font(.app(.caption))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Edit prompt")
+                }
 
                 if let body = card.link.promptBody {
-                    Markdown(body)
-                        .markdownTheme(.compact)
+                    Text(body)
+                        .font(.app(.callout).monospaced())
                         .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                // Attached images
+                if let imagePaths = card.link.promptImagePaths, !imagePaths.isEmpty {
+                    Text("Images")
+                        .font(.app(.subheadline, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+
+                    ForEach(imagePaths, id: \.self) { path in
+                        if let nsImage = NSImage(contentsOfFile: path) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: 400, maxHeight: 300)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                        }
+                    }
                 }
             }
             .padding(16)
@@ -1858,5 +1926,68 @@ extension NSMenu {
         }
         addItem(item)
         return item
+    }
+}
+
+// MARK: - Edit Prompt Sheet
+
+private struct EditPromptSheet: View {
+    @Binding var isPresented: Bool
+    @State private var text: String
+    @State private var images: [ImageAttachment]
+    let existingImagePaths: [String]
+    let onSave: (String, [ImageAttachment]) -> Void
+
+    init(isPresented: Binding<Bool>, body: String, existingImagePaths: [String], onSave: @escaping (String, [ImageAttachment]) -> Void) {
+        self._isPresented = isPresented
+        self._text = State(initialValue: body)
+        self.existingImagePaths = existingImagePaths
+        self.onSave = onSave
+        let loaded = existingImagePaths.compactMap { ImageAttachment.fromPath($0) }
+        self._images = State(initialValue: loaded)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Edit Prompt")
+                .font(.app(.title3))
+                .fontWeight(.semibold)
+
+            PromptSection(
+                text: $text,
+                images: $images,
+                placeholder: "Describe what you want Claude to do...",
+                maxHeight: 300,
+                onSubmit: save
+            )
+
+            HStack {
+                Spacer()
+                Button("Cancel") { isPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save", action: save)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 500)
+    }
+
+    private func save() {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Separate: images that already have a persistent path vs new ones
+        var allImages: [ImageAttachment] = []
+        for img in images {
+            if let path = img.tempPath, existingImagePaths.contains(path) {
+                // Already persisted — pass through as-is
+                allImages.append(img)
+            } else {
+                allImages.append(img)
+            }
+        }
+        onSave(text.trimmingCharacters(in: .whitespacesAndNewlines), allImages)
+        isPresented = false
     }
 }

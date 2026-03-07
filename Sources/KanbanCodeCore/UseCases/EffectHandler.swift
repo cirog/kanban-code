@@ -116,6 +116,11 @@ public actor EffectHandler {
             } catch {
                 KanbanCodeLog.warn("effect", "sendPromptWithImagesToTmux failed: \(error)")
             }
+
+        case .deleteFiles(let paths):
+            for path in paths {
+                try? FileManager.default.removeItem(atPath: path)
+            }
         }
     }
 }

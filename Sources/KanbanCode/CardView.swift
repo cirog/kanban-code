@@ -98,6 +98,13 @@ struct CardView: View {
                     .foregroundStyle(.secondary)
                 }
 
+                // Image attachment indicator
+                if let imgs = card.link.promptImagePaths, !imgs.isEmpty {
+                    Image(systemName: "photo")
+                        .font(.app(.caption2))
+                        .foregroundStyle(.secondary)
+                }
+
                 // Remote execution indicator
                 if card.link.isRemote {
                     Image(systemName: "cloud")

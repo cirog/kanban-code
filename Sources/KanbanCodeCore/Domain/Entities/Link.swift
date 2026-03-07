@@ -148,6 +148,7 @@ public struct Link: Identifiable, Codable, Sendable {
     public var manuallyArchived: Bool
     public var source: LinkSource
     public var promptBody: String?
+    public var promptImagePaths: [String]?
 
     // Typed links — each independently optional
     public var sessionLink: SessionLink?
@@ -268,6 +269,7 @@ public struct Link: Identifiable, Codable, Sendable {
         manuallyArchived: Bool = false,
         source: LinkSource = .discovered,
         promptBody: String? = nil,
+        promptImagePaths: [String]? = nil,
         sessionLink: SessionLink? = nil,
         tmuxLink: TmuxLink? = nil,
         worktreeLink: WorktreeLink? = nil,
@@ -291,6 +293,7 @@ public struct Link: Identifiable, Codable, Sendable {
         self.manuallyArchived = manuallyArchived
         self.source = source
         self.promptBody = promptBody
+        self.promptImagePaths = promptImagePaths
         self.sessionLink = sessionLink
         self.tmuxLink = tmuxLink
         self.worktreeLink = worktreeLink
@@ -309,7 +312,7 @@ public struct Link: Identifiable, Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         // Card-level
         case id, name, projectPath, column, createdAt, updatedAt, lastActivity
-        case manualOverrides, manuallyArchived, source, promptBody, isRemote, isLaunching, sortOrder
+        case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isRemote, isLaunching, sortOrder
         case discoveredBranches, discoveredRepos
         // Typed links (new nested format)
         case sessionLink, tmuxLink, worktreeLink, prLinks, issueLink, queuedPrompts
@@ -333,6 +336,7 @@ public struct Link: Identifiable, Codable, Sendable {
         manuallyArchived = try c.decodeIfPresent(Bool.self, forKey: .manuallyArchived) ?? false
         source = try c.decodeIfPresent(LinkSource.self, forKey: .source) ?? .discovered
         promptBody = try c.decodeIfPresent(String.self, forKey: .promptBody)
+        promptImagePaths = try c.decodeIfPresent([String].self, forKey: .promptImagePaths)
         isRemote = try c.decodeIfPresent(Bool.self, forKey: .isRemote) ?? false
         isLaunching = try c.decodeIfPresent(Bool.self, forKey: .isLaunching)
         sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
@@ -415,6 +419,7 @@ public struct Link: Identifiable, Codable, Sendable {
         try c.encode(manuallyArchived, forKey: .manuallyArchived)
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(promptBody, forKey: .promptBody)
+        try c.encodeIfPresent(promptImagePaths, forKey: .promptImagePaths)
         try c.encode(isRemote, forKey: .isRemote)
         try c.encodeIfPresent(isLaunching, forKey: .isLaunching)
         try c.encodeIfPresent(sortOrder, forKey: .sortOrder)
