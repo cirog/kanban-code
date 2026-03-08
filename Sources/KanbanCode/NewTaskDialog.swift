@@ -69,14 +69,6 @@ struct NewTaskDialog: View {
                 }
             }
 
-            // Assistant picker
-            Picker("Assistant", selection: $selectedAssistant) {
-                ForEach(CodingAssistant.allCases, id: \.self) { assistant in
-                    Label(assistant.displayName, systemImage: assistant.iconName)
-                        .tag(assistant)
-                }
-            }
-
             // Start immediately toggle
             Toggle("Start immediately", isOn: $startImmediately)
                 .font(.app(.callout))
@@ -150,6 +142,18 @@ struct NewTaskDialog: View {
 
             // Buttons
             HStack {
+                if startImmediately {
+                    Picker(selection: $selectedAssistant) {
+                        ForEach(CodingAssistant.allCases, id: \.self) { assistant in
+                            Label(assistant.displayName, systemImage: assistant.iconName)
+                                .tag(assistant)
+                        }
+                    } label: {
+                        EmptyView()
+                    }
+                    .fixedSize()
+                }
+
                 Spacer()
                 Button("Cancel") {
                     isPresented = false
