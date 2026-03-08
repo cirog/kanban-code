@@ -373,6 +373,7 @@ struct CardDetailView: View {
                     checkpointMode: checkpointMode,
                     hasMoreTurns: hasMoreTurns,
                     isLoadingMore: isLoadingMore,
+                    assistant: card.link.effectiveAssistant,
                     onCancelCheckpoint: { checkpointMode = false },
                     onSelectTurn: { turn in
                         checkpointTurn = turn

@@ -62,6 +62,14 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Symbol used to mark user turns in conversation history UI.
+    public var historyPromptSymbol: String {
+        switch self {
+        case .claude: "❯"
+        case .gemini: "✦"
+        }
+    }
+
     /// npm package name for installation.
     public var installCommand: String {
         switch self {

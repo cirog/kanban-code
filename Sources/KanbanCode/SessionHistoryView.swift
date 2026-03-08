@@ -22,6 +22,7 @@ struct SessionHistoryView: View {
     var checkpointMode: Bool = false
     var hasMoreTurns: Bool = false
     var isLoadingMore: Bool = false
+    var assistant: CodingAssistant = .claude
     var onCancelCheckpoint: (() -> Void)?
     var onSelectTurn: ((ConversationTurn) -> Void)?
     var onLoadMore: (() -> Void)?
@@ -107,7 +108,8 @@ struct SessionHistoryView: View {
                                         isDimmed: checkpointMode && hoveredTurnIndex != nil && turn.index > hoveredTurnIndex!,
                                         highlightText: activeQuery.isEmpty ? nil : activeQuery,
                                         isCurrentMatch: currentMatchTurnIndex == turn.index,
-                                        isCmdHeld: isCmdHeld
+                                        isCmdHeld: isCmdHeld,
+                                        assistant: assistant
                                     )
                                     .id(turn.index)
                                     .overlay {
@@ -413,6 +415,7 @@ struct TurnBlockView: View {
     var highlightText: String? = nil
     var isCurrentMatch: Bool = false
     var isCmdHeld: Bool = false
+    var assistant: CodingAssistant = .claude
 
 
     var body: some View {
@@ -479,7 +482,7 @@ struct TurnBlockView: View {
                     LinkableLine(isCmdHeld: isCmdHeld) { linksActive in
                         HStack(alignment: .top, spacing: 0) {
                             if i == 0 {
-                                Text("❯ ")
+                                Text("\(assistant.historyPromptSymbol) ")
                                     .font(.app(.caption, design: .monospaced))
                                     .foregroundStyle(.green)
                                     .fontWeight(.bold)
@@ -500,7 +503,7 @@ struct TurnBlockView: View {
             } else {
                 LinkableLine(isCmdHeld: isCmdHeld) { linksActive in
                     HStack(alignment: .top, spacing: 0) {
-                        Text("❯ ")
+                        Text("\(assistant.historyPromptSymbol) ")
                             .font(.app(.caption, design: .monospaced))
                             .foregroundStyle(.green)
                             .fontWeight(.bold)

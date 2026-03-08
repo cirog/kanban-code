@@ -316,8 +316,7 @@ struct GeminiSparkle: Shape {
         let cy = rect.midY
 
         // 4-pointed star with curved concave sides
-        // The waist (narrowest point) is about 20% of the dimension
-        let waist: CGFloat = 0.18
+        let waist: CGFloat = 0.28
 
         return Path { p in
             // Start at top point
