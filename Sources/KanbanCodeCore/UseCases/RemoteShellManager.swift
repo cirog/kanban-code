@@ -6,8 +6,10 @@ public enum RemoteShellManager {
 
     // MARK: - Public API
 
-    /// Deploy the remote shell script and create the zsh symlink.
+    /// Deploy the remote shell script and create symlinks for zsh and bash.
     /// Call once at app startup (idempotent — overwrites with latest version).
+    /// Both symlinks are needed because Claude Code uses `$SHELL -c` (zsh)
+    /// while Gemini CLI uses `bash -c` directly via PATH lookup.
     public static func deploy() throws {
         let fm = FileManager.default
         let remoteDir = Self.remoteDir()
@@ -18,17 +20,26 @@ public enum RemoteShellManager {
         try remoteShellScript.write(toFile: scriptPath, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath)
 
-        // Create symlink: ~/.kanban-code/remote/zsh -> remote-shell.sh
-        let symlinkPath = Self.symlinkPath()
-        if fm.fileExists(atPath: symlinkPath) || (try? fm.attributesOfItem(atPath: symlinkPath)) != nil {
-            try? fm.removeItem(atPath: symlinkPath)
+        // Create symlinks: ~/.kanban-code/remote/{zsh,bash} -> remote-shell.sh
+        for name in ["zsh", "bash"] {
+            let link = (remoteDir as NSString).appendingPathComponent(name)
+            if fm.fileExists(atPath: link) || (try? fm.attributesOfItem(atPath: link)) != nil {
+                try? fm.removeItem(atPath: link)
+            }
+            try fm.createSymbolicLink(atPath: link, withDestinationPath: scriptPath)
         }
-        try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: scriptPath)
     }
 
-    /// Returns the path to use as SHELL override for remote execution.
+    /// Returns the path to use as SHELL override for remote execution (zsh symlink).
     public static func shellOverridePath() -> String {
-        symlinkPath()
+        (remoteDir() as NSString).appendingPathComponent("zsh")
+    }
+
+    /// Returns the remote directory path, for prepending to PATH.
+    /// Gemini CLI uses `bash -c` directly, so we need our `bash` wrapper
+    /// to appear before the system bash in PATH.
+    public static func remoteDirPath() -> String {
+        remoteDir()
     }
 
     /// Returns environment variables needed for remote execution.
@@ -48,23 +59,52 @@ public enum RemoteShellManager {
         (remoteDir() as NSString).appendingPathComponent("remote-shell.sh")
     }
 
-    private static func symlinkPath() -> String {
-        (remoteDir() as NSString).appendingPathComponent("zsh")
-    }
-
     // MARK: - Embedded Script
     // Based on ~/Projects/claude-remote/scripts/remote-shell.sh (battle-tested).
     // Adapted to read config from ~/.kanban-code/settings.json instead of config.sh.
 
     private static let remoteShellScript = """
-    #!/usr/bin/env bash
+    #!/bin/bash
     #
-    # Remote shell wrapper for Claude Code
+    # Remote shell wrapper for coding assistants (Claude Code, Gemini CLI)
     # Intercepts shell commands and executes them on the remote machine
     # Falls back to local execution if remote is unavailable
     #
     # Configuration: reads from ~/.kanban-code/settings.json (remote.host, remote.remotePath, remote.localPath)
     #
+    # When used as a `bash` symlink in PATH (for Gemini CLI which hardcodes `bash -c`),
+    # hooks and script files are detected and run locally to avoid SSH overhead.
+    #
+
+    # --- Recursion guard ---
+    # Prevents infinite loops when this script is symlinked as `bash` in PATH.
+    # The shebang uses /bin/bash directly, but nested scripts with #!/usr/bin/env bash
+    # could still recurse. This guard catches any remaining edge cases.
+    if [[ -n "${__KANBAN_REMOTE_WRAPPER:-}" ]]; then
+        exec /bin/bash "$@"
+    fi
+    export __KANBAN_REMOTE_WRAPPER=1
+
+    # --- Hook/script fast-path ---
+    # Gemini CLI runs both tool commands and hooks as `bash -c "..."`.
+    # Hooks are script file paths (e.g., /path/to/hook.sh), while tool
+    # commands are inline bash (e.g., "git status", "cd /path && cat file").
+    # Detect script invocations and run them locally — they need local
+    # filesystem access (e.g., writing hook-events.jsonl) and shouldn't
+    # incur SSH overhead.
+    for __arg in "$@"; do
+        if [[ "$__arg" == "-c" ]] || [[ "$__arg" == "-l" ]] || [[ "$__arg" == "-i" ]]; then
+            continue
+        fi
+        # First non-flag argument is the command
+        __first_word="${__arg%% *}"
+        if [[ "$__first_word" == /* ]] && [[ -x "$__first_word" ]]; then
+            # Command starts with an executable file path — likely a hook/script
+            exec /bin/bash "$@"
+        fi
+        break
+    done
+    unset __arg __first_word
 
     # Read config from ~/.kanban-code/settings.json
     CONFIG_FILE="${HOME}/.kanban-code/settings.json"
@@ -242,6 +282,12 @@ public enum RemoteShellManager {
 
             # Map local paths in command to remote
             cmd="${cmd//$LOCAL_MOUNT/$REMOTE_DIR}"
+
+            # Neutralize macOS temp file paths that don't exist on remote.
+            # Gemini CLI injects temp scripts (e.g., /var/folders/.../shell_pgrep_*.tmp)
+            # for process group tracking. Replace with `true` (no-op) so they don't
+            # cause "No such file or directory" errors on the remote machine.
+            cmd=$(echo "$cmd" | /usr/bin/sed -E 's|/var/folders/[^[:space:];]+\\.tmp|true|g')
 
             # Ensure mutagen sync is running and flush before command
             ensure_sync

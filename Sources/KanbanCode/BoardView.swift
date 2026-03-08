@@ -14,6 +14,9 @@ struct BoardView: View {
     var onDeleteCard: (String) -> Void = { _ in }
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String, String) -> Void = { _, _ in }
+    var onMoveToFolder: (String) -> Void = { _ in }
+    var enabledAssistants: [CodingAssistant] = []
+    var onMigrateAssistant: (String, CodingAssistant) -> Void = { _, _ in }
     var onRefreshBacklog: () -> Void = {}
 
     var onDropCard: (String, KanbanCodeColumn) -> Void = { _, _ in }
@@ -64,6 +67,9 @@ struct BoardView: View {
                             onDeleteCard: onDeleteCard,
                             availableProjects: availableProjects,
                             onMoveToProject: onMoveToProject,
+                            onMoveToFolder: onMoveToFolder,
+                            enabledAssistants: enabledAssistants,
+                            onMigrateAssistant: onMigrateAssistant,
                             onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil,
                             onCardClicked: onCardClicked,
                             onColumnBackgroundClick: onColumnBackgroundClick

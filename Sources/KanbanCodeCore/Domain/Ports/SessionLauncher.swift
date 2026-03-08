@@ -12,7 +12,8 @@ public protocol SessionLauncher: Sendable {
         extraEnv: [String: String],
         commandOverride: String?,
         skipPermissions: Bool,
-        preamble: String?
+        preamble: String?,
+        assistant: CodingAssistant
     ) async throws -> String // returns tmux session name
 
     /// Resume an existing session by its ID.
@@ -23,11 +24,12 @@ public protocol SessionLauncher: Sendable {
         extraEnv: [String: String],
         commandOverride: String?,
         skipPermissions: Bool,
-        preamble: String?
+        preamble: String?,
+        assistant: CodingAssistant
     ) async throws -> String // returns tmux session name
 }
 
-/// Default parameter extension so callers that don't need extraEnv aren't broken.
+/// Default parameter extension so callers that don't need all params aren't broken.
 extension SessionLauncher {
     public func launch(
         sessionName: String,
@@ -45,7 +47,8 @@ extension SessionLauncher {
             extraEnv: [:],
             commandOverride: nil,
             skipPermissions: false,
-            preamble: nil
+            preamble: nil,
+            assistant: .claude
         )
     }
 
@@ -63,7 +66,8 @@ extension SessionLauncher {
             extraEnv: extraEnv,
             commandOverride: commandOverride,
             skipPermissions: false,
-            preamble: nil
+            preamble: nil,
+            assistant: .claude
         )
     }
 }

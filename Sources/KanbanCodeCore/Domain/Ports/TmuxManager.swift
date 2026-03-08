@@ -18,8 +18,13 @@ public protocol TmuxManagerPort: Sendable {
         branch: String?
     ) -> TmuxSession?
 
-    /// Send literal text + Enter to a tmux session (for submitting prompts to Claude).
+    /// Send literal text + Enter to a tmux session (for submitting prompts).
     func sendPrompt(to sessionName: String, text: String) async throws
+
+    /// Paste text via tmux load-buffer + paste-buffer, then press Enter.
+    /// Uses bracketed paste which bypasses readline special character handling
+    /// (e.g. Gemini CLI treats `?` as a special command in send-keys mode).
+    func pastePrompt(to sessionName: String, text: String) async throws
 
     /// Capture the visible contents of a tmux pane.
     func capturePane(sessionName: String) async throws -> String

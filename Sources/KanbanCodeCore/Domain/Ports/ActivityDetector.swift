@@ -33,4 +33,11 @@ public protocol ActivityDetector: Sendable {
 
     /// Get the current activity state for a session.
     func activityState(for sessionId: String) async -> ActivityState
+
+    /// Resolve pending stop events (returns resolved session IDs).
+    func resolvePendingStops() async -> [String]
+}
+
+extension ActivityDetector {
+    public func resolvePendingStops() async -> [String] { [] }
 }

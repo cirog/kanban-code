@@ -14,6 +14,9 @@ struct ListBoardView: View {
     var onDeleteCard: (String) -> Void = { _ in }
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String, String) -> Void = { _, _ in }
+    var onMoveToFolder: (String) -> Void = { _ in }
+    var enabledAssistants: [CodingAssistant] = []
+    var onMigrateAssistant: (String, CodingAssistant) -> Void = { _, _ in }
     var onRefreshBacklog: () -> Void = {}
     var onNewTask: () -> Void = {}
     var onCardClicked: (String) -> Void = { _ in }
@@ -79,6 +82,9 @@ struct ListBoardView: View {
             onArchiveCard: onArchiveCard,
             onDeleteCard: onDeleteCard,
             onMoveToProject: onMoveToProject,
+            onMoveToFolder: onMoveToFolder,
+            enabledAssistants: enabledAssistants,
+            onMigrateAssistant: onMigrateAssistant,
             onRefreshBacklog: onRefreshBacklog,
             onToggleCollapse: { toggleCollapse(for: section.column) }
         )
@@ -174,6 +180,9 @@ private struct ListBoardSectionView: View {
     let onArchiveCard: (String) -> Void
     let onDeleteCard: (String) -> Void
     let onMoveToProject: (String, String) -> Void
+    let onMoveToFolder: (String) -> Void
+    let enabledAssistants: [CodingAssistant]
+    let onMigrateAssistant: (String, CodingAssistant) -> Void
     let onRefreshBacklog: () -> Void
     let onToggleCollapse: () -> Void
 
@@ -228,7 +237,10 @@ private struct ListBoardSectionView: View {
                         onArchive: { onArchiveCard(card.id) },
                         onDelete: { onDeleteCard(card.id) },
                         availableProjects: availableProjects,
-                        onMoveToProject: { projectPath in onMoveToProject(card.id, projectPath) }
+                        onMoveToProject: { projectPath in onMoveToProject(card.id, projectPath) },
+                        onMoveToFolder: { onMoveToFolder(card.id) },
+                        enabledAssistants: enabledAssistants,
+                        onMigrateAssistant: { target in onMigrateAssistant(card.id, target) }
                     )
                     .id(card.id)
                 }
@@ -318,6 +330,9 @@ private struct ListCardRowView: View {
     var onDelete: () -> Void = {}
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String) -> Void = { _ in }
+    var onMoveToFolder: () -> Void = {}
+    var enabledAssistants: [CodingAssistant] = []
+    var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
 
     private var supportingText: String? {
         let candidates = [
@@ -380,9 +395,9 @@ private struct ListCardRowView: View {
                     }
 
                     if card.link.cardLabel == .session {
-                        SessionIcon(size: CGFloat(13).scaled)
+                        AssistantIcon(assistant: card.link.effectiveAssistant)
                             .frame(width: CGFloat(13).scaled, height: CGFloat(13).scaled)
-                            .opacity(0.4)
+                            .foregroundStyle(Color.primary.opacity(0.4))
                     }
 
                     if let tmux = card.link.tmuxLink {
@@ -496,19 +511,38 @@ private struct ListCardRowView: View {
                     Label("Cleanup Worktree", systemImage: "trash")
                 }
             }
-            if !availableProjects.isEmpty {
+            if card.link.sessionLink != nil {
                 let currentPath = card.link.projectPath
                 let otherProjects = availableProjects.filter { $0.path != currentPath }
-                if !otherProjects.isEmpty {
+                Divider()
+                Menu {
+                    ForEach(otherProjects, id: \.path) { project in
+                        Button(project.name) {
+                            onMoveToProject(project.path)
+                        }
+                    }
+                    if !otherProjects.isEmpty {
+                        Divider()
+                    }
+                    Button("Select Folder...") {
+                        onMoveToFolder()
+                    }
+                } label: {
+                    Label("Move to Project", systemImage: "folder.badge.arrow.forward")
+                }
+            }
+            if card.link.sessionLink != nil {
+                let migrationTargets = enabledAssistants.filter { $0 != card.link.effectiveAssistant }
+                if !migrationTargets.isEmpty {
                     Divider()
                     Menu {
-                        ForEach(otherProjects, id: \.path) { project in
-                            Button(project.name) {
-                                onMoveToProject(project.path)
+                        ForEach(migrationTargets, id: \.rawValue) { target in
+                            Button(target.displayName) {
+                                onMigrateAssistant(target)
                             }
                         }
                     } label: {
-                        Label("Move to Project", systemImage: "folder.badge.arrow.forward")
+                        Label("Migrate to Assistant", systemImage: "arrow.triangle.swap")
                     }
                 }
             }

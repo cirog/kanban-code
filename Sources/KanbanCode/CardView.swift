@@ -17,6 +17,9 @@ struct CardView: View {
     var onDelete: () -> Void = {}
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String) -> Void = { _ in }
+    var onMoveToFolder: () -> Void = {}
+    var enabledAssistants: [CodingAssistant] = []
+    var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -44,9 +47,9 @@ struct CardView: View {
             // Bottom row: badge + time + link indicators
             HStack(spacing: 6) {
                 if card.link.cardLabel == .session {
-                    SessionIcon()
+                    AssistantIcon(assistant: card.link.effectiveAssistant)
                         .frame(width: CGFloat(14).scaled, height: CGFloat(14).scaled)
-                        .opacity(0.4)
+                        .foregroundStyle(Color.primary.opacity(0.4))
                 } else {
                     CardLabelBadge(label: card.link.cardLabel)
                 }
@@ -193,19 +196,38 @@ struct CardView: View {
                     Label("Cleanup Worktree", systemImage: "trash")
                 }
             }
-            if !availableProjects.isEmpty {
+            if card.link.sessionLink != nil {
                 let currentPath = card.link.projectPath
                 let otherProjects = availableProjects.filter { $0.path != currentPath }
-                if !otherProjects.isEmpty {
+                Divider()
+                Menu {
+                    ForEach(otherProjects, id: \.path) { project in
+                        Button(project.name) {
+                            onMoveToProject(project.path)
+                        }
+                    }
+                    if !otherProjects.isEmpty {
+                        Divider()
+                    }
+                    Button("Select Folder...") {
+                        onMoveToFolder()
+                    }
+                } label: {
+                    Label("Move to Project", systemImage: "folder.badge.arrow.forward")
+                }
+            }
+            if card.link.sessionLink != nil {
+                let migrationTargets = enabledAssistants.filter { $0 != card.link.effectiveAssistant }
+                if !migrationTargets.isEmpty {
                     Divider()
                     Menu {
-                        ForEach(otherProjects, id: \.path) { project in
-                            Button(project.name) {
-                                onMoveToProject(project.path)
+                        ForEach(migrationTargets, id: \.rawValue) { target in
+                            Button(target.displayName) {
+                                onMigrateAssistant(target)
                             }
                         }
                     } label: {
-                        Label("Move to Project", systemImage: "folder.badge.arrow.forward")
+                        Label("Migrate to Assistant", systemImage: "arrow.triangle.swap")
                     }
                 }
             }
@@ -250,7 +272,7 @@ struct SessionIcon: View {
         if let src = Self.sourceImage {
             if let size {
                 // Pre-sized image for contexts like Menu Labels that ignore .frame()
-                Image(nsImage: Self.resized(src, to: size))
+                Image(nsImage: Self.resizedForMenu(src, to: size))
             } else {
                 Image(nsImage: src)
                     .resizable()
@@ -259,13 +281,99 @@ struct SessionIcon: View {
         }
     }
 
-    private static func resized(_ img: NSImage, to size: CGFloat) -> NSImage {
+    /// Resize the source image for use in NSMenuItems. Internal so AssistantIcon can use it.
+    static func resizedForMenu(_ img: NSImage, to size: CGFloat) -> NSImage {
         let result = NSImage(size: NSSize(width: size, height: size))
         result.lockFocus()
         img.draw(in: NSRect(x: 0, y: 0, width: size, height: size),
                  from: .zero, operation: .sourceOver, fraction: 1.0)
         result.unlockFocus()
         return result
+    }
+}
+
+// MARK: - Assistant Icon
+
+/// Displays the icon for a coding assistant — clawd pixel art for Claude, sparkle for Gemini.
+struct AssistantIcon: View {
+    let assistant: CodingAssistant
+
+    var body: some View {
+        switch assistant {
+        case .claude:
+            SessionIcon()
+        case .gemini:
+            GeminiSparkle()
+        }
+    }
+
+    /// NSImage for use in NSMenuItems — template mode for dark mode support.
+    /// NOTE: The `size` parameter must be applied for Claude too (clawd PNG is high-res).
+    /// Do not remove the resize call — without it the menu icon renders at full PNG resolution.
+    static func menuImage(for assistant: CodingAssistant, size: CGFloat = 16) -> NSImage? {
+        switch assistant {
+        case .claude:
+            guard let src = SessionIcon.menuImage else { return nil }
+            return SessionIcon.resizedForMenu(src, to: size)
+        case .gemini:
+            return geminiMenuImage(size: size)
+        }
+    }
+
+    private static func geminiMenuImage(size: CGFloat) -> NSImage {
+        let img = NSImage(size: NSSize(width: size, height: size))
+        img.lockFocus()
+        let path = GeminiSparkle().path(in: CGRect(origin: .zero, size: CGSize(width: size, height: size)))
+        let bezier = NSBezierPath(cgPath: path.cgPath)
+        NSColor.black.setFill()
+        bezier.fill()
+        img.unlockFocus()
+        img.isTemplate = true
+        return img
+    }
+}
+
+/// The Gemini 4-pointed sparkle/star logo drawn as a SwiftUI Shape.
+struct GeminiSparkle: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        let cx = rect.midX
+        let cy = rect.midY
+
+        // 4-pointed star with curved concave sides
+        let waist: CGFloat = 0.07
+
+        return Path { p in
+            // Start at top point
+            p.move(to: CGPoint(x: cx, y: 0))
+
+            // Top-right curve to right point
+            p.addQuadCurve(
+                to: CGPoint(x: w, y: cy),
+                control: CGPoint(x: cx + w * waist, y: cy - h * waist)
+            )
+
+            // Right curve to bottom point
+            p.addQuadCurve(
+                to: CGPoint(x: cx, y: h),
+                control: CGPoint(x: cx + w * waist, y: cy + h * waist)
+            )
+
+            // Bottom-left curve to left point
+            p.addQuadCurve(
+                to: CGPoint(x: 0, y: cy),
+                control: CGPoint(x: cx - w * waist, y: cy + h * waist)
+            )
+
+            // Left curve back to top
+            p.addQuadCurve(
+                to: CGPoint(x: cx, y: 0),
+                control: CGPoint(x: cx - w * waist, y: cy - h * waist)
+            )
+
+            p.closeSubpath()
+        }
     }
 }
 

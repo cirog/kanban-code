@@ -14,6 +14,7 @@ struct LaunchConfirmationDialog: View {
     let remoteHost: String?
     let isResume: Bool
     let sessionId: String?
+    let assistant: CodingAssistant
     @Binding var isPresented: Bool
     var onLaunch: (String, Bool, String?, Bool, Bool, String?, [ImageAttachment]) -> Void = { _, _, _, _, _, _, _ in } // (editedPrompt, createWorktree, worktreeBranch, runRemotely, skipPermissions, commandOverride, images)
 
@@ -38,6 +39,7 @@ struct LaunchConfirmationDialog: View {
         isResume: Bool = false,
         sessionId: String? = nil,
         promptImagePaths: [String] = [],
+        assistant: CodingAssistant = .claude,
         isPresented: Binding<Bool>,
         onLaunch: @escaping (String, Bool, String?, Bool, Bool, String?, [ImageAttachment]) -> Void = { _, _, _, _, _, _, _ in }
     ) {
@@ -51,6 +53,7 @@ struct LaunchConfirmationDialog: View {
         self.remoteHost = remoteHost
         self.isResume = isResume
         self.sessionId = sessionId
+        self.assistant = assistant
         self._isPresented = isPresented
         self.onLaunch = onLaunch
         self._prompt = State(initialValue: initialPrompt)
@@ -92,7 +95,7 @@ struct LaunchConfirmationDialog: View {
                     // Session ID (resume only)
                     if isResume, let sid = sessionId {
                         HStack(spacing: 6) {
-                            SessionIcon()
+                            AssistantIcon(assistant: assistant)
                                 .frame(width: CGFloat(14).scaled, height: CGFloat(14).scaled)
                                 .opacity(0.5)
                             Text(sid)
@@ -115,7 +118,7 @@ struct LaunchConfirmationDialog: View {
 
                     // Checkboxes
                     VStack(alignment: .leading, spacing: 6) {
-                        if !isResume && !hasExistingWorktree {
+                        if !isResume && !hasExistingWorktree && assistant.supportsWorktree {
                             Toggle("Create worktree", isOn: isGitRepo ? $createWorktree : .constant(false))
                                 .font(.app(.callout))
                                 .disabled(!isGitRepo)
@@ -228,7 +231,7 @@ struct LaunchConfirmationDialog: View {
     // MARK: - Computed
 
     private var effectiveCreateWorktree: Bool {
-        !isResume && !hasExistingWorktree && createWorktree && isGitRepo
+        !isResume && !hasExistingWorktree && createWorktree && isGitRepo && assistant.supportsWorktree
     }
 
     private var effectiveRunRemotely: Bool {
@@ -240,18 +243,21 @@ struct LaunchConfirmationDialog: View {
 
         if effectiveRunRemotely {
             parts.append("SHELL=~/.kanban-code/remote/zsh")
+            if assistant == .gemini {
+                parts.append("PATH=~/.kanban-code/remote:$PATH")
+            }
         }
 
         if isResume, let sid = sessionId {
-            var resumeCmd = "claude"
-            if dangerouslySkipPermissions { resumeCmd += " --dangerously-skip-permissions" }
-            resumeCmd += " --resume \(sid)"
+            var resumeCmd = assistant.cliCommand
+            if dangerouslySkipPermissions { resumeCmd += " \(assistant.autoApproveFlag)" }
+            resumeCmd += " \(assistant.resumeFlag) \(sid)"
             parts.append("cd \(projectPath) && \(resumeCmd)")
         } else {
-            var cmd = "claude"
-            if dangerouslySkipPermissions { cmd += " --dangerously-skip-permissions" }
+            var cmd = assistant.cliCommand
+            if dangerouslySkipPermissions { cmd += " \(assistant.autoApproveFlag)" }
 
-            if effectiveCreateWorktree {
+            if effectiveCreateWorktree && assistant.supportsWorktree {
                 let branch = worktreeBranch.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let name = worktreeName, !name.isEmpty {
                     cmd += " --worktree \(name)"

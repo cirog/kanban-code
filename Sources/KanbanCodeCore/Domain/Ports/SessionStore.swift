@@ -20,6 +20,10 @@ public protocol SessionStore: Sendable {
         query: String, paths: [String],
         onResult: @MainActor @Sendable ([SearchResult]) -> Void
     ) async throws
+
+    /// Write conversation turns to a new session file in this store's native format.
+    /// Returns the path to the new session file.
+    func writeSession(turns: [ConversationTurn], sessionId: String, projectPath: String?) async throws -> String
 }
 
 extension SessionStore {
@@ -34,6 +38,11 @@ extension SessionStore {
     ) async throws {
         let results = try await searchSessions(query: query, paths: paths)
         await onResult(results)
+    }
+
+    /// Default: writing is not supported.
+    public func writeSession(turns: [ConversationTurn], sessionId: String, projectPath: String?) async throws -> String {
+        throw SessionStoreError.writeNotSupported
     }
 }
 

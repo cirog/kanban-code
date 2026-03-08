@@ -89,27 +89,36 @@ public actor EffectHandler {
                 KanbanCodeLog.warn("effect", "moveSessionFile failed: \(error)")
                 await dispatch(.setError("Move failed: \(error.localizedDescription)"))
             }
-        case .sendPromptToTmux(let sessionName, let promptBody):
+        case .sendPromptToTmux(let sessionName, let promptBody, let assistant):
             do {
-                try await tmuxAdapter?.sendPrompt(to: sessionName, text: promptBody)
+                if assistant == .gemini {
+                    try await tmuxAdapter?.pastePrompt(to: sessionName, text: promptBody)
+                } else {
+                    try await tmuxAdapter?.sendPrompt(to: sessionName, text: promptBody)
+                }
             } catch {
                 KanbanCodeLog.warn("effect", "sendPromptToTmux failed: \(error)")
             }
 
-        case .sendPromptWithImagesToTmux(let sessionName, let promptBody, let imagePaths):
+        case .sendPromptWithImagesToTmux(let sessionName, let promptBody, let imagePaths, let assistant):
             do {
                 guard let tmux = tmuxAdapter, let setClipboard = setClipboardImage else { return }
                 let images = imagePaths.compactMap { ImageAttachment.fromPath($0) }
                 if !images.isEmpty {
                     let sender = ImageSender(tmux: tmux)
-                    try await sender.waitForReady(sessionName: sessionName)
+                    try await sender.waitForReady(sessionName: sessionName, assistant: assistant)
                     try await sender.sendImages(
                         sessionName: sessionName,
                         images: images,
+                        assistant: assistant,
                         setClipboard: setClipboard
                     )
                 }
-                try await tmux.sendPrompt(to: sessionName, text: promptBody)
+                if assistant == .gemini {
+                    try await tmux.pastePrompt(to: sessionName, text: promptBody)
+                } else {
+                    try await tmux.sendPrompt(to: sessionName, text: promptBody)
+                }
                 for path in imagePaths {
                     try? FileManager.default.removeItem(atPath: path)
                 }

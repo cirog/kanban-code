@@ -180,6 +180,10 @@ struct ImageSenderTests {
             sentPrompts.append((session: sessionName, text: text))
         }
 
+        func pastePrompt(to sessionName: String, text: String) async throws {
+            sentPrompts.append((session: sessionName, text: text))
+        }
+
         func listSessions() async throws -> [TmuxSession] { [] }
         func createSession(name: String, path: String, command: String?) async throws {
             createdSessions.append((name: name, path: path, command: command))
@@ -314,6 +318,7 @@ struct LaunchSessionSendKeysTests {
         }
         func listSessions() async throws -> [TmuxSession] { [] }
         func sendPrompt(to sessionName: String, text: String) async throws {}
+        func pastePrompt(to sessionName: String, text: String) async throws {}
         func capturePane(sessionName: String) async throws -> String { "" }
         func sendBracketedPaste(to sessionName: String) async throws {}
         func findSessionForWorktree(sessions: [TmuxSession], worktreePath: String, branch: String?) -> TmuxSession? { nil }

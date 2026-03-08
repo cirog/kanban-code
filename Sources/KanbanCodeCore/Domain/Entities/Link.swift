@@ -174,6 +174,12 @@ public struct Link: Identifiable, Codable, Sendable {
     /// (lower first); cards without fall back to time-based sort.
     public var sortOrder: Int?
 
+    /// Which coding assistant this card uses. nil defaults to .claude for backward compat.
+    public var assistant: CodingAssistant?
+
+    /// The effective assistant (never nil).
+    public var effectiveAssistant: CodingAssistant { assistant ?? .claude }
+
     /// Launch lock — true while an async launch/resume is in progress.
     /// Prevents background reconciliation from overriding card state mid-launch.
     public var isLaunching: Bool?
@@ -277,6 +283,7 @@ public struct Link: Identifiable, Codable, Sendable {
         prLinks: [PRLink] = [],
         issueLink: IssueLink? = nil,
         queuedPrompts: [QueuedPrompt]? = nil,
+        assistant: CodingAssistant? = nil,
         isRemote: Bool = false,
         isLaunching: Bool? = nil,
         sortOrder: Int? = nil,
@@ -301,6 +308,7 @@ public struct Link: Identifiable, Codable, Sendable {
         self.prLinks = prLinks
         self.issueLink = issueLink
         self.queuedPrompts = queuedPrompts
+        self.assistant = assistant
         self.isRemote = isRemote
         self.isLaunching = isLaunching
         self.sortOrder = sortOrder
@@ -314,7 +322,7 @@ public struct Link: Identifiable, Codable, Sendable {
         // Card-level
         case id, name, projectPath, column, createdAt, updatedAt, lastActivity
         case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isRemote, isLaunching, sortOrder
-        case discoveredBranches, discoveredRepos
+        case discoveredBranches, discoveredRepos, assistant
         // Typed links (new nested format)
         case sessionLink, tmuxLink, worktreeLink, prLinks, issueLink, queuedPrompts
         // Old format keys (for reading legacy format)
@@ -343,6 +351,7 @@ public struct Link: Identifiable, Codable, Sendable {
         sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
         discoveredBranches = try c.decodeIfPresent([String].self, forKey: .discoveredBranches)
         discoveredRepos = try c.decodeIfPresent([String: String].self, forKey: .discoveredRepos)
+        assistant = try c.decodeIfPresent(CodingAssistant.self, forKey: .assistant)
 
         // Session link: try nested first, fallback to flat
         if let sl = try c.decodeIfPresent(SessionLink.self, forKey: .sessionLink) {
@@ -426,6 +435,7 @@ public struct Link: Identifiable, Codable, Sendable {
         try c.encodeIfPresent(sortOrder, forKey: .sortOrder)
         try c.encodeIfPresent(discoveredBranches, forKey: .discoveredBranches)
         try c.encodeIfPresent(discoveredRepos, forKey: .discoveredRepos)
+        try c.encodeIfPresent(assistant, forKey: .assistant)
 
         // Always write new nested format
         try c.encodeIfPresent(sessionLink, forKey: .sessionLink)

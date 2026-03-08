@@ -1,6 +1,6 @@
 import Foundation
 
-/// Parses tmux capture-pane output to detect Claude Code state.
+/// Parses tmux capture-pane output to detect coding assistant state.
 public enum PaneOutputParser {
 
     /// Count image attachments visible in Claude Code's TUI.
@@ -17,8 +17,13 @@ public enum PaneOutputParser {
         return count
     }
 
-    /// Check if Claude Code's input prompt is visible (ready for input).
+    /// Check if the assistant's input prompt is visible (ready for input).
+    public static func isReady(_ paneOutput: String, assistant: CodingAssistant) -> Bool {
+        paneOutput.contains(assistant.promptCharacter)
+    }
+
+    /// Backward-compatible: check if Claude Code's input prompt is visible.
     public static func isClaudeReady(_ paneOutput: String) -> Bool {
-        paneOutput.contains("❯")
+        isReady(paneOutput, assistant: .claude)
     }
 }

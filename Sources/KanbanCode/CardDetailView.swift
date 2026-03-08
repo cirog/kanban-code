@@ -63,10 +63,14 @@ struct CardDetailView: View {
     var onUpdateQueuedPrompt: (String, String, Bool) -> Void = { _, _, _ in } // promptId, body, sendAuto
     var onRemoveQueuedPrompt: (String) -> Void = { _ in }
     var onSendQueuedPrompt: (String) -> Void = { _ in }
+    var onEditingQueuedPrompt: (String?) -> Void = { _ in } // promptId when editing, nil when done
     var onDiscover: () -> Void = {}
     var onUpdatePrompt: (String, [String]?) -> Void = { _, _ in } // body, imagePaths
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String) -> Void = { _ in }
+    var onMoveToFolder: () -> Void = {}
+    var enabledAssistants: [CodingAssistant] = []
+    var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
     @Binding var focusTerminal: Bool
 
     @AppStorage("preferredEditorBundleId") private var editorBundleId: String = "dev.zed.Zed"
@@ -104,8 +108,7 @@ struct CardDetailView: View {
     @State private var showMergeBlockedPopover = false
 
     // Queued prompts
-    @State private var showQueuedPromptDialog = false
-    @State private var editingQueuedPrompt: QueuedPrompt?
+    @State private var queuedPromptItem: QueuedPromptItem?
 
     // Edit prompt
     @State private var showEditPromptSheet = false
@@ -130,7 +133,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onAddPR: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onPRMerged: @escaping (Int) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, focusTerminal: Binding<Bool> = .constant(false)) {
+    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onAddPR: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onPRMerged: @escaping (Int) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, focusTerminal: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -153,10 +156,14 @@ struct CardDetailView: View {
         self.onUpdateQueuedPrompt = onUpdateQueuedPrompt
         self.onRemoveQueuedPrompt = onRemoveQueuedPrompt
         self.onSendQueuedPrompt = onSendQueuedPrompt
+        self.onEditingQueuedPrompt = onEditingQueuedPrompt
         self.onDiscover = onDiscover
         self.onUpdatePrompt = onUpdatePrompt
         self.availableProjects = availableProjects
         self.onMoveToProject = onMoveToProject
+        self.onMoveToFolder = onMoveToFolder
+        self.enabledAssistants = enabledAssistants
+        self.onMigrateAssistant = onMigrateAssistant
         self._focusTerminal = focusTerminal
         _selectedTab = State(initialValue: Self.initialTab(for: card))
     }
@@ -295,7 +302,7 @@ struct CardDetailView: View {
                         copyableRow(icon: "folder.badge.gearshape", text: projectPath)
                     }
                     if let sessionId = card.link.sessionLink?.sessionId {
-                        SessionIdRow(sessionId: sessionId)
+                        SessionIdRow(sessionId: sessionId, assistant: card.link.effectiveAssistant)
                     }
 
                     // Add link button
@@ -373,6 +380,7 @@ struct CardDetailView: View {
                     checkpointMode: checkpointMode,
                     hasMoreTurns: hasMoreTurns,
                     isLoadingMore: isLoadingMore,
+                    assistant: card.link.effectiveAssistant,
                     onCancelCheckpoint: { checkpointMode = false },
                     onSelectTurn: { turn in
                         checkpointTurn = turn
@@ -493,16 +501,21 @@ struct CardDetailView: View {
                 onRename: onRename
             )
         }
-        .sheet(isPresented: $showQueuedPromptDialog) {
+        .sheet(item: $queuedPromptItem) { item in
             QueuedPromptDialog(
-                isPresented: $showQueuedPromptDialog,
-                existingPrompt: editingQueuedPrompt,
+                isPresented: Binding(
+                    get: { queuedPromptItem != nil },
+                    set: { if !$0 { onEditingQueuedPrompt(nil); queuedPromptItem = nil } }
+                ),
+                existingPrompt: item.existingPrompt,
+                assistant: card.link.effectiveAssistant,
                 onSave: { body, sendAuto, images in
+                    onEditingQueuedPrompt(nil)
                     let imagePaths: [String]? = images.isEmpty ? nil : images.compactMap { img in
                         var mutable = img
                         return try? mutable.saveToPersistent()
                     }
-                    if let existing = editingQueuedPrompt {
+                    if let existing = item.existingPrompt {
                         onUpdateQueuedPrompt(existing.id, body, sendAuto)
                     } else {
                         onAddQueuedPrompt(QueuedPrompt(body: body, sendAutomatically: sendAuto, imagePaths: imagePaths))
@@ -620,8 +633,8 @@ struct CardDetailView: View {
                 HStack(spacing: 4) {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 4) {
-                            // Claude tab — always first
-                            claudeTab(isSelected: isClaudeTabSelected, isLaunching: isLaunching)
+                            // Assistant tab — always first
+                            assistantTab(isSelected: isClaudeTabSelected, isLaunching: isLaunching)
 
                             // Shell session tabs
                             ForEach(shellSessions, id: \.self) { sessionName in
@@ -663,8 +676,7 @@ struct CardDetailView: View {
                         .help("Copy: tmux attach -t \(activeTmux)")
 
                         Button {
-                            showQueuedPromptDialog = true
-                            editingQueuedPrompt = nil
+                            queuedPromptItem = QueuedPromptItem(existingPrompt: nil)
                         } label: {
                             HStack(spacing: 3) {
                                 Image(systemName: "text.badge.plus")
@@ -690,8 +702,8 @@ struct CardDetailView: View {
                         prompts: prompts,
                         onSendNow: { promptId in onSendQueuedPrompt(promptId) },
                         onEdit: { prompt in
-                            editingQueuedPrompt = prompt
-                            showQueuedPromptDialog = true
+                            onEditingQueuedPrompt(prompt.id)
+                            queuedPromptItem = QueuedPromptItem(existingPrompt: prompt)
                         },
                         onRemove: { promptId in onRemoveQueuedPrompt(promptId) }
                     )
@@ -716,7 +728,7 @@ struct CardDetailView: View {
 
                     // Overlay for non-terminal Claude tab states
                     if showOverlay {
-                        claudeTabOverlay(isLaunching: isLaunching)
+                        assistantTabOverlay(isLaunching: isLaunching)
                     }
                 }
             }
@@ -757,22 +769,23 @@ struct CardDetailView: View {
         }
     }
 
-    // MARK: - Claude Tab
+    // MARK: - Assistant Tab
 
     @ViewBuilder
-    private func claudeTab(isSelected: Bool, isLaunching: Bool) -> some View {
-        let claudeAlive = claudeTmuxSession != nil
-        let isDead = !claudeAlive && !isLaunching
+    private func assistantTab(isSelected: Bool, isLaunching: Bool) -> some View {
+        let assistant = card.link.effectiveAssistant
+        let assistantAlive = claudeTmuxSession != nil
+        let isDead = !assistantAlive && !isLaunching
 
         HStack(spacing: 0) {
             Button {
                 selectedTerminalSession = nil
-                if claudeAlive { terminalGrabFocus = true }
+                if assistantAlive { terminalGrabFocus = true }
             } label: {
                 HStack(spacing: 4) {
-                    SessionIcon()
+                    AssistantIcon(assistant: assistant)
                         .frame(width: CGFloat(12).scaled, height: CGFloat(12).scaled)
-                    Text("Claude")
+                    Text(assistant.displayName)
                         .font(.app(.caption))
                         .lineLimit(1)
                 }
@@ -783,13 +796,12 @@ struct CardDetailView: View {
             .buttonStyle(.plain)
             .opacity(isDead ? 0.5 : 1.0)
 
-            // X button only when Claude has a live tmux session
-            if claudeAlive {
+            // X button only when assistant has a live tmux session
+            if assistantAlive {
                 Button {
                     if let session = claudeTmuxSession {
                         onKillTerminal(session)
                     }
-                    // Stay on Claude tab (will now show Resume)
                 } label: {
                     Image(systemName: "xmark")
                         .font(.app(size: 8, weight: .bold))
@@ -799,7 +811,7 @@ struct CardDetailView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .help("Stop Claude session")
+                .help("Stop \(assistant.displayName) session")
             }
         }
         .background(
@@ -808,9 +820,10 @@ struct CardDetailView: View {
         )
     }
 
-    /// Overlay shown on the Claude tab when there's no live Claude terminal.
+    /// Overlay shown on the assistant tab when there's no live terminal.
     @ViewBuilder
-    private func claudeTabOverlay(isLaunching: Bool) -> some View {
+    private func assistantTabOverlay(isLaunching: Bool) -> some View {
+        let assistant = card.link.effectiveAssistant
         if isLaunching {
             VStack(spacing: 12) {
                 ProgressView()
@@ -827,23 +840,23 @@ struct CardDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if card.link.sessionLink != nil {
             VStack(spacing: 12) {
-                SessionIcon()
+                AssistantIcon(assistant: assistant)
                     .frame(width: CGFloat(32).scaled, height: CGFloat(32).scaled)
-                    .opacity(0.3)
-                Text("Claude session ended")
+                    .foregroundStyle(Color.primary.opacity(0.3))
+                Text("\(assistant.displayName) session ended")
                     .font(.app(.body))
                     .foregroundStyle(.secondary)
                 Button(action: onResume) {
-                    Label("Resume Claude", systemImage: "play.fill")
+                    Label("Resume \(assistant.displayName)", systemImage: "play.fill")
                 }
                 .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 12) {
-                SessionIcon()
+                AssistantIcon(assistant: assistant)
                     .frame(width: CGFloat(32).scaled, height: CGFloat(32).scaled)
-                    .opacity(0.3)
+                    .foregroundStyle(Color.primary.opacity(0.3))
                 Text("No agent session")
                     .font(.app(.body))
                     .foregroundStyle(.secondary)
@@ -1441,13 +1454,8 @@ struct CardDetailView: View {
 
         if let sessionId = card.link.sessionLink?.sessionId {
             let sessionItem = menu.addActionItem("Copy Session ID") { [self] in copyToClipboard(sessionId) }
-            if let sessionImg = SessionIcon.menuImage {
-                let sized = NSImage(size: NSSize(width: 16, height: 16))
-                sized.lockFocus()
-                sessionImg.draw(in: NSRect(x: 0, y: 0, width: 16, height: 16))
-                sized.unlockFocus()
-                sized.isTemplate = true
-                sessionItem.image = sized
+            if let img = AssistantIcon.menuImage(for: card.link.effectiveAssistant) {
+                sessionItem.image = img
             }
         }
 
@@ -1480,9 +1488,9 @@ struct CardDetailView: View {
             menu.addActionItem("Cleanup Worktree", image: "trash") { [self] in onCleanupWorktree() }
         }
 
-        let currentPath = card.link.projectPath
-        let otherProjects = availableProjects.filter { $0.path != currentPath }
-        if !otherProjects.isEmpty {
+        if card.link.sessionLink != nil {
+            let currentPath = card.link.projectPath
+            let otherProjects = availableProjects.filter { $0.path != currentPath }
             menu.addItem(NSMenuItem.separator())
             let moveItem = NSMenuItem(title: "Move to Project", action: nil, keyEquivalent: "")
             moveItem.image = NSImage(systemSymbolName: "folder.badge.arrow.forward", accessibilityDescription: nil)
@@ -1491,8 +1499,28 @@ struct CardDetailView: View {
                 let item = submenu.addActionItem(project.name) { [self] in onMoveToProject(project.path) }
                 _ = item
             }
+            if !otherProjects.isEmpty {
+                submenu.addItem(NSMenuItem.separator())
+            }
+            submenu.addActionItem("Select Folder...") { [self] in onMoveToFolder() }
             moveItem.submenu = submenu
             menu.addItem(moveItem)
+        }
+
+        if card.link.sessionLink != nil {
+            let migrationTargets = enabledAssistants.filter { $0 != card.link.effectiveAssistant }
+            if !migrationTargets.isEmpty {
+                menu.addItem(NSMenuItem.separator())
+                let migrateItem = NSMenuItem(title: "Migrate to Assistant", action: nil, keyEquivalent: "")
+                migrateItem.image = NSImage(systemSymbolName: "arrow.triangle.swap", accessibilityDescription: nil)
+                let migrateSubmenu = NSMenu()
+                for target in migrationTargets {
+                    let item = migrateSubmenu.addActionItem(target.displayName) { [self] in onMigrateAssistant(target) }
+                    _ = item
+                }
+                migrateItem.submenu = migrateSubmenu
+                menu.addItem(migrateItem)
+            }
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -1508,12 +1536,19 @@ struct CardDetailView: View {
     private func loadHistory() async {
         guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
         if turns.isEmpty { isLoadingHistory = true }
-        // Preserve expanded window: if user loaded more than pageSize, keep that many
-        let loadCount = max(Self.pageSize, turns.count)
         do {
-            let result = try await TranscriptReader.readTail(from: path, maxTurns: loadCount)
-            turns = result.turns
-            hasMoreTurns = result.hasMore
+            if card.link.effectiveAssistant == .gemini {
+                // Gemini uses JSON format — load all turns via session store
+                let allTurns = try await sessionStore.readTranscript(sessionPath: path)
+                turns = allTurns
+                hasMoreTurns = false
+            } else {
+                // Claude uses JSONL — paginated loading
+                let loadCount = max(Self.pageSize, turns.count)
+                let result = try await TranscriptReader.readTail(from: path, maxTurns: loadCount)
+                turns = result.turns
+                hasMoreTurns = result.hasMore
+            }
         } catch {
             // Silently fail — empty history is fine
         }
@@ -1717,14 +1752,15 @@ struct CardDetailView: View {
 
 private struct SessionIdRow: View {
     let sessionId: String
+    let assistant: CodingAssistant
     @State private var copied = false
 
     var body: some View {
         HStack(spacing: 4) {
             HStack(spacing: 4) {
-                SessionIcon()
+                AssistantIcon(assistant: assistant)
                     .frame(width: CGFloat(12).scaled, height: CGFloat(12).scaled)
-                    .opacity(0.5)
+                    .foregroundStyle(Color.primary.opacity(0.4))
                 Text(sessionId)
                     .font(.app(.caption))
                     .foregroundStyle(.secondary)
@@ -1882,6 +1918,11 @@ private struct TabRenameItem: Identifiable {
     let id = UUID()
     let sessionName: String
     let currentName: String
+}
+
+private struct QueuedPromptItem: Identifiable {
+    let id = UUID()
+    let existingPrompt: QueuedPrompt?
 }
 
 struct RenameTerminalTabDialog: View {

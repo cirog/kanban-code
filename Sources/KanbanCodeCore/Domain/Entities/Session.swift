@@ -1,6 +1,6 @@
 import Foundation
 
-/// A discovered Claude Code session, extracted from .jsonl files and/or session indexes.
+/// A discovered coding assistant session, extracted from session files.
 public struct Session: Identifiable, Sendable {
     public let id: String // sessionId (UUID string)
     public var name: String? // Custom name or auto-generated summary
@@ -9,7 +9,8 @@ public struct Session: Identifiable, Sendable {
     public var gitBranch: String? // Git branch if in a worktree
     public var messageCount: Int
     public var modifiedTime: Date
-    public var jsonlPath: String? // Full path to the .jsonl file
+    public var jsonlPath: String? // Full path to the session file (.jsonl or .json)
+    public var assistant: CodingAssistant // Which assistant this session belongs to
 
     public init(
         id: String,
@@ -19,7 +20,8 @@ public struct Session: Identifiable, Sendable {
         gitBranch: String? = nil,
         messageCount: Int = 0,
         modifiedTime: Date = .now,
-        jsonlPath: String? = nil
+        jsonlPath: String? = nil,
+        assistant: CodingAssistant = .claude
     ) {
         self.id = id
         self.name = name
@@ -29,6 +31,7 @@ public struct Session: Identifiable, Sendable {
         self.messageCount = messageCount
         self.modifiedTime = modifiedTime
         self.jsonlPath = jsonlPath
+        self.assistant = assistant
     }
 
     /// Display title: custom name → summary → first prompt → session ID prefix.

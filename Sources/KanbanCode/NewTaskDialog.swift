@@ -6,11 +6,17 @@ struct NewTaskDialog: View {
     var projects: [Project] = []
     var defaultProjectPath: String?
     var globalRemoteSettings: RemoteSettings?
-    /// (prompt, projectPath, title, startImmediately, images) — creates task, optionally starts via LaunchConfirmation
+    var enabledAssistants: [CodingAssistant] = CodingAssistant.allCases
+    /// (prompt, projectPath, title, startImmediately, images) — creates task without an assistant set
     var onCreate: (String, String?, String?, Bool, [ImageAttachment]) -> Void = { _, _, _, _, _ in }
-    /// (prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images) — creates and launches directly (skips LaunchConfirmation)
-    var onCreateAndLaunch: (String, String?, String?, Bool, Bool, Bool, String?, [ImageAttachment]) -> Void = { _, _, _, _, _, _, _, _ in }
+    /// (prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant) — creates and launches directly (skips LaunchConfirmation)
+    var onCreateAndLaunch: (String, String?, String?, Bool, Bool, Bool, String?, [ImageAttachment], CodingAssistant) -> Void = { _, _, _, _, _, _, _, _, _ in }
 
+    @AppStorage("selectedAssistant") private var selectedAssistantRaw: String = CodingAssistant.claude.rawValue
+    private var selectedAssistant: CodingAssistant {
+        get { CodingAssistant(rawValue: selectedAssistantRaw) ?? .claude }
+        nonmutating set { selectedAssistantRaw = newValue.rawValue }
+    }
     @State private var prompt = ""
     @State private var images: [ImageAttachment] = []
     @State private var title = ""
@@ -37,7 +43,7 @@ struct NewTaskDialog: View {
             PromptSection(
                 text: $prompt,
                 images: $images,
-                placeholder: "Describe what you want Claude to do...",
+                placeholder: "Describe what you want \(selectedAssistant.displayName) to do...",
                 onSubmit: submitForm
             )
 
@@ -74,11 +80,16 @@ struct NewTaskDialog: View {
             // Launch options (shown when "Start immediately" is checked)
             if startImmediately {
                 VStack(alignment: .leading, spacing: 6) {
-                    Toggle("Create worktree", isOn: isGitRepo ? $createWorktree : .constant(false))
+                    Toggle("Create worktree", isOn: (isGitRepo && selectedAssistant.supportsWorktree) ? $createWorktree : .constant(false))
                         .font(.app(.callout))
-                        .disabled(!isGitRepo)
+                        .disabled(!isGitRepo || !selectedAssistant.supportsWorktree)
                     if !isGitRepo {
                         Label("Not a git repository", systemImage: "info.circle")
+                            .font(.app(.caption2))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 20)
+                    } else if !selectedAssistant.supportsWorktree {
+                        Label("\(selectedAssistant.displayName) doesn't support worktrees", systemImage: "info.circle")
                             .font(.app(.caption2))
                             .foregroundStyle(.secondary)
                             .padding(.leading, 20)
@@ -135,6 +146,18 @@ struct NewTaskDialog: View {
 
             // Buttons
             HStack {
+                if startImmediately && enabledAssistants.count > 1 {
+                    Picker(selection: $selectedAssistantRaw) {
+                        ForEach(enabledAssistants, id: \.self) { assistant in
+                            Text(assistant.displayName)
+                                .tag(assistant.rawValue)
+                        }
+                    } label: {
+                        EmptyView()
+                    }
+                    .fixedSize()
+                }
+
                 Spacer()
                 Button("Cancel") {
                     isPresented = false
@@ -158,6 +181,11 @@ struct NewTaskDialog: View {
                 selectedProjectPath = lastSelectedProjectPath
             } else if let first = projects.first {
                 selectedProjectPath = first.path
+            }
+            // Ensure selected assistant is enabled; fall back to first enabled
+            if !enabledAssistants.contains(selectedAssistant),
+               let first = enabledAssistants.first {
+                selectedAssistant = first
             }
             if let path = resolvedProjectPath {
                 runRemotely = UserDefaults.standard.object(forKey: "runRemotely_\(path)") as? Bool ?? true
@@ -188,6 +216,9 @@ struct NewTaskDialog: View {
         .onChange(of: dangerouslySkipPermissions) {
             if !commandEdited { command = commandPreview }
         }
+        .onChange(of: selectedAssistantRaw) {
+            if !commandEdited { command = commandPreview }
+        }
     }
 
     // MARK: - Actions
@@ -202,11 +233,12 @@ struct NewTaskDialog: View {
                 prompt,
                 proj,
                 titleOrNil,
-                createWorktree && isGitRepo,
+                createWorktree && isGitRepo && selectedAssistant.supportsWorktree,
                 runRemotely && hasRemoteConfig,
                 dangerouslySkipPermissions,
                 commandEdited ? command : nil,
-                images
+                images,
+                selectedAssistant
             )
         } else {
             onCreate(prompt, proj, titleOrNil, false, images)
@@ -252,12 +284,15 @@ struct NewTaskDialog: View {
 
         if runRemotely && hasRemoteConfig {
             parts.append("SHELL=~/.kanban-code/remote/zsh")
+            if selectedAssistant == .gemini {
+                parts.append("PATH=~/.kanban-code/remote:$PATH")
+            }
         }
 
-        var cmd = "claude"
-        if dangerouslySkipPermissions { cmd += " --dangerously-skip-permissions" }
+        var cmd = selectedAssistant.cliCommand
+        if dangerouslySkipPermissions { cmd += " \(selectedAssistant.autoApproveFlag)" }
 
-        if createWorktree && isGitRepo {
+        if createWorktree && isGitRepo && selectedAssistant.supportsWorktree {
             let branch = worktreeBranch.trimmingCharacters(in: .whitespacesAndNewlines)
             if branch.isEmpty {
                 cmd += " --worktree"

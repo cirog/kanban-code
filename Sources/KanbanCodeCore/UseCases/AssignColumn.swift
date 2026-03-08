@@ -12,6 +12,14 @@ public enum AssignColumn {
         allPRsDone: Bool = false,
         hasWorktree: Bool = false
     ) -> KanbanCodeColumn {
+        // Manual backlog override is sticky — user explicitly parked this card.
+        // Only resumeCard/launchCard (which clear manualOverrides.column) can move it out.
+        // This check must run BEFORE .activelyWorking to prevent activity from
+        // corrupting the backlog override (which would then be cleared by reconciliation).
+        if link.manualOverrides.column && link.column == .backlog {
+            return .backlog
+        }
+
         // Actively working always shows in progress — even if manually archived.
         // If the user talks to an archived session, it should come back to life.
         if activityState == .activelyWorking {

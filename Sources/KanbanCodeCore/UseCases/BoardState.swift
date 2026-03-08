@@ -95,7 +95,7 @@ public final class BoardState: @unchecked Sendable {
 
     private let discovery: SessionDiscovery
     private let coordinationStore: CoordinationStore
-    private let activityDetector: ClaudeCodeActivityDetector?
+    private let activityDetector: (any ActivityDetector)?
     private let settingsStore: SettingsStore?
     private let ghAdapter: GhCliAdapter?
     private let worktreeAdapter: GitWorktreeAdapter?
@@ -105,7 +105,7 @@ public final class BoardState: @unchecked Sendable {
     public init(
         discovery: SessionDiscovery,
         coordinationStore: CoordinationStore,
-        activityDetector: ClaudeCodeActivityDetector? = nil,
+        activityDetector: (any ActivityDetector)? = nil,
         settingsStore: SettingsStore? = nil,
         ghAdapter: GhCliAdapter? = nil,
         worktreeAdapter: GitWorktreeAdapter? = nil,
