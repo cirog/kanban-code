@@ -95,13 +95,14 @@ public enum ShellCommand {
         findExecutable(command) != nil
     }
 
-    /// Resolve a command name to an absolute path by checking common locations.
+    /// Resolve a command name to an absolute path by checking common locations
+    /// plus the user's login-shell PATH (which includes nvm, volta, fnm, etc.).
     /// macOS .app bundles have a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
     /// so Homebrew and other tools aren't found via `env` or `which`.
     /// Returns nil if the command isn't found anywhere.
     public static func findExecutable(_ command: String) -> String? {
         let home = NSHomeDirectory()
-        let searchPaths = [
+        var searchPaths = [
             "\(home)/.claude/local",   // Claude Code managed install
             "\(home)/.local/bin",      // XDG local bin / claude installer
             "/opt/homebrew/bin",       // Homebrew (Apple Silicon)
@@ -109,6 +110,17 @@ public enum ShellCommand {
             "/usr/bin",                // System binaries
             "/bin",                    // Core system binaries
         ]
+
+        // Also search the user's real PATH (resolved from login shell).
+        // This picks up nvm, volta, fnm, and other version-managed installs.
+        if let userPath = userEnvironment["PATH"] {
+            for dir in userPath.components(separatedBy: ":") where !dir.isEmpty {
+                if !searchPaths.contains(dir) {
+                    searchPaths.append(dir)
+                }
+            }
+        }
+
         for dir in searchPaths {
             let path = "\(dir)/\(command)"
             if FileManager.default.isExecutableFile(atPath: path) {

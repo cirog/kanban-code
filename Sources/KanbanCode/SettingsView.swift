@@ -103,6 +103,8 @@ struct SettingsView: View {
     @State private var hooksInstalled = false
     @State private var ghAvailable = false
     @State private var tmuxAvailable = false
+    @State private var claudeAvailable = false
+    @State private var geminiAvailable = false
 
     var body: some View {
         TabView {
@@ -112,7 +114,9 @@ struct SettingsView: View {
             GeneralSettingsView(
                 hooksInstalled: $hooksInstalled,
                 ghAvailable: ghAvailable,
-                tmuxAvailable: tmuxAvailable
+                tmuxAvailable: tmuxAvailable,
+                claudeAvailable: claudeAvailable,
+                geminiAvailable: geminiAvailable
             )
             .tabItem { Label("General", systemImage: "gear") }
 
@@ -135,6 +139,8 @@ struct SettingsView: View {
         hooksInstalled = HookManager.isInstalled()
         ghAvailable = await GhCliAdapter().isAvailable()
         tmuxAvailable = await TmuxAdapter().isAvailable()
+        claudeAvailable = await ShellCommand.isAvailable("claude")
+        geminiAvailable = await ShellCommand.isAvailable("gemini")
     }
 }
 
@@ -144,6 +150,8 @@ struct GeneralSettingsView: View {
     @Binding var hooksInstalled: Bool
     let ghAvailable: Bool
     let tmuxAvailable: Bool
+    let claudeAvailable: Bool
+    let geminiAvailable: Bool
 
     @AppStorage("preferredEditorBundleId") private var editorBundleId: String = "dev.zed.Zed"
     @AppStorage("uiTextSize") private var uiTextSize: Int = 1
@@ -201,6 +209,11 @@ struct GeneralSettingsView: View {
                     .controlSize(.small)
                     .disabled(uiTextSize == 1 && terminalFontSize == Double(TerminalCache.defaultFontSize))
                 }
+            }
+
+            Section("Coding Assistants") {
+                assistantRow("Claude Code", available: claudeAvailable, installHint: CodingAssistant.claude.installCommand)
+                assistantRow("Gemini CLI", available: geminiAvailable, installHint: CodingAssistant.gemini.installCommand)
             }
 
             Section("Integrations") {
@@ -311,6 +324,24 @@ struct GeneralSettingsView: View {
             Text(available ? "Available" : "Not found")
                 .foregroundStyle(.secondary)
                 .font(.caption)
+        }
+    }
+
+    private func assistantRow(_ name: String, available: Bool, installHint: String) -> some View {
+        HStack {
+            Label(name, systemImage: available ? "checkmark.circle.fill" : "minus.circle")
+                .foregroundStyle(available ? .green : .secondary)
+            Spacer()
+            if available {
+                Text("Ready")
+                    .foregroundStyle(.green)
+                    .font(.caption)
+            } else {
+                Text(installHint)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+            }
         }
     }
 }
