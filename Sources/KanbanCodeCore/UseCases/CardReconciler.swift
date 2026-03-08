@@ -86,6 +86,11 @@ public enum CardReconciler {
             )
 
             if let cardId, var link = linksById[cardId] {
+                // Archived cards stay archived — just mark matched to prevent duplicates
+                if link.manuallyArchived {
+                    matchedSessionIds.insert(session.id)
+                    continue
+                }
                 // Update existing card with session data
                 if link.sessionLink == nil {
                     KanbanCodeLog.info("reconciler", "Linking session \(session.id.prefix(8)) to existing card \(cardId.prefix(12))")
