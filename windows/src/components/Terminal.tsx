@@ -17,6 +17,8 @@ interface Props {
   onExit?: () => void;
   /** Ref that will be populated with a function to write text to the PTY */
   writeRef?: React.MutableRefObject<((text: string) => void) | null>;
+  /** Terminal font size (default 15) */
+  fontSize?: number;
 }
 
 const DARK_THEME = {
@@ -67,7 +69,7 @@ const LIGHT_THEME = {
   brightWhite: "#8c959f",
 };
 
-export default function TerminalView({ ptyId, command, initialInput, onExit, writeRef }: Props) {
+export default function TerminalView({ ptyId, command, initialInput, onExit, writeRef, fontSize = 15 }: Props) {
   const termRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -93,7 +95,7 @@ export default function TerminalView({ ptyId, command, initialInput, onExit, wri
 
     const xterm = new XTerm({
       fontFamily: "'Cascadia Code', 'Consolas', 'Courier New', monospace",
-      fontSize: 15,
+      fontSize,
       lineHeight: 1.3,
       cursorBlink: true,
       cursorStyle: "bar",

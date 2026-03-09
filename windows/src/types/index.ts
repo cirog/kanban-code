@@ -167,6 +167,7 @@ export interface Settings {
   githubIssuePromptTemplate: string;
   hasCompletedOnboarding: boolean;
   editor: string;
+  terminalFontSize: number;
 }
 
 export interface ContentBlock {

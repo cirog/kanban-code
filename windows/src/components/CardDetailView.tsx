@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   getTranscript,
+  getSettings,
   openInEditor,
   useBoardStore,
   addQueuedPrompt,
@@ -46,6 +47,9 @@ export default function CardDetailView() {
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
   const terminalWriteRef = useRef<((text: string) => void) | null>(null);
 
+  // Settings
+  const [terminalFontSize, setTerminalFontSize] = useState(15);
+
   // Search state
   const [searchText, setSearchText] = useState("");
   const [searchMatches, setSearchMatches] = useState<number[]>([]);
@@ -78,6 +82,11 @@ export default function CardDetailView() {
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
   }, [drawerWidth]);
+
+  // Load terminal font size from settings
+  useEffect(() => {
+    getSettings().then((s) => setTerminalFontSize(s.terminalFontSize || 15)).catch(() => {});
+  }, []);
 
   // Reset state when card changes
   useEffect(() => {
@@ -433,6 +442,7 @@ export default function CardDetailView() {
                 initialInput={terminalInput}
                 onExit={() => {}}
                 writeRef={terminalWriteRef}
+                fontSize={terminalFontSize}
               />
             </div>
           ) : (

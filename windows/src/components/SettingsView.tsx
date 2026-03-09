@@ -170,6 +170,28 @@ function GeneralSection({
         />
       </FieldGroup>
 
+      <FieldGroup label="Terminal font size">
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={8}
+            max={24}
+            step={1}
+            value={settings.terminalFontSize || 15}
+            onChange={(e) =>
+              onChange({ ...settings, terminalFontSize: parseInt(e.target.value) })
+            }
+            className="flex-1 accent-[#4f8ef7] h-1.5 rounded-full cursor-pointer"
+          />
+          <span className="text-sm text-zinc-300 font-mono w-8 text-right">
+            {settings.terminalFontSize || 15}
+          </span>
+        </div>
+        <p className="text-[11px] text-zinc-500 mt-1">
+          Adjust the font size in embedded terminals (8–24pt). Takes effect on next terminal launch.
+        </p>
+      </FieldGroup>
+
       <FieldGroup label="Prompt template">
         <textarea
           rows={3}

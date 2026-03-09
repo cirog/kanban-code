@@ -120,6 +120,13 @@ pub struct Settings {
     /// Editor command (e.g. "code", "cursor", "nvim")
     #[serde(default)]
     pub editor: String,
+    /// Terminal font size (8-24)
+    #[serde(default = "default_terminal_font_size")]
+    pub terminal_font_size: u32,
+}
+
+fn default_terminal_font_size() -> u32 {
+    15
 }
 
 fn default_issue_template() -> String {
