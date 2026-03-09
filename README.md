@@ -5,8 +5,8 @@
 <h1 align="center">Kanban Code</h1>
 
 <p align="center">
-  <strong>A beautiful, native macOS liquid glass UI for managing Claude Code sessions.</strong><br>
-  The IDE for 2026.
+  <strong>A beautiful kanban board for managing Claude Code sessions.</strong><br>
+  Native on macOS (liquid glass) and Windows (Tauri). The IDE for 2026.
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@ Kanban Code combines the lessons learned from [claude-resume](https://github.com
 
 ## Installation
 
-### Download
+### macOS
 
 Grab the latest `.app` from [**Releases**](https://github.com/langwatch/kanban-code/releases/latest), unzip, and drag to Applications.
 
@@ -41,13 +41,27 @@ Since the app is not notarized, macOS will block it on first launch. To open it:
 
 > Requires **macOS 26** (Tahoe) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed.
 
-### Build from Source
+#### Build from Source (macOS)
 
 ```bash
 git clone https://github.com/langwatch/kanban-code.git
 cd kanban-code
 make run-app
 ```
+
+### Windows
+
+Requires [Node.js](https://nodejs.org/) (v18+), [Rust](https://rustup.rs/), and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI. Optionally [GitHub CLI](https://cli.github.com/) for PR/issue features.
+
+```bash
+git clone https://github.com/langwatch/kanban-code.git
+cd kanban-code/windows
+npm install
+npm run tauri dev        # dev mode
+npm run tauri build      # production .exe
+```
+
+An onboarding wizard checks your dependencies and walks you through setup on first launch.
 
 ## Features
 
@@ -221,21 +235,29 @@ All state lives in a single `AppState` struct. All mutations go through the `Red
 ### Project Structure
 
 ```
-Sources/
-├── KanbanCode/              # SwiftUI + AppKit app
-│   ├── BoardView.swift      # Kanban board with drag-and-drop
-│   ├── CardView.swift       # Card rendering
-│   ├── CardDetailView.swift # Detail drawer with terminal, history, PR tabs
-│   ├── SearchOverlay.swift  # BM25 search interface
+Sources/                         # macOS app (SwiftUI)
+├── KanbanCode/                  # SwiftUI + AppKit app
+│   ├── BoardView.swift          # Kanban board with drag-and-drop
+│   ├── CardView.swift           # Card rendering
+│   ├── CardDetailView.swift     # Detail drawer with terminal, history, PR tabs
+│   ├── SearchOverlay.swift      # BM25 search interface
 │   └── ...
-├── KanbanCodeCore/          # Pure Swift library, no UI
+├── KanbanCodeCore/              # Pure Swift library, no UI
 │   ├── Domain/
-│   │   ├── Entities/        # Session, Link, Worktree, PullRequest
-│   │   └── Ports/           # Protocol interfaces (adapter pattern)
-│   ├── UseCases/            # BoardStore, CardReconciler, LaunchSession
-│   ├── Adapters/            # Claude Code, Git, Tmux, Notifications
-│   └── Infrastructure/      # CoordinationStore, KSUID, ShellCommand
-└── Clawd/                   # Background helper for hook event handling
+│   │   ├── Entities/            # Session, Link, Worktree, PullRequest
+│   │   └── Ports/               # Protocol interfaces (adapter pattern)
+│   ├── UseCases/                # BoardStore, CardReconciler, LaunchSession
+│   ├── Adapters/                # Claude Code, Git, Tmux, Notifications
+│   └── Infrastructure/          # CoordinationStore, KSUID, ShellCommand
+└── Clawd/                       # Background helper for hook event handling
+
+windows/                         # Windows app (Tauri 2)
+├── src/                         # React + TypeScript frontend
+│   ├── components/              # BoardView, CardDetailView, OnboardingWizard, etc.
+│   ├── store/                   # Zustand state management
+│   └── types/                   # TypeScript type definitions
+└── src-tauri/                   # Rust backend
+    └── src/                     # Tauri commands, coordination store, session discovery
 ```
 
 The core library uses **port/adapter** pattern — all external integrations (Claude Code, git, tmux, GitHub, Pushover) are behind protocol interfaces. The same architecture could be adapted for other AI coding tools.
