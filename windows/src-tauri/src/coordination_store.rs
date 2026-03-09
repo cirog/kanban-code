@@ -344,6 +344,48 @@ impl CoordinationStore {
         self.write_links(&links).await
     }
 
+    /// Create a card from a GitHub issue, returning the new Link.
+    pub async fn create_issue_card(
+        &self,
+        project_path: &str,
+        issue_number: i64,
+        issue_title: &str,
+        issue_url: &str,
+        issue_body: Option<&str>,
+        prompt_body: &str,
+    ) -> Result<Link> {
+        let now = Utc::now();
+        let id = format!("card_{}", Uuid::new_v4().simple());
+        let link = Link {
+            id,
+            name: Some(format!("#{}: {}", issue_number, issue_title)),
+            project_path: Some(project_path.to_string()),
+            column: "backlog".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_activity: None,
+            manual_overrides: ManualOverrides::default(),
+            manually_archived: false,
+            source: "github_issue".to_string(),
+            prompt_body: Some(prompt_body.to_string()),
+            session_link: None,
+            worktree_link: None,
+            pr_links: vec![],
+            issue_link: Some(IssueLink {
+                number: issue_number,
+                url: Some(issue_url.to_string()),
+                title: Some(issue_title.to_string()),
+                body: issue_body.map(|s| s.to_string()),
+            }),
+            discovered_branches: None,
+            is_remote: false,
+            is_launching: None,
+            queued_prompts: None,
+        };
+        self.upsert_link(&link).await?;
+        Ok(link)
+    }
+
     pub async fn remove_queued_prompt(&self, card_id: &str, prompt_id: &str) -> Result<()> {
         let mut links = self.read_links().await?;
         if let Some(link) = links.iter_mut().find(|l| l.id == card_id) {
