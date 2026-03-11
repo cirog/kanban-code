@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>A beautiful kanban board for managing Claude Code sessions.</strong><br>
-  Native on macOS (liquid glass) and Windows (Tauri). The IDE for 2026.
+  Native on macOS (SwiftUI liquid glass) and Windows (Tauri). The IDE for 2026.
 </p>
 
 <p align="center">
