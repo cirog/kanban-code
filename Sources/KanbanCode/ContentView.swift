@@ -51,7 +51,6 @@ struct LaunchConfig: Identifiable {
 struct ContentView: View {
     @State private var store: BoardStore
     @State private var orchestrator: BackgroundOrchestrator
-    @State private var showSearch = false
     @State private var searchInitialQuery = ""
     @State private var terminalHadFocusBeforeSearch = false
     @State private var showNewTask = false
@@ -73,7 +72,15 @@ struct ContentView: View {
     @State private var showSyncPopover = false
     @State private var rawSyncOutput = ""
     @State private var editingQueuedPromptId: String?
-    @State private var isExpandedDetail = false
+    // showSearch and isExpandedDetail live in AppState (store.state.paletteOpen / detailExpanded)
+    private var showSearch: Bool {
+        get { store.state.paletteOpen }
+        nonmutating set { store.dispatch(.setPaletteOpen(newValue)) }
+    }
+    private var isExpandedDetail: Bool {
+        get { store.state.detailExpanded }
+        nonmutating set { store.dispatch(.setDetailExpanded(newValue)) }
+    }
     @State private var detailTab: DetailTab = .terminal
     @State private var actionsMenuProvider = ActionsMenuProvider()
     @AppStorage("preferredEditorBundleId") private var editorBundleId: String = "dev.zed.Zed"
@@ -443,7 +450,10 @@ struct ContentView: View {
                 },
                 actionsMenuProvider: actionsMenuProvider,
                 focusTerminal: $shouldFocusTerminal,
-                isExpanded: $isExpandedDetail,
+                isExpanded: Binding(
+                    get: { isExpandedDetail },
+                    set: { isExpandedDetail = $0 }
+                ),
                 isDroppingImage: $isDroppingImage
             )
             .inspectorColumnWidth(
@@ -1059,62 +1069,7 @@ struct ContentView: View {
                     .help("Toggle session details")
                 }
             }
-            .background {
-                Button("") { if showSearch { closePalette() } else { openPalette() } }
-                    .keyboardShortcut("k", modifiers: .command)
-                    .hidden()
-                Button("") { if showSearch { closePalette() } else { openPalette() } }
-                    .keyboardShortcut("p", modifiers: .command)
-                    .hidden()
-                Button("") { if showSearch { closePalette() } else { openPalette(initialQuery: ">") } }
-                    .keyboardShortcut("p", modifiers: [.command, .shift])
-                    .hidden()
-                Button("") { selectProject(at: 0) }
-                    .keyboardShortcut("1", modifiers: .command)
-                    .hidden()
-                Button("") { selectProject(at: 1) }
-                    .keyboardShortcut("2", modifiers: .command)
-                    .hidden()
-                Button("") { selectProject(at: 2) }
-                    .keyboardShortcut("3", modifiers: .command)
-                    .hidden()
-                Button("") { selectProject(at: 3) }
-                    .keyboardShortcut("4", modifiers: .command)
-                    .hidden()
-                Button("") { selectProject(at: 4) }
-                    .keyboardShortcut("5", modifiers: .command)
-                    .hidden()
-                Button("") { selectProject(at: 5) }
-                    .keyboardShortcut("6", modifiers: .command)
-                    .hidden()
-                Button("") { selectProject(at: 6) }
-                    .keyboardShortcut("7", modifiers: .command)
-                    .hidden()
-                Button("") { selectProject(at: 7) }
-                    .keyboardShortcut("8", modifiers: .command)
-                    .hidden()
-                Button("") { selectProject(at: 8) }
-                    .keyboardShortcut("9", modifiers: .command)
-                    .hidden()
-
-                // Board navigation (non-arrow keys only — arrows handled via onKeyPress on BoardView)
-                Button("") { store.dispatch(.selectCard(cardId: nil)) }
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .hidden()
-                Button("") { deleteSelectedCard() }
-                    .keyboardShortcut(.delete, modifiers: [])
-                    .hidden()
-                Button("") { deleteSelectedCard() }
-                    .keyboardShortcut(.deleteForward, modifiers: [])
-                    .hidden()
-                Button("") {
-                    if store.state.selectedCardId != nil {
-                        isExpandedDetail.toggle()
-                    }
-                }
-                .keyboardShortcut(.return, modifiers: .command)
-                .hidden()
-            }
+            .background { shortcutButtons }
         } // NavigationStack
         .id(uiTextSize) // Force full re-render when UI scale changes
     }
@@ -1275,6 +1230,59 @@ struct ContentView: View {
         } label: {
             Text(currentProjectName)
                 .font(.app(.headline))
+        }
+    }
+
+    // MARK: - Keyboard Shortcuts
+
+    private var shortcutContext: AppShortcutContext {
+        AppShortcutContext(from: store.state)
+    }
+
+    @ViewBuilder
+    private var shortcutButtons: some View {
+        let ctx = shortcutContext
+
+        // Palette open/close
+        if AppShortcut.openPaletteK.isActive(in: ctx) {
+            Button("") { if showSearch { closePalette() } else { openPalette() } }
+                .keyboardShortcut(AppShortcut.openPaletteK.key, modifiers: AppShortcut.openPaletteK.modifiers)
+                .hidden()
+            Button("") { if showSearch { closePalette() } else { openPalette() } }
+                .keyboardShortcut(AppShortcut.openPaletteP.key, modifiers: AppShortcut.openPaletteP.modifiers)
+                .hidden()
+            Button("") { if showSearch { closePalette() } else { openPalette(initialQuery: ">") } }
+                .keyboardShortcut(AppShortcut.openCommandMode.key, modifiers: AppShortcut.openCommandMode.modifiers)
+                .hidden()
+        }
+
+        // Expand/contract detail — only when palette is closed
+        if AppShortcut.toggleExpanded.isActive(in: ctx) {
+            Button("") { isExpandedDetail.toggle() }
+                .keyboardShortcut(AppShortcut.toggleExpanded.key, modifiers: AppShortcut.toggleExpanded.modifiers)
+                .hidden()
+        }
+
+        // Board navigation — only when palette is closed
+        if AppShortcut.deselect.isActive(in: ctx) {
+            Button("") { store.dispatch(.selectCard(cardId: nil)) }
+                .keyboardShortcut(AppShortcut.deselect.key, modifiers: AppShortcut.deselect.modifiers)
+                .hidden()
+            Button("") { deleteSelectedCard() }
+                .keyboardShortcut(AppShortcut.deleteCard.key, modifiers: AppShortcut.deleteCard.modifiers)
+                .hidden()
+            Button("") { deleteSelectedCard() }
+                .keyboardShortcut(AppShortcut.deleteCardForward.key, modifiers: AppShortcut.deleteCardForward.modifiers)
+                .hidden()
+        }
+
+        // Project switching
+        ForEach(Array(AppShortcut.allCases.filter { $0.projectIndex != nil }), id: \.projectIndex) { shortcut in
+            if shortcut.isActive(in: ctx) {
+                Button("") { selectProject(at: shortcut.projectIndex!) }
+                    .keyboardShortcut(shortcut.key, modifiers: shortcut.modifiers)
+                    .hidden()
+            }
         }
     }
 

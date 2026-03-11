@@ -11,6 +11,8 @@ public struct AppState: Sendable {
     public var tmuxSessions: Set<String> = []                  // live tmux names
     public var selectedCardId: String?
     public var selectedProjectPath: String?
+    public var paletteOpen: Bool = false
+    public var detailExpanded: Bool = false
     public var error: String?
     public var isLoading: Bool = false
     public var lastRefresh: Date?
@@ -155,6 +157,8 @@ public enum Action: Sendable {
     case archiveCard(cardId: String)
     case deleteCard(cardId: String)
     case selectCard(cardId: String?)
+    case setPaletteOpen(Bool)
+    case setDetailExpanded(Bool)
     case unlinkFromCard(cardId: String, linkType: LinkType)
     case killTerminal(cardId: String, sessionName: String)
     case cancelLaunch(cardId: String)
@@ -455,11 +459,22 @@ public enum Reducer {
 
         case .selectCard(let cardId):
             state.selectedCardId = cardId
+            if cardId == nil {
+                state.detailExpanded = false
+            }
             if let cardId, var link = state.links[cardId] {
                 link.lastOpenedAt = Date()
                 state.links[cardId] = link
                 return [.upsertLink(link)]
             }
+            return []
+
+        case .setPaletteOpen(let open):
+            state.paletteOpen = open
+            return []
+
+        case .setDetailExpanded(let expanded):
+            state.detailExpanded = expanded
             return []
 
         case .unlinkFromCard(let cardId, let linkType):
