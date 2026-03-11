@@ -191,6 +191,7 @@ public enum Action: Sendable {
     case terminalFailed(cardId: String, error: String)
     case extraTerminalCreated(cardId: String, sessionName: String)
     case renameTerminalTab(cardId: String, sessionName: String, label: String)
+    case reorderTerminalTab(cardId: String, sessionName: String, beforeSession: String?)
 
     // Background reconciliation
     case reconciled(ReconciliationResult)
@@ -905,6 +906,23 @@ public enum Reducer {
                 names[sessionName] = label
             }
             tmux.tabNames = names.isEmpty ? nil : names
+            link.tmuxLink = tmux
+            link.updatedAt = .now
+            state.links[cardId] = link
+            return [.upsertLink(link)]
+
+        case .reorderTerminalTab(let cardId, let sessionName, let beforeSession):
+            guard var link = state.links[cardId],
+                  var tmux = link.tmuxLink,
+                  var extras = tmux.extraSessions,
+                  let fromIndex = extras.firstIndex(of: sessionName) else { return [] }
+            extras.remove(at: fromIndex)
+            if let before = beforeSession, let toIndex = extras.firstIndex(of: before) {
+                extras.insert(sessionName, at: toIndex)
+            } else {
+                extras.append(sessionName)
+            }
+            tmux.extraSessions = extras
             link.tmuxLink = tmux
             link.updatedAt = .now
             state.links[cardId] = link

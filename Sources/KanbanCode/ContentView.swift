@@ -397,6 +397,9 @@ struct ContentView: View {
                 onRenameTerminal: { sessionName, label in
                     store.dispatch(.renameTerminalTab(cardId: card.id, sessionName: sessionName, label: label))
                 },
+                onReorderTerminal: { sessionName, beforeSession in
+                    store.dispatch(.reorderTerminalTab(cardId: card.id, sessionName: sessionName, beforeSession: beforeSession))
+                },
                 onPRMerged: { prNumber in
                     store.dispatch(.markPRMerged(cardId: card.id, prNumber: prNumber))
                 },

@@ -72,6 +72,7 @@ struct CardDetailView: View {
     var onCreateTerminal: () -> Void = {}
     var onKillTerminal: (String) -> Void = { _ in }
     var onRenameTerminal: (String, String) -> Void = { _, _ in } // (sessionName, label)
+    var onReorderTerminal: (String, String?) -> Void = { _, _ in } // (sessionName, beforeSession)
     var onPRMerged: (Int) -> Void = { _ in }
     var onCancelLaunch: () -> Void = {}
     var onAddQueuedPrompt: (QueuedPrompt) -> Void = { _ in }
@@ -143,6 +144,8 @@ struct CardDetailView: View {
     @State private var terminalGrabFocus: Bool = false
     @State private var suppressTerminalFocus: Bool = false
     @State private var tabRenameItem: TabRenameItem?
+    @State private var draggingTab: String?
+    @State private var dropTargetTab: String?
 
     /// Launch lock older than 30s is stale — stop showing spinner, show terminal instead
     private var isLaunchStale: Bool {
@@ -151,7 +154,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onAddPR: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onPRMerged: @escaping (Int) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isExpanded: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
+    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onAddPR: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onPRMerged: @escaping (Int) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isExpanded: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -168,6 +171,7 @@ struct CardDetailView: View {
         self.onCreateTerminal = onCreateTerminal
         self.onKillTerminal = onKillTerminal
         self.onRenameTerminal = onRenameTerminal
+        self.onReorderTerminal = onReorderTerminal
         self.onPRMerged = onPRMerged
         self.onCancelLaunch = onCancelLaunch
         self.onAddQueuedPrompt = onAddQueuedPrompt
@@ -465,10 +469,21 @@ struct CardDetailView: View {
 
                             // Shell session tabs
                             ForEach(shellSessions, id: \.self) { sessionName in
+                                // Drop insertion indicator before this tab
+                                if dropTargetTab == sessionName, let drag = draggingTab, drag != sessionName {
+                                    tabDropIndicator
+                                }
+
                                 shellTab(
                                     sessionName: sessionName,
                                     isSelected: selectedTerminalSession == sessionName
                                 )
+                                .opacity(draggingTab == sessionName ? 0.3 : 1.0)
+                            }
+
+                            // Drop indicator at end (when targeting the + button)
+                            if dropTargetTab == "_end_", draggingTab != nil {
+                                tabDropIndicator
                             }
 
                             Button(action: onCreateTerminal) {
@@ -479,6 +494,28 @@ struct CardDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .help("Open new terminal")
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let dropped = items.first else { return false }
+                                onReorderTerminal(dropped, nil)
+                                draggingTab = nil
+                                dropTargetTab = nil
+                                return true
+                            } isTargeted: { targeted in
+                                dropTargetTab = targeted ? "_end_" : (dropTargetTab == "_end_" ? nil : dropTargetTab)
+                            }
+                        }
+                        .animation(.easeInOut(duration: 0.2), value: dropTargetTab)
+                        .onChange(of: dropTargetTab) {
+                            // When drag leaves all targets (cancelled or dropped outside),
+                            // clear draggingTab after a short delay
+                            if dropTargetTab == nil, draggingTab != nil {
+                                Task {
+                                    try? await Task.sleep(for: .milliseconds(300))
+                                    if dropTargetTab == nil {
+                                        draggingTab = nil
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -592,6 +629,8 @@ struct CardDetailView: View {
                 }
 
                 knownTerminalCount = newCount
+                draggingTab = nil
+                dropTargetTab = nil
             }
             .onAppear {
                 knownTerminalCount = shellSessions.count + (claudeTmuxSession != nil ? 1 : 0)
@@ -714,6 +753,22 @@ struct CardDetailView: View {
 
     // MARK: - Shell Tab
 
+    /// Blue vertical bar shown at the insertion point during tab drag-and-drop.
+    private var tabDropIndicator: some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(Color.accentColor)
+            .frame(width: 3, height: 20)
+            .padding(.horizontal, -1)
+    }
+
+    /// Default shell name (e.g. "zsh", "bash") from the SHELL environment variable.
+    private static let userShellName: String = {
+        if let shell = ProcessInfo.processInfo.environment["SHELL"] {
+            return (shell as NSString).lastPathComponent
+        }
+        return "shell"
+    }()
+
     @ViewBuilder
     private func shellTab(sessionName: String, isSelected: Bool) -> some View {
         let tmux = card.link.tmuxLink
@@ -721,28 +776,35 @@ struct CardDetailView: View {
         let isPrimary = sessionName == primaryName
         let customName = tmux?.tabNames?[sessionName]
         let displayName: String = customName ?? {
-            if isPrimary { return "Shell" }
+            if isPrimary { return Self.userShellName }
+            // Extra sessions are named like "base-sh1", strip the prefix
             let stripped = sessionName.replacingOccurrences(of: "\(primaryName)-", with: "")
-            return stripped.isEmpty || stripped == sessionName ? "sh1" : stripped
+            if stripped.isEmpty || stripped == sessionName { return Self.userShellName }
+            // Strip "sh" prefix from auto-generated names like "sh1", "sh2" → show shell name
+            if stripped.range(of: #"^sh\d+$"#, options: .regularExpression) != nil {
+                return Self.userShellName
+            }
+            return stripped
         }()
 
         HStack(spacing: 0) {
-            Button {
+            HStack(spacing: 4) {
+                Image(systemName: "terminal")
+                    .font(.app(.caption2))
+                Text(displayName)
+                    .font(.app(.caption))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                tabRenameItem = TabRenameItem(sessionName: sessionName, currentName: customName ?? displayName)
+            }
+            .onTapGesture(count: 1) {
                 selectedTerminalSession = sessionName
                 terminalGrabFocus = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "terminal")
-                        .font(.app(.caption2))
-                    Text(displayName)
-                        .font(.app(.caption))
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
 
             Button {
                 onKillTerminal(sessionName)
@@ -765,6 +827,23 @@ struct CardDetailView: View {
             isSelected ? Color.accentColor.opacity(0.15) : Color.clear,
             in: RoundedRectangle(cornerRadius: 6)
         )
+        .onDrag {
+            draggingTab = sessionName
+            return NSItemProvider(object: sessionName as NSString)
+        }
+        .dropDestination(for: String.self) { items, _ in
+            guard let dropped = items.first, dropped != sessionName else { return false }
+            onReorderTerminal(dropped, sessionName)
+            draggingTab = nil
+            dropTargetTab = nil
+            return true
+        } isTargeted: { targeted in
+            if targeted {
+                dropTargetTab = sessionName
+            } else if dropTargetTab == sessionName {
+                dropTargetTab = nil
+            }
+        }
         .contextMenu {
             Button("Rename") {
                 tabRenameItem = TabRenameItem(sessionName: sessionName, currentName: customName ?? displayName)
