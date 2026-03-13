@@ -20,7 +20,7 @@ struct ListBoardView: View {
     var onRefreshBacklog: () -> Void = {}
     var onNewTask: () -> Void = {}
     var onCardClicked: (String) -> Void = { _ in }
-    @SceneStorage("listBoardCollapsedColumns") private var collapsedColumnsRaw = ""
+    @AppStorage("listBoardCollapsedColumns") private var collapsedColumnsRaw = ""
 
     private var sections: [ListBoardSection] {
         ListBoardSection.make(columns: store.state.visibleColumns) { column in
@@ -562,7 +562,7 @@ private struct ListCardRowView: View {
     }
 }
 
-private extension KanbanCodeColumn {
+extension KanbanCodeColumn {
     var accentColor: Color {
         switch self {
         case .backlog: .gray

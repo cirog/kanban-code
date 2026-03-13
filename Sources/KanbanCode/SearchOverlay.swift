@@ -551,12 +551,17 @@ struct SearchCardRow: View {
                 }
             }
             Spacer()
-            Text(card.column.displayName)
-                .font(.app(.caption2))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(Color.secondary.opacity(0.15)))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(card.column.accentColor)
+                    .frame(width: 7, height: 7)
+                Text(card.column.displayName)
+                    .font(.app(.caption2))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.secondary.opacity(0.15)))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

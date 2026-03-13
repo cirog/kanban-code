@@ -54,6 +54,7 @@ struct ContentView: View {
     @State private var searchInitialQuery = ""
     @State private var terminalHadFocusBeforeSearch = false
     @State private var deepSearchTrigger = false
+    @AppStorage("showBoardInExpanded") private var showBoardInExpanded = false
     @State private var showNewTask = false
     @State private var showOnboarding = false
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .auto
@@ -63,6 +64,7 @@ struct ContentView: View {
     @State private var quitOwnedSessions: [TmuxSession] = []
     @AppStorage("killTmuxOnQuit") private var killTmuxOnQuit = true
     @AppStorage("uiTextSize") private var uiTextSize: Int = 1
+    @AppStorage("detailExpanded") private var detailExpandedPersisted = false
     @State private var showAddFromPath = false
     @State private var isDroppingFolder = false
     @State private var isDroppingImage = false
@@ -107,6 +109,42 @@ struct ContentView: View {
         Binding(
             get: { boardViewMode },
             set: { boardViewModeRaw = $0.rawValue }
+        )
+    }
+
+    private var viewModePicker: some View {
+        Picker("View", selection: viewModePickerBinding) {
+            ForEach(BoardViewMode.allCases, id: \.self) { mode in
+                Image(systemName: mode.icon)
+                    .tag(Optional(mode))
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
+    /// Binding that returns nil (nothing highlighted) when expanded with board hidden.
+    private var viewModePickerBinding: Binding<BoardViewMode?> {
+        Binding(
+            get: {
+                if isExpandedDetail && !showBoardInExpanded && store.state.selectedCardId != nil {
+                    return nil // no segment highlighted
+                }
+                return boardViewMode
+            },
+            set: { newMode in
+                guard let newMode else { return }
+                if isExpandedDetail {
+                    if showBoardInExpanded && newMode == boardViewMode {
+                        showBoardInExpanded = false
+                    } else {
+                        boardViewModeRaw = newMode.rawValue
+                        showBoardInExpanded = true
+                    }
+                } else {
+                    boardViewModeRaw = newMode.rawValue
+                }
+            }
         )
     }
 
@@ -345,9 +383,10 @@ struct ContentView: View {
         }
     }
 
-    /// Screen width for expanded inspector — avoids .infinity which crashes NSLayoutConstraint.
+    /// Inspector width when expanded — full screen or 80% if board is visible alongside.
     private var expandedInspectorWidth: CGFloat {
-        NSScreen.main?.frame.width ?? 10000
+        let screenWidth = NSScreen.main?.frame.width ?? 10000
+        return showBoardInExpanded ? screenWidth * 0.8 : screenWidth
     }
 
     @ViewBuilder
@@ -469,7 +508,15 @@ struct ContentView: View {
     }
 
     private var boardWithOverlays: some View {
-        activeBoardView
+        Group {
+            if isExpandedDetail && !showBoardInExpanded && store.state.selectedCardId != nil {
+                Spacer()
+                    .frame(width: 0)
+                    .clipped()
+            } else {
+                activeBoardView
+            }
+        }
             .ignoresSafeArea(edges: .top)
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .navigationTitle("")
@@ -480,9 +527,13 @@ struct ContentView: View {
                 if let cardId = store.state.selectedCardId,
                    let card = store.state.cards.first(where: { $0.id == cardId }) {
                     detailTab = DetailTab.initialTab(for: card)
-                } else {
-                    isExpandedDetail = false
                 }
+            }
+            .onChange(of: store.state.detailExpanded) {
+                if !store.state.detailExpanded {
+                    showBoardInExpanded = false
+                }
+                detailExpandedPersisted = store.state.detailExpanded
             }
             .overlay {
                 if showSearch {
@@ -850,6 +901,10 @@ struct ContentView: View {
                         selectedProjectPersisted = ""
                     }
                 }
+                // Restore persisted detail expansion
+                if detailExpandedPersisted {
+                    store.dispatch(.setDetailExpanded(true))
+                }
                 // Register TerminalCache relay for KanbanCodeCore effects
                 TerminalCacheRelay.removeHandler = { name in
                     TerminalCache.shared.remove(name)
@@ -977,14 +1032,7 @@ struct ContentView: View {
                 }
 
                 ToolbarItem(placement: .navigation) {
-                    Picker("View", selection: boardViewModeBinding) {
-                        ForEach(BoardViewMode.allCases, id: \.self) { mode in
-                            Image(systemName: mode.icon)
-                                .tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    viewModePicker
                 }
 
                 ToolbarItem(placement: .navigation) {

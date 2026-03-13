@@ -460,9 +460,6 @@ public enum Reducer {
 
         case .selectCard(let cardId):
             state.selectedCardId = cardId
-            if cardId == nil {
-                state.detailExpanded = false
-            }
             if let cardId, var link = state.links[cardId] {
                 link.lastOpenedAt = Date()
                 state.links[cardId] = link
