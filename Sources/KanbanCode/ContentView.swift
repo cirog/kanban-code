@@ -559,12 +559,8 @@ struct ContentView: View {
                     isPresented: $showNewTask,
                     projects: store.state.configuredProjects,
                     defaultProjectPath: store.state.selectedProjectPath,
-                    enabledAssistants: assistantRegistry.available,
                     onCreate: { prompt, projectPath, title, startImmediately, images in
                         createManualTask(prompt: prompt, projectPath: projectPath, title: title, startImmediately: startImmediately, images: images)
-                    },
-                    onCreateAndLaunch: { prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant in
-                        createManualTaskAndLaunch(prompt: prompt, projectPath: projectPath, title: title, createWorktree: createWorktree, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant)
                     }
                 )
             }

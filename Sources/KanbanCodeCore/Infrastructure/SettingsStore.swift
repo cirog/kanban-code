@@ -4,12 +4,9 @@ import Foundation
 public struct Settings: Codable, Sendable {
     public var projects: [Project]
     public var globalView: GlobalViewSettings
-    public var github: GitHubSettings
     public var notifications: NotificationSettings
-    public var remote: RemoteSettings?
     public var sessionTimeout: SessionTimeoutSettings
     public var promptTemplate: String
-    public var githubIssuePromptTemplate: String
     public var columnOrder: [KanbanCodeColumn]
     public var hasCompletedOnboarding: Bool
     public var defaultAssistant: CodingAssistant?
@@ -18,12 +15,9 @@ public struct Settings: Codable, Sendable {
     public init(
         projects: [Project] = [],
         globalView: GlobalViewSettings = GlobalViewSettings(),
-        github: GitHubSettings = GitHubSettings(),
         notifications: NotificationSettings = NotificationSettings(),
-        remote: RemoteSettings? = nil,
         sessionTimeout: SessionTimeoutSettings = SessionTimeoutSettings(),
         promptTemplate: String = "",
-        githubIssuePromptTemplate: String = "#${number}: ${title}\n\n${body}",
         columnOrder: [KanbanCodeColumn] = KanbanCodeColumn.allCases,
         hasCompletedOnboarding: Bool = false,
         defaultAssistant: CodingAssistant? = nil,
@@ -31,12 +25,9 @@ public struct Settings: Codable, Sendable {
     ) {
         self.projects = projects
         self.globalView = globalView
-        self.github = github
         self.notifications = notifications
-        self.remote = remote
         self.sessionTimeout = sessionTimeout
         self.promptTemplate = promptTemplate
-        self.githubIssuePromptTemplate = githubIssuePromptTemplate
         self.columnOrder = columnOrder
         self.hasCompletedOnboarding = hasCompletedOnboarding
         self.defaultAssistant = defaultAssistant
@@ -44,26 +35,25 @@ public struct Settings: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case projects, globalView, github, notifications, remote, sessionTimeout
-        case promptTemplate, githubIssuePromptTemplate, columnOrder, hasCompletedOnboarding, defaultAssistant
+        case projects, globalView, notifications, sessionTimeout
+        case promptTemplate, columnOrder, hasCompletedOnboarding, defaultAssistant
         case enabledAssistants
         case skill // backward-compat: old name for promptTemplate
+        // Ignored on decode (backward-compat): github, remote, githubIssuePromptTemplate
+        case github, remote, githubIssuePromptTemplate
     }
 
-    // Backward-compatible decoding — new fields default gracefully
+    // Backward-compatible decoding — new fields default gracefully,
+    // removed fields (github, remote, githubIssuePromptTemplate) are silently ignored.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projects = try container.decodeIfPresent([Project].self, forKey: .projects) ?? []
         globalView = try container.decodeIfPresent(GlobalViewSettings.self, forKey: .globalView) ?? GlobalViewSettings()
-        github = try container.decodeIfPresent(GitHubSettings.self, forKey: .github) ?? GitHubSettings()
         notifications = try container.decodeIfPresent(NotificationSettings.self, forKey: .notifications) ?? NotificationSettings()
-        remote = try container.decodeIfPresent(RemoteSettings.self, forKey: .remote)
         sessionTimeout = try container.decodeIfPresent(SessionTimeoutSettings.self, forKey: .sessionTimeout) ?? SessionTimeoutSettings()
         // Backward-compat: try "promptTemplate" first, fall back to "skill"
         promptTemplate = try container.decodeIfPresent(String.self, forKey: .promptTemplate)
             ?? container.decodeIfPresent(String.self, forKey: .skill) ?? ""
-        githubIssuePromptTemplate = try container.decodeIfPresent(String.self, forKey: .githubIssuePromptTemplate)
-            ?? "#${number}: ${title}\n\n${body}"
         columnOrder = try container.decodeIfPresent([KanbanCodeColumn].self, forKey: .columnOrder) ?? KanbanCodeColumn.allCases
         hasCompletedOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? false
         defaultAssistant = try container.decodeIfPresent(CodingAssistant.self, forKey: .defaultAssistant)
@@ -75,17 +65,14 @@ public struct Settings: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(projects, forKey: .projects)
         try container.encode(globalView, forKey: .globalView)
-        try container.encode(github, forKey: .github)
         try container.encode(notifications, forKey: .notifications)
-        try container.encodeIfPresent(remote, forKey: .remote)
         try container.encode(sessionTimeout, forKey: .sessionTimeout)
         try container.encode(promptTemplate, forKey: .promptTemplate)
-        try container.encode(githubIssuePromptTemplate, forKey: .githubIssuePromptTemplate)
         try container.encode(columnOrder, forKey: .columnOrder)
         try container.encode(hasCompletedOnboarding, forKey: .hasCompletedOnboarding)
         try container.encodeIfPresent(defaultAssistant, forKey: .defaultAssistant)
         try container.encode(enabledAssistants, forKey: .enabledAssistants)
-        // Note: "skill" is NOT encoded — only read for backward-compat
+        // Note: "skill", "github", "remote", "githubIssuePromptTemplate" are NOT encoded
     }
 }
 
@@ -94,27 +81,6 @@ public struct GlobalViewSettings: Codable, Sendable {
 
     public init(excludedPaths: [String] = []) {
         self.excludedPaths = excludedPaths
-    }
-}
-
-public struct GitHubSettings: Codable, Sendable {
-    public var defaultFilter: String
-    public var pollIntervalSeconds: Int
-    public var mergeCommand: String
-
-    public static let defaultMergeCommand = "gh pr merge ${number} --squash --delete-branch"
-
-    public init(defaultFilter: String = "assignee:@me is:open", pollIntervalSeconds: Int = 60, mergeCommand: String? = nil) {
-        self.defaultFilter = defaultFilter
-        self.pollIntervalSeconds = pollIntervalSeconds
-        self.mergeCommand = mergeCommand ?? Self.defaultMergeCommand
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        defaultFilter = try c.decodeIfPresent(String.self, forKey: .defaultFilter) ?? "assignee:@me is:open"
-        pollIntervalSeconds = try c.decodeIfPresent(Int.self, forKey: .pollIntervalSeconds) ?? 60
-        mergeCommand = try c.decodeIfPresent(String.self, forKey: .mergeCommand) ?? Self.defaultMergeCommand
     }
 }
 
@@ -137,20 +103,6 @@ public struct NotificationSettings: Codable, Sendable {
         pushoverToken = try c.decodeIfPresent(String.self, forKey: .pushoverToken)
         pushoverUserKey = try c.decodeIfPresent(String.self, forKey: .pushoverUserKey)
         renderMarkdownImage = try c.decodeIfPresent(Bool.self, forKey: .renderMarkdownImage) ?? false
-    }
-}
-
-public struct RemoteSettings: Codable, Sendable {
-    public var host: String
-    public var remotePath: String
-    public var localPath: String
-    public var syncIgnores: [String]?  // nil = use MutagenAdapter.defaultIgnores
-
-    public init(host: String, remotePath: String, localPath: String, syncIgnores: [String]? = nil) {
-        self.host = host
-        self.remotePath = remotePath
-        self.localPath = localPath
-        self.syncIgnores = syncIgnores
     }
 }
 

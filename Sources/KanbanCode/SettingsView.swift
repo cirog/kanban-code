@@ -100,20 +100,14 @@ enum EditorDiscovery {
 // MARK: - Settings root
 
 struct SettingsView: View {
-    @State private var ghAvailable = false
     @State private var tmuxAvailable = false
-    @State private var assistantStatus: [CodingAssistant: AssistantStatus] = [:]
 
     var body: some View {
         TabView {
             ProjectsSettingsView()
                 .tabItem { Label("Projects", systemImage: "folder") }
 
-            AssistantsSettingsView(assistantStatus: $assistantStatus)
-                .tabItem { Label("Assistants", systemImage: "terminal") }
-
             GeneralSettingsView(
-                ghAvailable: ghAvailable,
                 tmuxAvailable: tmuxAvailable
             )
             .tabItem { Label("General", systemImage: "gear") }
@@ -121,121 +115,12 @@ struct SettingsView: View {
             NotificationSettingsView()
                 .tabItem { Label("Notifications", systemImage: "bell") }
 
-            RemoteSettingsView()
-                .tabItem { Label("Remote", systemImage: "network") }
-
             AmphetamineSettingsView()
                 .tabItem { Label("Amphetamine", systemImage: "bolt.fill") }
         }
         .frame(width: 520, height: 460)
         .task {
-            await checkAvailability()
-        }
-    }
-
-    private func checkAvailability() async {
-        let settingsStore = SettingsStore()
-        let enabledAssistants = (try? await settingsStore.read())?.enabledAssistants ?? CodingAssistant.allCases
-        for assistant in CodingAssistant.allCases {
-            let available = await ShellCommand.isAvailable(assistant.cliCommand)
-            let hooks = HookManager.isInstalled(for: assistant)
-            assistantStatus[assistant] = AssistantStatus(
-                available: available,
-                hooksInstalled: hooks,
-                enabled: enabledAssistants.contains(assistant)
-            )
-        }
-        ghAvailable = false // GitHub integration removed
-        tmuxAvailable = await TmuxAdapter().isAvailable()
-    }
-}
-
-/// Per-assistant availability and hook status, used by Settings and Onboarding.
-struct AssistantStatus {
-    var available: Bool
-    var hooksInstalled: Bool
-    var enabled: Bool
-}
-
-// MARK: - Assistants
-
-struct AssistantsSettingsView: View {
-    @Binding var assistantStatus: [CodingAssistant: AssistantStatus]
-
-    private let settingsStore = SettingsStore()
-
-    var body: some View {
-        Form {
-            ForEach(CodingAssistant.allCases, id: \.self) { assistant in
-                let status = assistantStatus[assistant] ?? AssistantStatus(available: false, hooksInstalled: false, enabled: true)
-                Section {
-                    Toggle("Enabled", isOn: Binding(
-                        get: { status.enabled },
-                        set: { newValue in
-                            assistantStatus[assistant] = AssistantStatus(
-                                available: status.available,
-                                hooksInstalled: status.hooksInstalled,
-                                enabled: newValue
-                            )
-                            saveEnabledAssistants()
-                        }
-                    ))
-
-                    if status.enabled {
-                        HStack {
-                            Label("Hooks", systemImage: status.hooksInstalled ? "checkmark.circle.fill" : "xmark.circle")
-                                .foregroundStyle(status.hooksInstalled ? .green : .secondary)
-                            Spacer()
-                            if status.hooksInstalled {
-                                Text("Installed")
-                                    .foregroundStyle(.secondary)
-                                    .font(.caption)
-                            } else {
-                                Button("Install Hooks") {
-                                    do {
-                                        try HookManager.install(for: assistant)
-                                        assistantStatus[assistant] = AssistantStatus(
-                                            available: status.available,
-                                            hooksInstalled: true,
-                                            enabled: status.enabled
-                                        )
-                                    } catch {
-                                        // Show error
-                                    }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-                            }
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text(assistant.displayName)
-                        Spacer()
-                        if status.available {
-                            Label("CLI Available", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.caption)
-                        } else {
-                            Text("Not Installed")
-                                .foregroundStyle(.orange)
-                                .font(.caption)
-                        }
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-
-    private func saveEnabledAssistants() {
-        let enabled = CodingAssistant.allCases.filter { assistantStatus[$0]?.enabled ?? true }
-        Task {
-            var settings = (try? await settingsStore.read()) ?? Settings()
-            settings.enabledAssistants = enabled
-            try? await settingsStore.write(settings)
-            NotificationCenter.default.post(name: .kanbanCodeSettingsChanged, object: nil)
+            tmuxAvailable = await TmuxAdapter().isAvailable()
         }
     }
 }
@@ -243,7 +128,6 @@ struct AssistantsSettingsView: View {
 // MARK: - General
 
 struct GeneralSettingsView: View {
-    let ghAvailable: Bool
     let tmuxAvailable: Bool
 
     @AppStorage("preferredEditorBundleId") private var editorBundleId: String = "dev.zed.Zed"
@@ -251,10 +135,6 @@ struct GeneralSettingsView: View {
     @AppStorage("sessionDetailFontSize") private var sessionDetailFontSize: Double = Double(TerminalCache.defaultFontSize)
     @State private var installedEditors: [EditorDiscovery.Editor] = []
     @State private var showOnboarding = false
-    @State private var mergeCommand: String = GitHubSettings.defaultMergeCommand
-    @State private var mergeSaveTask: Task<Void, Never>?
-
-    private let settingsStore = SettingsStore()
 
     var body: some View {
         Form {
@@ -306,25 +186,6 @@ struct GeneralSettingsView: View {
 
             Section("Integrations") {
                 statusRow("tmux", available: tmuxAvailable)
-                statusRow("GitHub CLI (gh)", available: ghAvailable)
-            }
-
-            Section("PR Merge") {
-                TextField("Merge command", text: $mergeCommand)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-                    .onChange(of: mergeCommand) { scheduleMergeSave() }
-                Text("Use ${number} for the PR number. Default: \(GitHubSettings.defaultMergeCommand)")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                HStack {
-                    Spacer()
-                    Button("Reset to Default") {
-                        mergeCommand = GitHubSettings.defaultMergeCommand
-                        scheduleMergeSave()
-                    }
-                    .controlSize(.small)
-                }
             }
 
             Section("Settings File") {
@@ -352,26 +213,6 @@ struct GeneralSettingsView: View {
         .padding()
         .onAppear {
             installedEditors = EditorDiscovery.installedEditors()
-        }
-        .task {
-            if let settings = try? await settingsStore.read() {
-                mergeCommand = settings.github.mergeCommand
-            }
-        }
-        // Onboarding wizard removed
-    }
-
-    private func scheduleMergeSave() {
-        mergeSaveTask?.cancel()
-        mergeSaveTask = Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            do {
-                var settings = try await settingsStore.read()
-                settings.github.mergeCommand = mergeCommand.isEmpty ? GitHubSettings.defaultMergeCommand : mergeCommand
-                try await settingsStore.write(settings)
-                NotificationCenter.default.post(name: .kanbanCodeSettingsChanged, object: nil)
-            } catch {}
         }
     }
 
@@ -645,113 +486,6 @@ struct NotificationSettingsView: View {
                 testResult = "Failed: \(error.localizedDescription)"
             }
             testSending = false
-        }
-    }
-}
-
-// MARK: - Remote
-
-struct RemoteSettingsView: View {
-    @State private var remoteHost = ""
-    @State private var remotePath = ""
-    @State private var localPath = ""
-    @State private var syncIgnoresText = ""
-    @State private var saveTask: Task<Void, Never>?
-    @State private var mutagenAvailable = false
-
-    private let settingsStore = SettingsStore()
-
-    var body: some View {
-        Form {
-            Section("SSH") {
-                TextField("Remote Host", text: $remoteHost)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: remoteHost) { scheduleSave() }
-                TextField("Remote Path", text: $remotePath)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: remotePath) { scheduleSave() }
-                TextField("Local Path", text: $localPath)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: localPath) { scheduleSave() }
-            }
-
-            if !remoteHost.isEmpty && !mutagenAvailable {
-                Section("Dependency") {
-                    HStack {
-                        Label("Mutagen", systemImage: "minus.circle")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("brew install mutagen")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.orange)
-                            .textSelection(.enabled)
-                    }
-                    Text("Mutagen is required for syncing files between local and remote machines.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
-            Section("Sync Ignores") {
-                Text("Patterns excluded from mutagen sync (one per line)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $syncIgnoresText)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(height: 140)
-                    .onChange(of: syncIgnoresText) { scheduleSave() }
-                HStack {
-                    Spacer()
-                    Button("Reset to Defaults") {
-                        syncIgnoresText = MutagenAdapter.defaultIgnores.joined(separator: "\n")
-                        scheduleSave()
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-        .task {
-            await loadSettings()
-            mutagenAvailable = await ShellCommand.isAvailable("mutagen")
-        }
-    }
-
-    private func loadSettings() async {
-        do {
-            let settings = try await settingsStore.read()
-            remoteHost = settings.remote?.host ?? ""
-            remotePath = settings.remote?.remotePath ?? ""
-            localPath = settings.remote?.localPath ?? ""
-            let ignores = settings.remote?.syncIgnores ?? MutagenAdapter.defaultIgnores
-            syncIgnoresText = ignores.joined(separator: "\n")
-        } catch {}
-    }
-
-    private func scheduleSave() {
-        saveTask?.cancel()
-        saveTask = Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            do {
-                var settings = try await settingsStore.read()
-                if remoteHost.isEmpty && remotePath.isEmpty && localPath.isEmpty {
-                    settings.remote = nil
-                } else {
-                    let ignores = syncIgnoresText
-                        .components(separatedBy: "\n")
-                        .map { $0.trimmingCharacters(in: .whitespaces) }
-                        .filter { !$0.isEmpty }
-                    settings.remote = RemoteSettings(
-                        host: remoteHost,
-                        remotePath: remotePath,
-                        localPath: localPath,
-                        syncIgnores: ignores == MutagenAdapter.defaultIgnores ? nil : ignores
-                    )
-                }
-                try await settingsStore.write(settings)
-                NotificationCenter.default.post(name: .kanbanCodeSettingsChanged, object: nil)
-            } catch {}
         }
     }
 }
