@@ -147,6 +147,8 @@ struct CardDetailView: View {
     @State private var tabRenameItem: TabRenameItem?
     @State private var draggingTab: String?
     @State private var dropTargetTab: String?
+    @State private var terminalPaths: [String: String] = [:]  // sessionName → last path component
+    @State private var pathPollTask: Task<Void, Never>?
 
     /// Launch lock older than 30s is stale — stop showing spinner, show terminal instead
     private var isLaunchStale: Bool {
@@ -305,6 +307,14 @@ struct CardDetailView: View {
             }
             terminalGrabFocus = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .kanbanCloseTerminalTab)) { _ in
+            guard selectedTab == .terminal else { return }
+            // Only close extra shell tabs, not the Claude session
+            guard let session = selectedTerminalSession else { return }
+            onKillTerminal(session)
+            let remaining = shellSessions.filter { $0 != session }
+            selectedTerminalSession = remaining.first
+        }
         .onChange(of: focusTerminal) {
             if focusTerminal {
                 if card.link.tmuxLink != nil {
@@ -338,6 +348,8 @@ struct CardDetailView: View {
         .animation(.easeInOut(duration: 0.2), value: copyToast)
         .onDisappear {
             stopHistoryWatcher()
+            pathPollTask?.cancel()
+            pathPollTask = nil
         }
         .sheet(isPresented: $showRenameSheet) {
             RenameSessionDialog(
@@ -647,8 +659,9 @@ struct CardDetailView: View {
                     // Selected shell was killed — go to next shell or Claude tab
                     selectedTerminalSession = shells.first // nil if no shells left → Claude tab
                 } else if newCount > knownTerminalCount, let last = shells.last {
-                    // New shell was added — auto-switch to it
+                    // New shell was added — auto-switch to it and focus
                     selectedTerminalSession = last
+                    terminalGrabFocus = true
                 }
 
                 knownTerminalCount = newCount
@@ -657,6 +670,7 @@ struct CardDetailView: View {
             }
             .onAppear {
                 knownTerminalCount = shellSessions.count + (claudeTmuxSession != nil ? 1 : 0)
+                startPathPolling()
             }
         } else {
             // No session at all — bare placeholder
@@ -685,6 +699,7 @@ struct CardDetailView: View {
         let assistant = card.link.effectiveAssistant
         let assistantAlive = claudeTmuxSession != nil
         let isDead = !assistantAlive && !isLaunching
+        let tabLabel = assistant.displayName
 
         HStack(spacing: 0) {
             Button {
@@ -694,7 +709,7 @@ struct CardDetailView: View {
                 HStack(spacing: 4) {
                     AssistantIcon(assistant: assistant)
                         .frame(width: CGFloat(12).scaled, height: CGFloat(12).scaled)
-                    Text(assistant.displayName)
+                    Text(tabLabel)
                         .font(.app(.caption))
                         .lineLimit(1)
                 }
@@ -794,20 +809,13 @@ struct CardDetailView: View {
 
     @ViewBuilder
     private func shellTab(sessionName: String, isSelected: Bool) -> some View {
-        let tmux = card.link.tmuxLink
-        let primaryName = tmux?.sessionName ?? ""
-        let isPrimary = sessionName == primaryName
-        let customName = tmux?.tabNames?[sessionName]
+        let customName = card.link.tmuxLink?.tabNames?[sessionName]
+        // Priority: 1) user-set custom name, 2) polled cwd folder, 3) shell name
         let displayName: String = customName ?? {
-            if isPrimary { return Self.userShellName }
-            // Extra sessions are named like "base-sh1", strip the prefix
-            let stripped = sessionName.replacingOccurrences(of: "\(primaryName)-", with: "")
-            if stripped.isEmpty || stripped == sessionName { return Self.userShellName }
-            // Strip "sh" prefix from auto-generated names like "sh1", "sh2" → show shell name
-            if stripped.range(of: #"^sh\d+$"#, options: .regularExpression) != nil {
-                return Self.userShellName
+            if let folder = terminalPaths[sessionName], !folder.isEmpty {
+                return String(folder.prefix(12))
             }
-            return stripped
+            return Self.userShellName
         }()
 
         HStack(spacing: 0) {
@@ -1773,6 +1781,42 @@ struct CardDetailView: View {
         historyWatcherFD = -1
         historyPollTask?.cancel()
         historyPollTask = nil
+    }
+
+    // MARK: - Terminal path polling
+
+    /// Polls tmux for each managed session's current working directory every 3 seconds.
+    /// Uses tmux `list-panes` with the session name to get `pane_current_path`.
+    private func startPathPolling() {
+        pathPollTask?.cancel()
+        // Capture the base session name — stable for the card's lifetime.
+        guard let baseName = card.link.tmuxLink?.sessionName else { return }
+        pathPollTask = Task {
+            let tmux = TerminalCache.tmuxPath
+            while !Task.isCancelled {
+                // Query panes for extra shell sessions (base-sh1, base-sh2, ...).
+                // Skip the primary session — it always shows the assistant name.
+                if let result = try? await ShellCommand.run(
+                    tmux, arguments: [
+                        "list-panes", "-a",
+                        "-F", "#{session_name}\t#{pane_current_path}",
+                        "-f", "#{m:\(baseName)-*,#{session_name}}"
+                    ]
+                ) {
+                    let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                    for line in output.components(separatedBy: "\n") where !line.isEmpty {
+                        let parts = line.components(separatedBy: "\t")
+                        guard parts.count >= 2 else { continue }
+                        let session = parts[0]
+                        let folder = (parts[1] as NSString).lastPathComponent
+                        if !folder.isEmpty && folder != terminalPaths[session] {
+                            terminalPaths[session] = folder
+                        }
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(1500))
+            }
+        }
     }
 
     // MARK: - Fork (handled by onFork callback)

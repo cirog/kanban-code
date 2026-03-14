@@ -70,12 +70,13 @@ struct KanbanCodeApp: App {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, @unchecked Sendable {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate, @unchecked Sendable {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         if let window = NSApp.windows.first {
             window.makeKeyAndOrderFront(nil)
+            window.delegate = self
         }
 
         // Set app icon from bundled resource (SPM uses Bundle.appResources)
@@ -94,6 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 print("[Kanban Code] Notification permission denied")
             }
         }
+    }
+
+    /// Prevent Cmd+W from closing the single window — close terminal tab instead.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        NotificationCenter.default.post(name: .kanbanCloseTerminalTab, object: nil)
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -221,4 +228,5 @@ extension Notification.Name {
     static let kanbanCodeSelectCard = Notification.Name("kanbanCodeSelectCard")
     static let kanbanCodeQuitRequested = Notification.Name("kanbanCodeQuitRequested")
     static let kanbanSelectTerminalTab = Notification.Name("kanbanSelectTerminalTab")
+    static let kanbanCloseTerminalTab = Notification.Name("kanbanCloseTerminalTab")
 }
