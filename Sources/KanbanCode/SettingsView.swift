@@ -874,11 +874,6 @@ struct ProjectsSettingsView: View {
                 Text(project.path)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if let filter = project.githubFilter, !filter.isEmpty {
-                    Text("gh: \(filter)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
             }
 
             Spacer()
@@ -965,10 +960,7 @@ struct ProjectsSettingsView: View {
 struct ProjectEditSheet: View {
     @State private var name: String
     @State private var repoRoot: String
-    @State private var githubFilter: String
     @State private var visible: Bool
-    @State private var testResultCount: Int?
-    @State private var testRunning = false
     let path: String
     let isNew: Bool
     let onSave: (Project) -> Void
@@ -979,7 +971,6 @@ struct ProjectEditSheet: View {
         self.isNew = isNew
         self._name = State(initialValue: project.name)
         self._repoRoot = State(initialValue: project.repoRoot ?? "")
-        self._githubFilter = State(initialValue: project.githubFilter ?? "")
         self._visible = State(initialValue: project.visible)
         self.onSave = onSave
         self.onCancel = onCancel
@@ -1002,39 +993,6 @@ struct ProjectEditSheet: View {
                     Toggle("Visible in project selector", isOn: $visible)
                 }
 
-                Section("GitHub Issues") {
-                    TextField("Filter", text: $githubFilter)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
-
-                    Text("Uses `gh search issues` syntax — e.g.\nassignee:@me repo:org/repo is:open label:bug")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-
-                    HStack {
-                        Button {
-                            testFilter()
-                        } label: {
-                            HStack(spacing: 4) {
-                                if testRunning {
-                                    ProgressView()
-                                        .controlSize(.mini)
-                                } else {
-                                    Image(systemName: "play.circle")
-                                }
-                                Text("Test filter")
-                            }
-                        }
-                        .controlSize(.small)
-                        .disabled(githubFilter.isEmpty || testRunning)
-
-                        if let count = testResultCount {
-                            Text("\(count) issue\(count == 1 ? "" : "s") found")
-                                .font(.caption)
-                                .foregroundStyle(count > 0 ? .green : .orange)
-                        }
-                    }
-                }
             }
 
             HStack {
@@ -1046,8 +1004,7 @@ struct ProjectEditSheet: View {
                         path: path,
                         name: name,
                         repoRoot: repoRoot.isEmpty ? nil : repoRoot,
-                        visible: visible,
-                        githubFilter: githubFilter.isEmpty ? nil : githubFilter
+                        visible: visible
                     )
                     onSave(project)
                 }
@@ -1059,31 +1016,4 @@ struct ProjectEditSheet: View {
         .frame(width: 460)
     }
 
-    private func testFilter() {
-        testRunning = true
-        testResultCount = nil
-        let filterArgs = githubFilter.split(separator: " ").map(String.init)
-        Task.detached {
-            let process = Process()
-            let ghPath = ShellCommand.findExecutable("gh") ?? "gh"
-            process.executableURL = URL(fileURLWithPath: ghPath)
-            process.arguments = ["search", "issues", "--limit", "100", "--json", "number"] + filterArgs
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = Pipe()
-            try? process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let count: Int
-            if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                count = arr.count
-            } else {
-                count = 0
-            }
-            await MainActor.run {
-                testResultCount = count
-                testRunning = false
-            }
-        }
-    }
 }

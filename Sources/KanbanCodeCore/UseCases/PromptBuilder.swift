@@ -21,7 +21,7 @@ public enum PromptBuilder {
         }
 
         // Wrap with prompt template (prefix/suffix)
-        let template = project?.promptTemplate ?? settings?.promptTemplate ?? ""
+        let template = settings?.promptTemplate ?? ""
         if !template.isEmpty {
             if template.contains("${prompt}") {
                 prompt = applyTemplate(template, variables: ["prompt": prompt])

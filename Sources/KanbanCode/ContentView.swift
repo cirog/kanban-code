@@ -350,6 +350,14 @@ struct ContentView: View {
         )
     }
 
+    /// Build project path → color map from configured projects.
+    private var projectColorMap: [String: String] {
+        Dictionary(
+            store.state.configuredProjects.map { ($0.path, $0.color) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
     @ViewBuilder
     private var activeBoardView: some View {
         switch boardViewMode {
@@ -472,6 +480,7 @@ struct ContentView: View {
                     .clipped()
             } else {
                 activeBoardView
+                    .environment(\.projectColorMap, projectColorMap)
             }
         }
             .ignoresSafeArea(edges: .top)

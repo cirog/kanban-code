@@ -21,44 +21,64 @@ struct CardView: View {
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Title
-            Text(card.displayTitle)
-                .font(.app(.body, weight: .medium))
-                .lineLimit(2)
-                .foregroundStyle(.primary)
+    @Environment(\.projectColorMap) private var projectColorMap
 
-            // Project + branch + link icons
-            HStack(spacing: 4) {
-                if let projectName = card.projectName {
-                    Label(projectName, systemImage: "folder")
-                        .font(.app(.caption))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .lineLimit(1)
-
-            // Bottom row: badge + time + link indicators
-            HStack(spacing: 6) {
-                if card.link.cardLabel == .session {
-                    AssistantIcon(assistant: card.link.effectiveAssistant)
-                        .frame(width: CGFloat(14).scaled, height: CGFloat(14).scaled)
-                        .foregroundStyle(Color.primary.opacity(0.4))
-                } else {
-                    CardLabelBadge(label: card.link.cardLabel)
-                }
-
-                Text(card.relativeTime)
-                    .font(.app(.caption2))
-                    .foregroundStyle(.tertiary)
-
-                Spacer()
-
-                CardBadgesRow(card: card)
-            }
+    /// Resolve the project color hex for this card.
+    private var projectColorHex: String {
+        if let path = card.link.projectPath ?? card.session?.projectPath,
+           let color = projectColorMap[path] {
+            return color
         }
-        .padding(10)
+        return "#808080"
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Project color accent bar
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color(hex: projectColorHex))
+                .frame(width: 4)
+                .padding(.vertical, 4)
+                .padding(.leading, 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                // Title
+                Text(card.displayTitle)
+                    .font(.app(.body, weight: .medium))
+                    .lineLimit(2)
+                    .foregroundStyle(.primary)
+
+                // Project + branch + link icons
+                HStack(spacing: 4) {
+                    if let projectName = card.projectName {
+                        Label(projectName, systemImage: "folder")
+                            .font(.app(.caption))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .lineLimit(1)
+
+                // Bottom row: badge + time + link indicators
+                HStack(spacing: 6) {
+                    if card.link.cardLabel == .session {
+                        AssistantIcon(assistant: card.link.effectiveAssistant)
+                            .frame(width: CGFloat(14).scaled, height: CGFloat(14).scaled)
+                            .foregroundStyle(Color.primary.opacity(0.4))
+                    } else {
+                        CardLabelBadge(label: card.link.cardLabel)
+                    }
+
+                    Text(card.relativeTime)
+                        .font(.app(.caption2))
+                        .foregroundStyle(.tertiary)
+
+                    Spacer()
+
+                    CardBadgesRow(card: card)
+                }
+            }
+            .padding(10)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .topTrailing) {
             if card.showSpinner {

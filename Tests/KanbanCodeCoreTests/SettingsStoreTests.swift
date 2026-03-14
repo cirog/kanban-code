@@ -117,14 +117,12 @@ struct SettingsStoreTests {
 
         try await store.addProject(Project(path: "/test/project", name: "Original"))
 
-        var updated = Project(path: "/test/project", name: "Updated")
-        updated.githubFilter = "assignee:@me repo:test/repo"
+        let updated = Project(path: "/test/project", name: "Updated")
         try await store.updateProject(updated)
 
         let settings = try await store.read()
         #expect(settings.projects.count == 1)
         #expect(settings.projects[0].name == "Updated")
-        #expect(settings.projects[0].githubFilter == "assignee:@me repo:test/repo")
     }
 
     @Test("Remove project persists")
@@ -157,8 +155,8 @@ struct SettingsStoreTests {
         }
     }
 
-    @Test("Project with githubFilter round-trips")
-    func projectGithubFilter() async throws {
+    @Test("Project with color round-trips")
+    func projectColor() async throws {
         let dir = try makeTempDir()
         defer { cleanup(dir) }
         let store = SettingsStore(basePath: dir)
@@ -166,11 +164,11 @@ struct SettingsStoreTests {
         let project = Project(
             path: "/test/project",
             name: "Test",
-            githubFilter: "assignee:@me repo:org/repo is:open"
+            color: "#4A90D9"
         )
         try await store.addProject(project)
 
         let settings = try await store.read()
-        #expect(settings.projects[0].githubFilter == "assignee:@me repo:org/repo is:open")
+        #expect(settings.projects[0].color == "#4A90D9")
     }
 }
