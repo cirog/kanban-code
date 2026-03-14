@@ -96,35 +96,5 @@ struct SessionOperationsTests {
         }
     }
 
-    @Test("Search finds matching sessions")
-    func search() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-
-        let path1 = (dir as NSString).appendingPathComponent("s1.jsonl")
-        try #"{"type":"user","sessionId":"s1","message":{"content":"Fix the authentication bug in login"},"cwd":"/test"}"#
-            .write(toFile: path1, atomically: true, encoding: .utf8)
-
-        let path2 = (dir as NSString).appendingPathComponent("s2.jsonl")
-        try #"{"type":"user","sessionId":"s2","message":{"content":"Add new dashboard feature"},"cwd":"/test"}"#
-            .write(toFile: path2, atomically: true, encoding: .utf8)
-
-        let results = try await store.searchSessions(query: "authentication login", paths: [path1, path2])
-        #expect(!results.isEmpty)
-        #expect(results[0].sessionPath == path1) // auth/login session should rank first
-        #expect(results[0].score > 0)
-    }
-
-    @Test("Search returns empty for no matches")
-    func searchNoMatch() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-
-        let path = (dir as NSString).appendingPathComponent("s1.jsonl")
-        try #"{"type":"user","sessionId":"s1","message":{"content":"Hello world"},"cwd":"/test"}"#
-            .write(toFile: path, atomically: true, encoding: .utf8)
-
-        let results = try await store.searchSessions(query: "zzzznotfound", paths: [path])
-        #expect(results.isEmpty)
-    }
+    // Search tests removed (search feature stripped)
 }

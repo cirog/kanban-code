@@ -1,23 +1,21 @@
 import Foundation
 
-/// Updates a link's column based on current activity state and worktree existence.
+/// Updates a link's column based on current activity state.
 /// Wraps AssignColumn with persistence via CoordinationStore.
 public enum UpdateCardColumn {
 
     /// Update a single link's column assignment.
     public static func update(
         link: inout Link,
-        activityState: ActivityState?,
-        hasTmux: Bool
+        activityState: ActivityState?
     ) {
         let newColumn = AssignColumn.assign(
             link: link,
-            activityState: activityState,
-            hasTmux: hasTmux
+            activityState: activityState
         )
 
         // If an archived card becomes actively working, clear the archive flag
-        // so it stays in waiting (not allSessions) once work stops.
+        // so it stays in waiting (not done) once work stops.
         if link.manuallyArchived && newColumn == .inProgress {
             link.manuallyArchived = false
         }

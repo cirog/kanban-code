@@ -42,15 +42,7 @@ struct CodingAssistantTests {
 
     // MARK: - Capabilities
 
-    @Test("Claude supports worktrees")
-    func claudeSupportsWorktree() {
-        #expect(CodingAssistant.claude.supportsWorktree == true)
-    }
-
-    @Test("Claude supports image upload")
-    func claudeSupportsImageUpload() {
-        #expect(CodingAssistant.claude.supportsImageUpload == true)
-    }
+    // Worktree and image upload capability tests removed (features stripped)
 
     // MARK: - Config Directory
 

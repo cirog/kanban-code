@@ -53,8 +53,8 @@ struct KanbanCodeCardTests {
 
     @Test("Column comes from link")
     func column() {
-        let link = Link(column: .inReview, sessionLink: SessionLink(sessionId: "s1"))
+        let link = Link(column: .waiting, sessionLink: SessionLink(sessionId: "s1"))
         let card = KanbanCodeCard(link: link)
-        #expect(card.column == .inReview)
+        #expect(card.column == .waiting)
     }
 }

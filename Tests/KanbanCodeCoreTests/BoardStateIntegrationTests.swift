@@ -314,9 +314,9 @@ struct BoardStateIntegrationTests {
         let cardId = state.cards.first(where: { $0.link.sessionLink?.sessionId == "s1" })!.id
         state.archiveCard(cardId: cardId)
 
-        // In-memory: card should be allSessions and manuallyArchived
+        // In-memory: card should be done and manuallyArchived
         let card = state.cards.first(where: { $0.id == cardId })
-        #expect(card?.link.column == .allSessions)
+        #expect(card?.link.column == .done)
         #expect(card?.link.manuallyArchived == true)
 
         // Wait for async persist
@@ -326,7 +326,7 @@ struct BoardStateIntegrationTests {
         await state.refresh()
         let refreshed = state.cards.first(where: { $0.link.sessionLink?.sessionId == "s1" })
         #expect(refreshed?.link.manuallyArchived == true)
-        #expect(refreshed?.link.column == .allSessions)
+        #expect(refreshed?.link.column == .done)
     }
 
     // MARK: - Project filtering
@@ -528,79 +528,7 @@ struct DeepSearchIntegrationTests {
         try? FileManager.default.removeItem(atPath: dir)
     }
 
-    @Test("Deep search completes and returns results")
-    func searchCompletes() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-
-        let path = (dir as NSString).appendingPathComponent("s1.jsonl")
-        try #"{"type":"user","sessionId":"s1","message":{"content":"Fix the authentication bug"},"cwd":"/test"}"#
-            .write(toFile: path, atomically: true, encoding: .utf8)
-
-        let results = try await store.searchSessions(query: "authentication", paths: [path])
-        #expect(!results.isEmpty)
-        #expect(results[0].score > 0)
-        #expect(!results[0].snippets.isEmpty)
-    }
-
-    @Test("Deep search handles missing files gracefully")
-    func searchMissingFiles() async throws {
-        let results = try await store.searchSessions(
-            query: "test",
-            paths: ["/nonexistent/path/session.jsonl", "/another/missing.jsonl"]
-        )
-        #expect(results.isEmpty)
-    }
-
-    @Test("Deep search handles empty query")
-    func searchEmptyQuery() async throws {
-        let results = try await store.searchSessions(query: "", paths: ["/test.jsonl"])
-        #expect(results.isEmpty)
-    }
-
-    @Test("Deep search handles mix of valid and invalid paths")
-    func searchMixedPaths() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-
-        let validPath = (dir as NSString).appendingPathComponent("s1.jsonl")
-        try #"{"type":"user","sessionId":"s1","message":{"content":"Implement the database migration"},"cwd":"/test"}"#
-            .write(toFile: validPath, atomically: true, encoding: .utf8)
-
-        let results = try await store.searchSessions(
-            query: "database migration",
-            paths: ["/nonexistent.jsonl", validPath, "/also-missing.jsonl"]
-        )
-        #expect(results.count == 1)
-        #expect(results[0].sessionPath == validPath)
-    }
-
-    @Test("Deep search respects task cancellation")
-    func searchCancellation() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-
-        // Create several files
-        var paths: [String] = []
-        for i in 0..<10 {
-            let path = (dir as NSString).appendingPathComponent("s\(i).jsonl")
-            try #"{"type":"user","sessionId":"s\#(i)","message":{"content":"Some content \#(i)"},"cwd":"/test"}"#
-                .write(toFile: path, atomically: true, encoding: .utf8)
-            paths.append(path)
-        }
-
-        let task = Task {
-            try await store.searchSessions(query: "content", paths: paths)
-        }
-        task.cancel()
-        // Should complete without hanging — either returns partial results or throws CancellationError
-        do {
-            let results = try await task.value
-            #expect(results.count <= 10)
-        } catch is CancellationError {
-            // Expected — cancellation is cooperative and may throw
-        }
-    }
+    // Search tests removed (search feature stripped)
 }
 
 @Suite("SessionIndexReader Update")

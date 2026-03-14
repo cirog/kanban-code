@@ -19,34 +19,19 @@ struct CardDropIntentTests {
         #expect(CardDropIntent.resolve(card, to: .inProgress) == .start)
     }
 
-    @Test("Cards can be moved to In Review")
-    func cardCanMoveToReview() {
-        let card = KanbanCodeCard(
-            link: Link(
-                id: "card_waiting",
-                name: "Needs review",
-                projectPath: "/test/project",
-                column: .waiting,
-                source: .manual
-            )
-        )
-
-        #expect(CardDropIntent.resolve(card, to: .inReview) == .move)
-    }
-
-    @Test("Cards can be moved to Done")
+    @Test("Cards can be moved to Done (archive)")
     func cardCanMoveToDone() {
         let card = KanbanCodeCard(
             link: Link(
                 id: "card_review",
                 name: "Open PR",
                 projectPath: "/test/project",
-                column: .inReview,
+                column: .waiting,
                 source: .manual
             )
         )
 
-        #expect(CardDropIntent.resolve(card, to: .done) == .move)
+        #expect(CardDropIntent.resolve(card, to: .done) == .archive)
     }
 
     @Test("Archived cards can be restored to Backlog")
@@ -56,7 +41,7 @@ struct CardDropIntentTests {
                 id: "card_archived",
                 name: "Archived",
                 projectPath: "/test/project",
-                column: .allSessions,
+                column: .done,
                 manuallyArchived: true,
                 source: .manual
             )

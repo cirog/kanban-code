@@ -151,7 +151,7 @@ public struct Link: Identifiable, Codable, Sendable {
         id: String = KSUID.generate(prefix: "card"),
         name: String? = nil,
         projectPath: String? = nil,
-        column: KanbanCodeColumn = .allSessions,
+        column: KanbanCodeColumn = .done,
         createdAt: Date = .now,
         updatedAt: Date = .now,
         lastActivity: Date? = nil,
@@ -209,7 +209,7 @@ public struct Link: Identifiable, Codable, Sendable {
         id = try c.decode(String.self, forKey: .id)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         projectPath = try c.decodeIfPresent(String.self, forKey: .projectPath)
-        column = try c.decodeIfPresent(KanbanCodeColumn.self, forKey: .column) ?? .allSessions
+        column = try c.decodeIfPresent(KanbanCodeColumn.self, forKey: .column) ?? .done
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
         lastActivity = try c.decodeIfPresent(Date.self, forKey: .lastActivity)

@@ -88,12 +88,7 @@ public struct AppState: Sendable {
 
     /// The visible columns (non-empty or always-shown).
     public var visibleColumns: [KanbanCodeColumn] {
-        let alwaysVisible: [KanbanCodeColumn] = [.backlog, .inProgress, .waiting, .inReview, .done]
-        var result = alwaysVisible
-        if cardCount(in: .allSessions) > 0 {
-            result.append(.allSessions)
-        }
-        return result
+        return [.backlog, .inProgress, .waiting, .done]
     }
 
     private func cardMatchesProjectFilter(_ card: KanbanCodeCard) -> Bool {
@@ -331,7 +326,7 @@ public enum Reducer {
             link.sortOrder = nil
             link.column = column
             link.manualOverrides.column = true
-            if column == .allSessions {
+            if column == .done {
                 link.manuallyArchived = true
             } else if link.manuallyArchived {
                 link.manuallyArchived = false
@@ -397,7 +392,7 @@ public enum Reducer {
         case .archiveCard(let cardId):
             guard var link = state.links[cardId] else { return [] }
             link.manuallyArchived = true
-            link.column = .allSessions
+            link.column = .done
             link.updatedAt = .now
             // Kill tmux sessions on archive — user expects cleanup
             var effects: [Effect] = []
@@ -867,26 +862,26 @@ public enum Reducer {
             let liveTmuxNames = result.tmuxSessions
             for (id, var link) in mergedLinks where link.isLaunching != true && !preservedIds.contains(id) {
                 let activity = result.activityMap[link.sessionLink?.sessionId ?? ""]
-                let hasTmux = link.tmuxLink.map { tmux in
-                    // Shell-only terminals don't count as "active work" for column assignment
-                    guard tmux.isShellOnly != true else { return false }
-                    return tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
-                } ?? false
                 // Clear manual column override when we have definitive data.
                 // Backlog is sticky — the user explicitly parked this card.
                 if link.manualOverrides.column && link.column != .backlog {
                     if activity != nil && activity != .stale {
                         link.manualOverrides.column = false
-                    } else if link.tmuxLink != nil && !hasTmux {
-                        link.tmuxLink = nil
-                        link.manualOverrides.column = false
+                    } else if link.tmuxLink != nil {
+                        let hasTmux = link.tmuxLink.map { tmux in
+                            guard tmux.isShellOnly != true else { return false }
+                            return tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
+                        } ?? false
+                        if !hasTmux {
+                            link.tmuxLink = nil
+                            link.manualOverrides.column = false
+                        }
                     }
                 }
 
                 UpdateCardColumn.update(
                     link: &link,
-                    activityState: activity,
-                    hasTmux: hasTmux
+                    activityState: activity
                 )
 
                 // Copy session's firstPrompt into link.promptBody
@@ -931,7 +926,7 @@ public enum Reducer {
                 guard let sessionId = link.sessionLink?.sessionId,
                       let activity = activityMap[sessionId] else { continue }
                 let oldColumn = link.column
-                UpdateCardColumn.update(link: &link, activityState: activity, hasTmux: false)
+                UpdateCardColumn.update(link: &link, activityState: activity)
                 if link.column != oldColumn {
                     state.links[id] = link
                     changed = true

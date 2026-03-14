@@ -37,8 +37,6 @@ private final class MockStore: SessionStore, @unchecked Sendable {
     func readTranscript(sessionPath: String) async throws -> [ConversationTurn] { [] }
     func forkSession(sessionPath: String, targetDirectory: String?) async throws -> String { "forked-id" }
     func truncateSession(sessionPath: String, afterTurn: ConversationTurn) async throws {}
-    func searchSessions(query: String, paths: [String]) async throws -> [SearchResult] { [] }
-    func searchSessionsStreaming(query: String, paths: [String], onResult: @MainActor @Sendable ([SearchResult]) -> Void) async throws {}
 }
 
 // MARK: - Registry Tests

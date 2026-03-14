@@ -181,13 +181,7 @@ public final class BoardState: @unchecked Sendable {
 
     /// The visible columns (non-empty or always-shown).
     public var visibleColumns: [KanbanCodeColumn] {
-        // Always show the main workflow columns; show allSessions only if it has cards
-        let alwaysVisible: [KanbanCodeColumn] = [.backlog, .inProgress, .waiting, .inReview, .done]
-        var result = alwaysVisible
-        if cardCount(in: .allSessions) > 0 {
-            result.append(.allSessions)
-        }
-        return result
+        return [.backlog, .inProgress, .waiting, .done]
     }
 
     /// Add a new card to the board immediately (synchronous, no disk round-trip).
@@ -231,12 +225,12 @@ public final class BoardState: @unchecked Sendable {
         }
     }
 
-    /// Archive a card — sets manuallyArchived and moves to allSessions.
+    /// Archive a card — sets manuallyArchived and moves to done.
     public func archiveCard(cardId: String) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
         var link = cards[index].link
         link.manuallyArchived = true
-        link.column = .allSessions
+        link.column = .done
         link.updatedAt = .now
         let session = cards[index].session
         let activity = cards[index].activityState
@@ -308,8 +302,8 @@ public final class BoardState: @unchecked Sendable {
         link.column = column
         if manualOverride {
             link.manualOverrides.column = true
-            // Dragging to allSessions = archive; dragging out = unarchive
-            if column == .allSessions {
+            // Dragging to done = archive; dragging out = unarchive
+            if column == .done {
                 link.manuallyArchived = true
             } else if link.manuallyArchived {
                 link.manuallyArchived = false
@@ -399,19 +393,15 @@ public final class BoardState: @unchecked Sendable {
             KanbanCodeLog.info("refresh", "Reconciled: \(existingLinks.count) existing → \(mergedLinks.count) merged (\(sessions.count) sessions)")
 
             // Recalculate columns: f(state) = column
-            let liveTmuxNames = Set(tmuxSessions.map(\.name))
             var newCards: [KanbanCodeCard] = []
             for i in mergedLinks.indices {
                 let sessionId = mergedLinks[i].sessionLink?.sessionId ?? mergedLinks[i].id
                 let activity = await activityDetector?.activityState(for: sessionId)
-                let hasTmux = mergedLinks[i].tmuxLink.map { tmux in
-                    tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
-                } ?? false
                 let oldColumn = mergedLinks[i].column
-                UpdateCardColumn.update(link: &mergedLinks[i], activityState: activity, hasTmux: hasTmux)
+                UpdateCardColumn.update(link: &mergedLinks[i], activityState: activity)
                 if mergedLinks[i].column != oldColumn {
                     let sessionIdStr = mergedLinks[i].sessionLink.map { String($0.sessionId.prefix(8)) } ?? "nil"
-                    KanbanCodeLog.info("refresh", "Column changed for \(mergedLinks[i].id.prefix(12)): \(oldColumn) → \(mergedLinks[i].column) (activity=\(activity.map { "\($0)" } ?? "nil"), hasTmux=\(hasTmux), source=\(mergedLinks[i].source), tmux=\(mergedLinks[i].tmuxLink?.sessionName ?? "nil"), session=\(sessionIdStr))")
+                    KanbanCodeLog.info("refresh", "Column changed for \(mergedLinks[i].id.prefix(12)): \(oldColumn) → \(mergedLinks[i].column) (activity=\(activity.map { "\($0)" } ?? "nil"), source=\(mergedLinks[i].source), tmux=\(mergedLinks[i].tmuxLink?.sessionName ?? "nil"), session=\(sessionIdStr))")
                 }
                 // Copy session's firstPrompt into link.promptBody so notifications can use it
                 if mergedLinks[i].promptBody == nil,

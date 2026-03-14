@@ -28,13 +28,7 @@ enum CardDropIntent: Equatable {
             }
             return .move
 
-        case .inReview:
-            return .move
-
         case .done:
-            return .move
-
-        case .allSessions:
             return .archive
 
         case .backlog, .waiting:

@@ -710,9 +710,7 @@ extension KanbanCodeColumn {
         case .backlog: .gray
         case .inProgress: .green
         case .waiting: .orange
-        case .inReview: .blue
         case .done: .purple
-        case .allSessions: .secondary
         }
     }
 }

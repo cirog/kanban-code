@@ -31,7 +31,7 @@ struct EntityTests {
     func columnDisplayNames() {
         #expect(KanbanCodeColumn.inProgress.displayName == "In Progress")
         #expect(KanbanCodeColumn.waiting.displayName == "Waiting")
-        #expect(KanbanCodeColumn.allSessions.displayName == "All Sessions")
+        #expect(KanbanCodeColumn.done.displayName == "Done")
     }
 
     @Test("KanbanCodeColumn allows board task creation only in working lanes")
@@ -39,16 +39,10 @@ struct EntityTests {
         #expect(KanbanCodeColumn.backlog.allowsBoardTaskCreation)
         #expect(KanbanCodeColumn.inProgress.allowsBoardTaskCreation)
         #expect(KanbanCodeColumn.waiting.allowsBoardTaskCreation)
-        #expect(KanbanCodeColumn.inReview.allowsBoardTaskCreation)
         #expect(KanbanCodeColumn.done.allowsBoardTaskCreation)
-        #expect(!KanbanCodeColumn.allSessions.allowsBoardTaskCreation)
     }
 
-    @Test("Worktree directoryName extracts last component")
-    func worktreeDirectoryName() {
-        let wt = Worktree(path: "/Users/rchaves/Projects/repo/.claude/worktrees/feat-login", branch: "feat/login")
-        #expect(wt.directoryName == "feat-login")
-    }
+    // Worktree test removed (worktree feature stripped)
 
     @Test("Project effectiveRepoRoot uses repoRoot when set")
     func projectRepoRoot() {

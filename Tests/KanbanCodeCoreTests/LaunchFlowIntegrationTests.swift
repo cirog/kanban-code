@@ -17,7 +17,6 @@ struct LaunchFlowIntegrationTests {
         projectPath: String = "/tmp",
         tmuxLink: TmuxLink? = nil,
         sessionLink: SessionLink? = nil,
-        worktreeLink: WorktreeLink? = nil,
         isLaunching: Bool? = nil,
         source: LinkSource = .manual,
         name: String? = "Test card",
@@ -32,7 +31,6 @@ struct LaunchFlowIntegrationTests {
             source: source,
             sessionLink: sessionLink,
             tmuxLink: tmuxLink,
-            worktreeLink: worktreeLink,
             isLaunching: isLaunching
         )
     }
@@ -67,7 +65,6 @@ struct LaunchFlowIntegrationTests {
             sessionName: sessionName,
             projectPath: "/tmp",
             prompt: "echo hello",
-            worktreeName: nil,
             shellOverride: nil,
             extraEnv: [:],
             commandOverride: "echo 'test-launch'",
@@ -97,7 +94,6 @@ struct LaunchFlowIntegrationTests {
             sessionName: sessionName,
             projectPath: "/tmp",
             prompt: "test",
-            worktreeName: nil,
             shellOverride: nil,
             extraEnv: [:],
             commandOverride: "echo 'fresh-launch'",
@@ -118,12 +114,12 @@ struct LaunchFlowIntegrationTests {
 
         let returned1 = try await launcher.launch(
             sessionName: name1, projectPath: "/tmp", prompt: "task 1",
-            worktreeName: nil, shellOverride: nil, extraEnv: [:],
+            shellOverride: nil, extraEnv: [:],
             commandOverride: "echo 'card1'", skipPermissions: false
         )
         let returned2 = try await launcher.launch(
             sessionName: name2, projectPath: "/tmp", prompt: "task 2",
-            worktreeName: nil, shellOverride: nil, extraEnv: [:],
+            shellOverride: nil, extraEnv: [:],
             commandOverride: "echo 'card2'", skipPermissions: false
         )
 
@@ -158,7 +154,7 @@ struct LaunchFlowIntegrationTests {
         let launcher = LaunchSession(tmux: tmux)
         let _ = try await launcher.launch(
             sessionName: tmuxName, projectPath: "/tmp", prompt: "test",
-            worktreeName: nil, shellOverride: nil, extraEnv: [:],
+            shellOverride: nil, extraEnv: [:],
             commandOverride: "echo 'running'", skipPermissions: false
         )
 
@@ -172,16 +168,13 @@ struct LaunchFlowIntegrationTests {
         let sessions = try await tmux.listSessions()
         #expect(sessions.contains(where: { $0.name == tmuxName }))
 
-        // Step 4: launchCompleted — adds session and worktree links
+        // Step 4: launchCompleted — adds session link
         let _ = Reducer.reduce(state: &state, action: .launchCompleted(
             cardId: "card_lifecycle",
             tmuxName: tmuxName,
-            sessionLink: SessionLink(sessionId: "sess_new123"),
-            worktreeLink: WorktreeLink(path: "/tmp/.claude/worktrees/feat-x", branch: "feat-x"),
-            isRemote: false
+            sessionLink: SessionLink(sessionId: "sess_new123")
         ))
         #expect(state.links["card_lifecycle"]?.sessionLink?.sessionId == "sess_new123")
-        #expect(state.links["card_lifecycle"]?.worktreeLink?.branch == "feat-x")
         #expect(state.links["card_lifecycle"]?.isLaunching == nil)
     }
 
@@ -258,65 +251,7 @@ struct LaunchFlowIntegrationTests {
         #expect(name == "project-feat-auth")
     }
 
-    // MARK: - Reconciler: isLaunching prevents orphan worktree creation
-
-    @Test("Reconciler associates worktree with launching card instead of creating orphan")
-    func reconcilerAssociatesWorktreeWithLaunchingCard() {
-        let launchingCard = makeLink(
-            id: "card_launching",
-            column: .inProgress,
-            projectPath: "/test/project",
-            tmuxLink: TmuxLink(sessionName: "project-card_launching"),
-            isLaunching: true
-        )
-
-        let snapshot = CardReconciler.DiscoverySnapshot(
-            sessions: [],
-            tmuxSessions: [TmuxSession(name: "project-card_launching", path: "/test/project")],
-            didScanTmux: true,
-            worktrees: [
-                "/test/project": [
-                    Worktree(path: "/test/project/.claude/worktrees/feat-new", branch: "refs/heads/feat-new", isBare: false)
-                ]
-            ]
-        )
-
-        let result = CardReconciler.reconcile(existing: [launchingCard], snapshot: snapshot)
-
-        // Should NOT have created an orphan — should have associated with the launching card
-        #expect(result.count == 1, "Should be 1 card, not 2 (no orphan)")
-        let card = result.first(where: { $0.id == "card_launching" })
-        #expect(card?.worktreeLink?.branch == "feat-new")
-        #expect(card?.worktreeLink?.path == "/test/project/.claude/worktrees/feat-new")
-    }
-
-    @Test("Reconciler creates orphan when no card is launching in the repo")
-    func reconcilerCreatesOrphanWhenNoLaunch() {
-        let idleCard = makeLink(
-            id: "card_idle",
-            column: .backlog,
-            projectPath: "/other/project"
-        )
-
-        let snapshot = CardReconciler.DiscoverySnapshot(
-            sessions: [],
-            tmuxSessions: [],
-            didScanTmux: true,
-            worktrees: [
-                "/test/project": [
-                    Worktree(path: "/test/project/.claude/worktrees/feat-orphan", branch: "refs/heads/feat-orphan", isBare: false)
-                ]
-            ]
-        )
-
-        let result = CardReconciler.reconcile(existing: [idleCard], snapshot: snapshot)
-
-        // Should create an orphan card for the unmatched worktree
-        #expect(result.count == 2)
-        let orphan = result.first(where: { $0.id != "card_idle" })
-        #expect(orphan?.worktreeLink?.branch == "feat-orphan")
-        #expect(orphan?.source == .discovered)
-    }
+    // Worktree reconciler tests removed (worktree feature stripped)
 
     // MARK: - Discovered branches indexed for PR matching
 
@@ -511,15 +446,9 @@ struct LaunchFlowIntegrationTests {
 
     // MARK: - Tmux session name computation
 
-    @Test("LaunchSession.tmuxSessionName with worktree")
-    func tmuxSessionNameWithWorktree() {
-        let name = LaunchSession.tmuxSessionName(project: "/test/my-project", worktree: "feat-auth")
-        #expect(name == "my-project-feat-auth")
-    }
-
-    @Test("LaunchSession.tmuxSessionName without worktree")
-    func tmuxSessionNameWithoutWorktree() {
-        let name = LaunchSession.tmuxSessionName(project: "/test/my-project", worktree: nil)
+    @Test("LaunchSession.tmuxSessionName extracts project name")
+    func tmuxSessionNameExtractsProject() {
+        let name = LaunchSession.tmuxSessionName(project: "/test/my-project")
         #expect(name == "my-project")
     }
 

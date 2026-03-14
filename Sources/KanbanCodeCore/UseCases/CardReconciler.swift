@@ -92,7 +92,7 @@ public enum CardReconciler {
                 // Truly new session — create discovered card
                 let newLink = Link(
                     projectPath: session.projectPath,
-                    column: .allSessions,
+                    column: .done,
                     lastActivity: session.modifiedTime,
                     source: .discovered,
                     sessionLink: SessionLink(

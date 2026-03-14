@@ -39,10 +39,10 @@ struct BoardViewModeTests {
 
     @Test("Collapsed list sections round-trip through storage")
     func collapsedSectionsRoundTrip() {
-        let encoded = ListSectionCollapseState.encode([.inReview, .waiting])
+        let encoded = ListSectionCollapseState.encode([.done, .waiting])
         let decoded = ListSectionCollapseState.decode(encoded)
 
-        #expect(decoded == [.inReview, .waiting])
+        #expect(decoded == [.done, .waiting])
     }
 
     @Test("Collapsed list sections ignore empty persisted state")
