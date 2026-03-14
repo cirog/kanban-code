@@ -12,15 +12,6 @@ public protocol SessionStore: Sendable {
     /// Truncate a session to a given turn (checkpoint). Creates a .bkp backup.
     func truncateSession(sessionPath: String, afterTurn: ConversationTurn) async throws
 
-    /// Full-text search across all session files.
-    func searchSessions(query: String, paths: [String]) async throws -> [SearchResult]
-
-    /// Streaming full-text search — calls onResult with accumulated sorted results after each file.
-    func searchSessionsStreaming(
-        query: String, paths: [String],
-        onResult: @MainActor @Sendable ([SearchResult]) -> Void
-    ) async throws
-
     /// Write conversation turns to a new session file in this store's native format.
     /// Returns the path to the new session file.
     func writeSession(turns: [ConversationTurn], sessionId: String, projectPath: String?) async throws -> String
@@ -31,30 +22,8 @@ extension SessionStore {
         try await forkSession(sessionPath: sessionPath, targetDirectory: nil)
     }
 
-    /// Default: fall back to batch search, call onResult once at the end.
-    public func searchSessionsStreaming(
-        query: String, paths: [String],
-        onResult: @MainActor @Sendable ([SearchResult]) -> Void
-    ) async throws {
-        let results = try await searchSessions(query: query, paths: paths)
-        await onResult(results)
-    }
-
     /// Default: writing is not supported.
     public func writeSession(turns: [ConversationTurn], sessionId: String, projectPath: String?) async throws -> String {
         throw SessionStoreError.writeNotSupported
-    }
-}
-
-/// A search result from full-text session search.
-public struct SearchResult: Sendable {
-    public let sessionPath: String
-    public let score: Double
-    public let snippets: [String]
-
-    public init(sessionPath: String, score: Double, snippets: [String]) {
-        self.sessionPath = sessionPath
-        self.score = score
-        self.snippets = snippets
     }
 }

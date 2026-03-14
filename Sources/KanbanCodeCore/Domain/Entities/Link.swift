@@ -41,17 +41,6 @@ public struct TmuxLink: Codable, Sendable, Equatable {
     }
 }
 
-/// Link to a git worktree.
-public struct WorktreeLink: Codable, Sendable, Equatable {
-    public var path: String
-    public var branch: String?
-
-    public init(path: String, branch: String? = nil) {
-        self.path = path
-        self.branch = branch
-    }
-}
-
 /// A prompt queued to be sent to a Claude session.
 public struct QueuedPrompt: Codable, Sendable, Equatable, Identifiable {
     public let id: String
@@ -72,7 +61,6 @@ public struct QueuedPrompt: Codable, Sendable, Equatable, Identifiable {
 /// The primary label shown on a card, derived from which links are present.
 public enum CardLabel: String, Sendable {
     case session = "SESSION"
-    case worktree = "WORKTREE"
     case task = "TASK"
 }
 
@@ -100,11 +88,7 @@ public struct Link: Identifiable, Codable, Sendable {
     // Typed links — each independently optional
     public var sessionLink: SessionLink?
     public var tmuxLink: TmuxLink?
-    public var worktreeLink: WorktreeLink?
     public var queuedPrompts: [QueuedPrompt]?
-
-    /// Whether this card's project is configured for remote execution.
-    public var isRemote: Bool
 
     /// Manual sort order within a column. Cards with sortOrder are sorted by it
     /// (lower first); cards without fall back to time-based sort.
@@ -122,11 +106,10 @@ public struct Link: Identifiable, Codable, Sendable {
 
     // MARK: - Display
 
-    /// Best display title from link data alone: name → promptBody → branch → session ID.
+    /// Best display title from link data alone: name → promptBody → session ID.
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
         if let promptBody, !promptBody.isEmpty { return String(promptBody.prefix(100)) }
-        if let branch = worktreeLink?.branch, !branch.isEmpty { return branch }
         if let sid = sessionLink?.sessionId { return sid }
         return id
     }
@@ -139,17 +122,12 @@ public struct Link: Identifiable, Codable, Sendable {
     public var sessionPath: String? { sessionLink?.sessionPath }
     /// Tmux session name. Use `tmuxLink?.sessionName` for new code.
     public var tmuxSession: String? { tmuxLink?.sessionName }
-    /// Worktree directory path. Use `worktreeLink?.path` for new code.
-    public var worktreePath: String? { worktreeLink?.path }
-    /// Git branch name. Use `worktreeLink?.branch` for new code.
-    public var worktreeBranch: String? { worktreeLink?.branch }
     /// Session display number. Use `sessionLink?.sessionNumber` for new code.
     public var sessionNumber: Int? { sessionLink?.sessionNumber }
 
     /// The primary label for this card based on which links are present.
     public var cardLabel: CardLabel {
         if sessionLink != nil { return .session }
-        if worktreeLink != nil { return .worktree }
         return .task
     }
 
@@ -163,10 +141,6 @@ public struct Link: Identifiable, Codable, Sendable {
         }
         if source.tmuxLink != nil && target.tmuxLink != nil {
             return "Cannot merge: both cards have terminals"
-        }
-        if source.worktreeLink != nil && target.worktreeLink != nil
-            && source.worktreeLink != target.worktreeLink {
-            return "Cannot merge: both cards have different worktrees"
         }
         return nil
     }
@@ -189,10 +163,8 @@ public struct Link: Identifiable, Codable, Sendable {
         promptImagePaths: [String]? = nil,
         sessionLink: SessionLink? = nil,
         tmuxLink: TmuxLink? = nil,
-        worktreeLink: WorktreeLink? = nil,
         queuedPrompts: [QueuedPrompt]? = nil,
         assistant: CodingAssistant? = nil,
-        isRemote: Bool = false,
         isLaunching: Bool? = nil,
         sortOrder: Int? = nil
     ) {
@@ -211,10 +183,8 @@ public struct Link: Identifiable, Codable, Sendable {
         self.promptImagePaths = promptImagePaths
         self.sessionLink = sessionLink
         self.tmuxLink = tmuxLink
-        self.worktreeLink = worktreeLink
         self.queuedPrompts = queuedPrompts
         self.assistant = assistant
-        self.isRemote = isRemote
         self.isLaunching = isLaunching
         self.sortOrder = sortOrder
     }
@@ -224,12 +194,12 @@ public struct Link: Identifiable, Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         // Card-level
         case id, name, projectPath, column, createdAt, updatedAt, lastActivity, lastOpenedAt
-        case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isRemote, isLaunching, sortOrder
+        case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isLaunching, sortOrder
         case assistant
         // Typed links (new nested format)
-        case sessionLink, tmuxLink, worktreeLink, queuedPrompts
+        case sessionLink, tmuxLink, queuedPrompts
         // Old format keys (for reading legacy format)
-        case sessionId, sessionPath, worktreePath, worktreeBranch
+        case sessionId, sessionPath
         case tmuxSession, sessionNumber, issueBody
     }
 
@@ -249,7 +219,6 @@ public struct Link: Identifiable, Codable, Sendable {
         source = try c.decodeIfPresent(LinkSource.self, forKey: .source) ?? .discovered
         promptBody = try c.decodeIfPresent(String.self, forKey: .promptBody)
         promptImagePaths = try c.decodeIfPresent([String].self, forKey: .promptImagePaths)
-        isRemote = try c.decodeIfPresent(Bool.self, forKey: .isRemote) ?? false
         isLaunching = try c.decodeIfPresent(Bool.self, forKey: .isLaunching)
         sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
         assistant = try c.decodeIfPresent(CodingAssistant.self, forKey: .assistant)
@@ -271,21 +240,6 @@ public struct Link: Identifiable, Codable, Sendable {
             tmuxLink = TmuxLink(sessionName: ts)
         } else {
             tmuxLink = nil
-        }
-
-        // Worktree link
-        if let wl = try c.decodeIfPresent(WorktreeLink.self, forKey: .worktreeLink) {
-            worktreeLink = wl
-        } else {
-            let wp = try c.decodeIfPresent(String.self, forKey: .worktreePath)
-            let wb = try c.decodeIfPresent(String.self, forKey: .worktreeBranch)
-            if let wp {
-                worktreeLink = WorktreeLink(path: wp, branch: wb)
-            } else if let wb {
-                worktreeLink = WorktreeLink(path: "", branch: wb)
-            } else {
-                worktreeLink = nil
-            }
         }
 
         // Migrate legacy issueBody to promptBody for manual tasks
@@ -312,7 +266,6 @@ public struct Link: Identifiable, Codable, Sendable {
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(promptBody, forKey: .promptBody)
         try c.encodeIfPresent(promptImagePaths, forKey: .promptImagePaths)
-        try c.encode(isRemote, forKey: .isRemote)
         try c.encodeIfPresent(isLaunching, forKey: .isLaunching)
         try c.encodeIfPresent(sortOrder, forKey: .sortOrder)
         try c.encodeIfPresent(assistant, forKey: .assistant)
@@ -320,50 +273,31 @@ public struct Link: Identifiable, Codable, Sendable {
         // Always write new nested format
         try c.encodeIfPresent(sessionLink, forKey: .sessionLink)
         try c.encodeIfPresent(tmuxLink, forKey: .tmuxLink)
-        try c.encodeIfPresent(worktreeLink, forKey: .worktreeLink)
         try c.encodeIfPresent(queuedPrompts, forKey: .queuedPrompts)
     }
 }
 
 /// Tracks which fields have been manually set by the user.
 public struct ManualOverrides: Codable, Sendable {
-    public var worktreePath: Bool
     public var tmuxSession: Bool
     public var name: Bool
     public var column: Bool
 
-    /// Byte offset into the session JSONL. Data before this point is ignored for branch discovery.
-    /// Advances as incremental scanning processes new bytes.
-    /// nil = no watermark (default). "Discover Branches" clears it.
-    public var branchWatermark: Int?
-
-    /// Whether auto-discovered branch data should be ignored for this card.
-    /// True when branchWatermark is set or legacy worktreePath is true.
-    public var isBranchDiscoveryBlocked: Bool {
-        branchWatermark != nil || worktreePath
-    }
-
     public init(
-        worktreePath: Bool = false,
         tmuxSession: Bool = false,
         name: Bool = false,
-        column: Bool = false,
-        branchWatermark: Int? = nil
+        column: Bool = false
     ) {
-        self.worktreePath = worktreePath
         self.tmuxSession = tmuxSession
         self.name = name
         self.column = column
-        self.branchWatermark = branchWatermark
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        worktreePath = try c.decodeIfPresent(Bool.self, forKey: .worktreePath) ?? false
         tmuxSession = try c.decodeIfPresent(Bool.self, forKey: .tmuxSession) ?? false
         name = try c.decodeIfPresent(Bool.self, forKey: .name) ?? false
         column = try c.decodeIfPresent(Bool.self, forKey: .column) ?? false
-        branchWatermark = try c.decodeIfPresent(Int.self, forKey: .branchWatermark)
     }
 }
 

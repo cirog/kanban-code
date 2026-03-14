@@ -5,11 +5,10 @@ struct NewTaskDialog: View {
     @Binding var isPresented: Bool
     var projects: [Project] = []
     var defaultProjectPath: String?
-    var globalRemoteSettings: RemoteSettings?
     var enabledAssistants: [CodingAssistant] = CodingAssistant.allCases
-    /// (prompt, projectPath, title, startImmediately, images) — creates task without an assistant set
+    /// (prompt, projectPath, title, startImmediately, images)
     var onCreate: (String, String?, String?, Bool, [ImageAttachment]) -> Void = { _, _, _, _, _ in }
-    /// (prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant) — creates and launches directly (skips LaunchConfirmation)
+    /// (prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant)
     var onCreateAndLaunch: (String, String?, String?, Bool, Bool, Bool, String?, [ImageAttachment], CodingAssistant) -> Void = { _, _, _, _, _, _, _, _, _ in }
 
     @AppStorage("selectedAssistant") private var selectedAssistantRaw: String = CodingAssistant.claude.rawValue
@@ -80,47 +79,6 @@ struct NewTaskDialog: View {
             // Launch options (shown when "Start immediately" is checked)
             if startImmediately {
                 VStack(alignment: .leading, spacing: 6) {
-                    Toggle("Create worktree", isOn: (isGitRepo && selectedAssistant.supportsWorktree) ? $createWorktree : .constant(false))
-                        .font(.app(.callout))
-                        .disabled(!isGitRepo || !selectedAssistant.supportsWorktree)
-                    if !isGitRepo {
-                        Label("Not a git repository", systemImage: "info.circle")
-                            .font(.app(.caption2))
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 20)
-                    } else if !selectedAssistant.supportsWorktree {
-                        Label("\(selectedAssistant.displayName) doesn't support worktrees", systemImage: "info.circle")
-                            .font(.app(.caption2))
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 20)
-                    }
-                    if createWorktree && isGitRepo {
-                        HStack {
-                            Text("Branch name")
-                                .font(.app(.callout))
-                                .foregroundStyle(.secondary)
-                            TextField("", text: $worktreeBranch, prompt: Text("Leave empty for a random name"))
-                                .textFieldStyle(.roundedBorder)
-                                .font(.app(.callout))
-                        }
-                        .padding(.leading, 20)
-                    }
-
-                    Toggle("Run remotely", isOn: hasRemoteConfig ? $runRemotely : .constant(false))
-                        .font(.app(.callout))
-                        .disabled(!hasRemoteConfig)
-                    if !hasRemoteConfig {
-                        Label(
-                            globalRemoteSettings != nil
-                                ? "Project not under remote sync path"
-                                : "Configure remote execution in Settings > Remote",
-                            systemImage: "info.circle"
-                        )
-                            .font(.app(.caption2))
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 20)
-                    }
-
                     Toggle("Dangerously skip permissions", isOn: $dangerouslySkipPermissions)
                         .font(.app(.callout))
                 }
@@ -233,8 +191,8 @@ struct NewTaskDialog: View {
                 prompt,
                 proj,
                 titleOrNil,
-                createWorktree && isGitRepo && selectedAssistant.supportsWorktree,
-                runRemotely && hasRemoteConfig,
+                false,
+                false,
                 dangerouslySkipPermissions,
                 commandEdited ? command : nil,
                 images,
@@ -269,37 +227,10 @@ struct NewTaskDialog: View {
         )
     }
 
-    private var hasRemoteConfig: Bool {
-        guard let remote = globalRemoteSettings else { return false }
-        guard let path = resolvedProjectPath else { return false }
-        return path.hasPrefix(remote.localPath)
-    }
-
-    private var remoteHost: String? {
-        globalRemoteSettings?.host
-    }
 
     private var commandPreview: String {
-        var parts: [String] = []
-
-        if runRemotely && hasRemoteConfig {
-            parts.append("SHELL=~/.kanban-code/remote/zsh")
-        }
-
         var cmd = selectedAssistant.cliCommand
         if dangerouslySkipPermissions { cmd += " \(selectedAssistant.autoApproveFlag)" }
-
-        if createWorktree && isGitRepo && selectedAssistant.supportsWorktree {
-            let branch = worktreeBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-            if branch.isEmpty {
-                cmd += " --worktree"
-            } else {
-                cmd += " --worktree \(branch)"
-            }
-        }
-
-        parts.append(cmd)
-
-        return parts.joined(separator: " \\\n  ")
+        return cmd
     }
 }

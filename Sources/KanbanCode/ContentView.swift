@@ -9,11 +9,6 @@ struct LaunchConfig: Identifiable {
     let cardId: String
     let projectPath: String
     let prompt: String
-    let worktreeName: String?
-    let hasExistingWorktree: Bool
-    let isGitRepo: Bool
-    let hasRemoteConfig: Bool
-    let remoteHost: String?
     let isResume: Bool
     let sessionId: String?
     let promptImagePaths: [String]
@@ -23,11 +18,6 @@ struct LaunchConfig: Identifiable {
         cardId: String,
         projectPath: String,
         prompt: String,
-        worktreeName: String? = nil,
-        hasExistingWorktree: Bool = false,
-        isGitRepo: Bool = false,
-        hasRemoteConfig: Bool = false,
-        remoteHost: String? = nil,
         isResume: Bool = false,
         sessionId: String? = nil,
         promptImagePaths: [String] = [],
@@ -36,11 +26,6 @@ struct LaunchConfig: Identifiable {
         self.cardId = cardId
         self.projectPath = projectPath
         self.prompt = prompt
-        self.worktreeName = worktreeName
-        self.hasExistingWorktree = hasExistingWorktree
-        self.isGitRepo = isGitRepo
-        self.hasRemoteConfig = hasRemoteConfig
-        self.remoteHost = remoteHost
         self.isResume = isResume
         self.sessionId = sessionId
         self.promptImagePaths = promptImagePaths
@@ -175,11 +160,7 @@ struct ContentView: View {
 
         let effectHandler = EffectHandler(
             coordinationStore: coordination,
-            tmuxAdapter: tmux,
-            setClipboardImage: { data in
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setData(data, forType: .png)
-            }
+            tmuxAdapter: tmux
         )
 
         let boardStore = BoardStore(
@@ -188,7 +169,6 @@ struct ContentView: View {
             coordinationStore: coordination,
             activityDetector: activityDetector,
             settingsStore: settings,
-            worktreeAdapter: GitWorktreeAdapter(),
             tmuxAdapter: tmux
         )
 
@@ -284,10 +264,10 @@ struct ContentView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(cmd, forType: .string)
             },
-            onCleanupWorktree: { cardId in Task { await cleanupWorktree(cardId: cardId) } },
+            onCleanupWorktree: { _ in },
             canCleanupWorktree: { cardId in
                 guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return false }
-                return canCleanupWorktree(for: card)
+                return false
             },
             onArchiveCard: { cardId in archiveCard(cardId: cardId) },
             onDeleteCard: { cardId in pendingDeleteCardId = cardId },
@@ -339,10 +319,10 @@ struct ContentView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(cmd, forType: .string)
             },
-            onCleanupWorktree: { cardId in Task { await cleanupWorktree(cardId: cardId) } },
+            onCleanupWorktree: { _ in },
             canCleanupWorktree: { cardId in
                 guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return false }
-                return canCleanupWorktree(for: card)
+                return false
             },
             onArchiveCard: { cardId in archiveCard(cardId: cardId) },
             onDeleteCard: { cardId in pendingDeleteCardId = cardId },
@@ -403,7 +383,7 @@ struct ContentView: View {
                 onRename: { name in
                     store.dispatch(.renameCard(cardId: card.id, name: name))
                 },
-                onFork: { keepWorktree in forkCard(cardId: card.id, keepWorktree: keepWorktree) },
+                onFork: { _ in forkCard(cardId: card.id) },
                 onDismiss: { store.dispatch(.selectCard(cardId: nil)) },
                 onUnlink: { linkType in
                     store.dispatch(.unlinkFromCard(cardId: card.id, linkType: linkType))
@@ -412,9 +392,9 @@ struct ContentView: View {
                     store.dispatch(.addBranchToCard(cardId: card.id, branch: branch))
                 },
                 onCleanupWorktree: {
-                    Task { await cleanupWorktree(cardId: card.id) }
+                    // worktree cleanup removed
                 },
-                canCleanupWorktree: canCleanupWorktree(for: card),
+                canCleanupWorktree: false,
                 onDeleteCard: {
                     pendingDeleteCardId = card.id
                 },
@@ -513,35 +493,7 @@ struct ContentView: View {
                 detailExpandedPersisted = store.state.detailExpanded
             }
             .overlay {
-                if showSearch {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                        .onTapGesture { closePalette() }
-
-                    SearchOverlay(
-                        isPresented: Binding(
-                            get: { showSearch },
-                            set: { if !$0 { closePalette() } }
-                        ),
-                        cards: store.state.cards,
-                        sessionStore: store.sessionStore,
-                        onSelectCard: { card in
-                            store.dispatch(.selectCard(cardId: card.id))
-                        },
-                        onResumeCard: { card in
-                            resumeCard(cardId: card.id)
-                        },
-                        onForkCard: { card in pendingForkCardId = card.id },
-                        onCheckpointCard: { card in
-                            store.dispatch(.selectCard(cardId: card.id))
-                        },
-                        commands: paletteCommands,
-                        initialQuery: searchInitialQuery,
-                        deepSearchTrigger: deepSearchTrigger
-                    )
-                    .padding(40)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                }
+                // Search overlay removed
             }
             .animation(.easeInOut(duration: 0.15), value: showSearch)
             .overlay {
@@ -598,7 +550,6 @@ struct ContentView: View {
                     isPresented: $showNewTask,
                     projects: store.state.configuredProjects,
                     defaultProjectPath: store.state.selectedProjectPath,
-                    globalRemoteSettings: store.state.globalRemoteSettings,
                     enabledAssistants: assistantRegistry.available,
                     onCreate: { prompt, projectPath, title, startImmediately, images in
                         createManualTask(prompt: prompt, projectPath: projectPath, title: title, startImmediately: startImmediately, images: images)
@@ -616,11 +567,6 @@ struct ContentView: View {
                     cardId: config.cardId,
                     projectPath: config.projectPath,
                     initialPrompt: config.prompt,
-                    worktreeName: config.worktreeName,
-                    hasExistingWorktree: config.hasExistingWorktree,
-                    isGitRepo: config.isGitRepo,
-                    hasRemoteConfig: config.hasRemoteConfig,
-                    remoteHost: config.remoteHost,
                     isResume: config.isResume,
                     sessionId: config.sessionId,
                     promptImagePaths: config.promptImagePaths,
@@ -629,25 +575,13 @@ struct ContentView: View {
                         get: { launchConfig != nil },
                         set: { if !$0 { launchConfig = nil } }
                     )
-                ) { editedPrompt, createWorktree, worktreeBranch, runRemotely, skipPermissions, commandOverride, images in
+                ) { editedPrompt, _, _, runRemotely, skipPermissions, commandOverride, images in
                     if config.isResume {
                         executeResume(cardId: config.cardId, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, assistant: config.assistant)
                     } else {
-                        let wtName: String? = createWorktree ? (worktreeBranch ?? config.worktreeName ?? "") : nil
-                        executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: wtName, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant)
+                        executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: nil, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant)
                     }
                 }
-            }
-            .sheet(isPresented: $showOnboarding) {
-                OnboardingWizard(
-                    settingsStore: settingsStore,
-                    onComplete: {
-                        showOnboarding = false
-                        let pushover = Self.loadPushoverConfig()
-                        let newNotifier = CompositeNotifier(primary: pushover, fallback: MacOSNotificationClient())
-                        orchestrator.updateNotifier(newNotifier)
-                    }
-                )
             }
             .sheet(isPresented: $showProcessManager) {
                 ProcessManagerView(
@@ -663,27 +597,6 @@ struct ContentView: View {
     private var boardWithAlerts: some View {
         boardWithSheets
             .alert(
-                "Remote Worktree",
-                isPresented: Binding(
-                    get: { pendingWorktreeCleanup != nil },
-                    set: { if !$0 { pendingWorktreeCleanup = nil } }
-                )
-            ) {
-                Button("Cleanup Local Copy", role: .destructive) {
-                    if let info = pendingWorktreeCleanup {
-                        Task { await executeLocalWorktreeCleanup(info) }
-                    }
-                    pendingWorktreeCleanup = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    pendingWorktreeCleanup = nil
-                }
-            } message: {
-                if let info = pendingWorktreeCleanup {
-                    Text("The worktree path is on a remote machine:\n\n\(info.remotePath)\n\nThis will SSH to the remote to run git worktree remove, then delete the local synced copy at:\n\n\(info.localPath)")
-                }
-            }
-            .alert(
                 "Delete Card",
                 isPresented: Binding(
                     get: { pendingDeleteCardId != nil },
@@ -695,14 +608,10 @@ struct ContentView: View {
                 }
                 Button("Delete", role: .destructive) {
                     if let cardId = pendingDeleteCardId {
-                        let card = store.state.cards.first(where: { $0.id == cardId })
                         let nextId = cardIdAfterDeletion(cardId)
                         store.dispatch(.deleteCard(cardId: cardId))
                         if let nextId {
                             store.dispatch(.selectCard(cardId: nextId))
-                        }
-                        if let wt = card?.link.worktreeLink, !wt.path.isEmpty, wt.path.contains("/.claude/worktrees/") {
-                            pendingWorktreeCleanupCardId = cardId
                         }
                     }
                     pendingDeleteCardId = nil
@@ -722,11 +631,7 @@ struct ContentView: View {
                 }
                 Button("Archive & Kill Terminals", role: .destructive) {
                     if let cardId = pendingArchiveCardId {
-                        let card = store.state.cards.first(where: { $0.id == cardId })
                         store.dispatch(.archiveCard(cardId: cardId))
-                        if let wt = card?.link.worktreeLink, !wt.path.isEmpty, wt.path.contains("/.claude/worktrees/") {
-                            pendingWorktreeCleanupCardId = cardId
-                        }
                     }
                     pendingArchiveCardId = nil
                 }
@@ -743,24 +648,12 @@ struct ContentView: View {
                 Button("Cancel", role: .cancel) {
                     pendingForkCardId = nil
                 }
-                if let cardId = pendingForkCardId,
-                   store.state.cards.first(where: { $0.id == cardId })?.link.worktreeLink != nil {
-                    Button("Fork (same worktree)") {
-                        if let cardId = pendingForkCardId { forkCard(cardId: cardId, keepWorktree: true) }
-                        pendingForkCardId = nil
-                    }
-                }
-                Button("Fork (project root)") {
+                Button("Fork") {
                     if let cardId = pendingForkCardId { forkCard(cardId: cardId) }
                     pendingForkCardId = nil
                 }
             } message: {
-                if pendingForkCardId != nil,
-                   store.state.cards.first(where: { $0.id == pendingForkCardId })?.link.worktreeLink != nil {
-                    Text("This creates a duplicate session you can resume independently. Do you want the forked session to continue from the same worktree or from the project root?")
-                } else {
-                    Text("This creates a duplicate session you can resume independently.")
-                }
+                Text("This creates a duplicate session you can resume independently.")
             }
             .alert(
                 "Move to Project?",
@@ -838,36 +731,12 @@ struct ContentView: View {
                     Text("Migrate this session from \(source) to \(pending.targetAssistant.displayName)? A backup of the original session will be kept.")
                 }
             }
-            .alert(
-                "Cleanup Worktree?",
-                isPresented: Binding(
-                    get: { pendingWorktreeCleanupCardId != nil },
-                    set: { if !$0 { pendingWorktreeCleanupCardId = nil } }
-                )
-            ) {
-                Button("Keep Worktree", role: .cancel) {
-                    pendingWorktreeCleanupCardId = nil
-                }
-                Button("Remove Worktree", role: .destructive) {
-                    if let cardId = pendingWorktreeCleanupCardId {
-                        Task { await cleanupWorktree(cardId: cardId) }
-                    }
-                    pendingWorktreeCleanupCardId = nil
-                }
-            } message: {
-                Text("This card has a worktree. Do you want to remove it?")
-            }
     }
 
     private var boardWithHandlers: some View {
         boardWithAlerts
             .task {
-                // Show onboarding wizard on first launch
-                if let settings = try? await settingsStore.read(), !settings.hasCompletedOnboarding {
-                    showOnboarding = true
-                }
                 applyAppearance()
-                try? RemoteShellManager.deploy()
                 // Restore persisted project selection
                 if !selectedProjectPersisted.isEmpty {
                     let settings = try? await settingsStore.read()
@@ -1052,7 +921,7 @@ struct ContentView: View {
                     }
 
                     ToolbarItem(placement: .primaryAction) {
-                        if let path = card.link.worktreeLink?.path ?? card.link.projectPath {
+                        if let path = card.link.projectPath {
                             Button {
                                 EditorDiscovery.open(path: path, bundleId: editorBundleId)
                             } label: {
@@ -1334,42 +1203,7 @@ struct ContentView: View {
         }
     }
 
-    private var paletteCommands: [CommandItem] {
-        var cmds: [CommandItem] = [
-            CommandItem("Open Settings", icon: "gear", shortcut: "⌘,") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            },
-            CommandItem("Toggle View Mode", icon: boardViewMode == .kanban ? "list.bullet" : "square.split.2x1") { [self] in
-                boardViewModeRaw = (boardViewMode == .kanban ? BoardViewMode.list : .kanban).rawValue
-            },
-            CommandItem("New Task", icon: "plus", shortcut: "⌘N") { [self] in
-                presentNewTask()
-            },
-        ]
-
-        if store.state.selectedCardId != nil {
-            cmds.append(CommandItem("Toggle Expanded Mode", icon: "arrow.up.left.and.arrow.down.right", shortcut: "⌘↩") { [self] in
-                isExpandedDetail.toggle()
-            })
-        }
-
-        // Project switching
-        let visibleProjects = store.state.configuredProjects.filter(\.visible)
-        if !visibleProjects.isEmpty {
-            cmds.append(CommandItem("Show All Projects", icon: "folder", shortcut: "⌘1") { [self] in
-                setSelectedProject(nil)
-            })
-            for (i, project) in visibleProjects.enumerated() {
-                let shortcut = i < 8 ? "⌘\(i + 2)" : nil
-                let path = project.path
-                cmds.append(CommandItem("Switch to \(project.name)", icon: "folder", shortcut: shortcut) { [self] in
-                    setSelectedProject(path)
-                })
-            }
-        }
-
-        return cmds
-    }
+    // paletteCommands removed (search overlay stripped)
 
     private var currentProjectName: String {
         guard let path = store.state.selectedProjectPath else { return "All Projects" }
@@ -1390,7 +1224,7 @@ struct ContentView: View {
     }
 
     private var currentProjectHasRemote: Bool {
-        store.state.globalRemoteSettings != nil
+        false
     }
 
     private var currentSyncStatus: SyncStatus {
@@ -1591,17 +1425,7 @@ struct ContentView: View {
                     Button {
                         Task {
                             isSyncRefreshing = true
-                            if let remote = store.state.globalRemoteSettings {
-                                let syncName = "kanban-code-sync"
-                                let remoteDest = "\(remote.host):\(remote.remotePath)"
-                                let ignores = remote.syncIgnores ?? MutagenAdapter.defaultIgnores
-                                try? await mutagenAdapter.startSync(
-                                    localPath: remote.localPath,
-                                    remotePath: remoteDest,
-                                    name: syncName,
-                                    ignores: ignores
-                                )
-                            }
+                            // Remote sync removed
                             await refreshSyncStatus()
                         }
                     } label: {
@@ -2123,23 +1947,12 @@ struct ContentView: View {
             let project = settings?.projects.first(where: { $0.path == effectivePath })
             let builtPrompt = PromptBuilder.buildPrompt(card: link, project: project, settings: settings)
 
-            let wtName: String? = (createWorktree && assistant.supportsWorktree) ? "" : nil
+            let wtName: String? = nil
             executeLaunch(cardId: link.id, prompt: builtPrompt, projectPath: effectivePath, worktreeName: wtName, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant)
         }
     }
 
-    // MARK: - Worktree cleanup guard
-
-    /// Whether this card's worktree can be cleaned up — false if another active card depends on it.
-    private func canCleanupWorktree(for card: KanbanCodeCard) -> Bool {
-        guard let branch = card.link.worktreeLink?.branch else { return false }
-        let otherCards = store.state.cards.filter {
-            $0.id != card.id
-            && !$0.link.manuallyArchived
-            && $0.link.worktreeLink?.branch == branch
-        }
-        return otherCards.isEmpty
-    }
+    // Worktree cleanup removed
 
     // MARK: - Archive
 
@@ -2149,12 +1962,6 @@ struct ContentView: View {
             pendingArchiveCardId = cardId
         } else {
             store.dispatch(.archiveCard(cardId: cardId))
-            // Only offer worktree cleanup if the card has an actual worktree directory
-            // and no other active card depends on it
-            if let wt = card.link.worktreeLink, !wt.path.isEmpty, wt.path.contains("/.claude/worktrees/"),
-               canCleanupWorktree(for: card) {
-                pendingWorktreeCleanupCardId = cardId
-            }
         }
     }
 
@@ -2180,92 +1987,35 @@ struct ContentView: View {
 
     private func startCard(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
-        let effectivePath: String
-        if let worktreePath = card.link.worktreeLink?.path, !worktreePath.isEmpty {
-            effectivePath = worktreePath
-        } else {
-            effectivePath = card.link.projectPath ?? NSHomeDirectory()
-        }
+        let effectivePath = card.link.projectPath ?? NSHomeDirectory()
 
         Task {
             let settings = try? await settingsStore.read()
-            let project = settings?.projects.first(where: { $0.path == (card.link.projectPath ?? effectivePath) })
+            let project = settings?.projects.first(where: { $0.path == effectivePath })
             var prompt = PromptBuilder.buildPrompt(card: card.link, project: project, settings: settings)
             if prompt.isEmpty {
                 prompt = card.link.promptBody ?? card.link.name ?? ""
             }
 
-            let worktreeName: String?
-            if let branch = card.link.worktreeLink?.branch {
-                worktreeName = branch
-            } else {
-                worktreeName = nil
-            }
-
-            let isGitRepo = FileManager.default.fileExists(
-                atPath: (effectivePath as NSString).appendingPathComponent(".git")
-            )
-
-            let globalRemote = store.state.globalRemoteSettings
-            let projectIsUnderRemote = globalRemote.map { effectivePath.hasPrefix($0.localPath) } ?? false
             launchConfig = LaunchConfig(
                 cardId: cardId,
                 projectPath: effectivePath,
                 prompt: prompt,
-                worktreeName: worktreeName,
-                hasExistingWorktree: card.link.worktreeLink != nil,
-                isGitRepo: isGitRepo,
-                hasRemoteConfig: projectIsUnderRemote,
-                remoteHost: globalRemote?.host,
                 promptImagePaths: card.link.promptImagePaths ?? [],
                 assistant: card.link.effectiveAssistant
             )
         }
     }
 
-    private func executeLaunch(cardId: String, prompt: String, projectPath: String, worktreeName: String?, runRemotely: Bool = true, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude) {
+    private func executeLaunch(cardId: String, prompt: String, projectPath: String, worktreeName: String? = nil, runRemotely: Bool = true, skipPermissions: Bool = true, commandOverride: String? = nil, images: [Any] = [], assistant: CodingAssistant = .claude) {
         // IMMEDIATE state update via reducer — no more dual memory+disk writes
-        store.dispatch(.launchCard(cardId: cardId, prompt: prompt, projectPath: projectPath, worktreeName: worktreeName, runRemotely: runRemotely, commandOverride: commandOverride))
+        store.dispatch(.launchCard(cardId: cardId, prompt: prompt, projectPath: projectPath, worktreeName: nil, runRemotely: false, commandOverride: commandOverride))
         shouldFocusTerminal = true
-        // Reducer computed the unique tmux name and stored it in the link
         let predictedTmuxName = store.state.links[cardId]?.tmuxLink?.sessionName ?? cardId
         KanbanCodeLog.info("launch", "Starting launch for card=\(cardId.prefix(12)) tmux=\(predictedTmuxName) project=\(projectPath)")
 
         Task {
             do {
-                let settings = try? await settingsStore.read()
-
-                let shellOverride: String?
-                let extraEnv: [String: String]
-                let isRemote: Bool
-                let preamble: String?
-
-                let globalRemote = settings?.remote
-                if runRemotely, let remote = globalRemote, projectPath.hasPrefix(remote.localPath) {
-                    try? RemoteShellManager.deploy()
-                    shellOverride = RemoteShellManager.shellOverridePath()
-                    let env = RemoteShellManager.setupEnvironment(remote: remote, projectPath: projectPath)
-                    extraEnv = env
-                    isRemote = true
-
-                    let syncName = "kanban-code-sync"
-                    let remoteDest = "\(remote.host):\(remote.remotePath)"
-                    let ignores = remote.syncIgnores ?? MutagenAdapter.defaultIgnores
-                    try? await mutagenAdapter.startSync(
-                        localPath: remote.localPath,
-                        remotePath: remoteDest,
-                        name: syncName,
-                        ignores: ignores
-                    )
-
-                    preamble = Self.remotePreamble(host: remote.host)
-                } else {
-                    shellOverride = nil
-                    extraEnv = [:]
-                    isRemote = false
-                    preamble = nil
-                }
-
                 // Snapshot existing session files for detection
                 let sessionFileExt = ".jsonl"
                 let configDir = (NSHomeDirectory() as NSString).appendingPathComponent(assistant.configDirName)
@@ -2273,106 +2023,57 @@ struct ContentView: View {
                 let encodedProject = SessionFileMover.encodeProjectPath(projectPath)
                 let sessionDir = (claudeProjectsDir as NSString).appendingPathComponent(encodedProject)
 
-                // When worktree is enabled, also snapshot worktree-related directories
-                // (worktrees create sessions in dirs like <encodedProject>-.claude-worktrees-<name>)
-                let dirsToSnapshot: [String]
-                if worktreeName != nil {
-                    let allDirs = (try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsDir)) ?? []
-                    dirsToSnapshot = [sessionDir] + allDirs
-                        .filter { $0.hasPrefix(encodedProject) && $0 != encodedProject }
-                        .map { (claudeProjectsDir as NSString).appendingPathComponent($0) }
-                } else {
-                    dirsToSnapshot = [sessionDir]
-                }
-                var existingFilesByDir: [String: Set<String>] = [:]
-                for dir in dirsToSnapshot {
-                    existingFilesByDir[dir] = Set(
-                        ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [])
-                            .filter { $0.hasSuffix(sessionFileExt) }
-                    )
-                }
+                let existingFiles = Set(
+                    ((try? FileManager.default.contentsOfDirectory(atPath: sessionDir)) ?? [])
+                        .filter { $0.hasSuffix(sessionFileExt) }
+                )
 
                 let tmuxName = try await launcher.launch(
                     sessionName: predictedTmuxName,
                     projectPath: projectPath,
                     prompt: prompt,
-                    worktreeName: assistant.supportsWorktree ? worktreeName : nil,
-                    shellOverride: shellOverride,
-                    extraEnv: extraEnv,
+                    shellOverride: nil,
+                    extraEnv: [:],
                     commandOverride: commandOverride,
                     skipPermissions: skipPermissions,
-                    preamble: preamble,
+                    preamble: nil,
                     assistant: assistant
                 )
                 KanbanCodeLog.info("launch", "Tmux session created: \(tmuxName)")
 
-                // Show terminal immediately — clear isLaunching so UI switches
-                // from spinner to terminal view without waiting for session detection.
                 store.dispatch(.launchTmuxReady(cardId: cardId))
 
-                // Send images + prompt via send-keys after assistant is ready
-                if !prompt.isEmpty || !images.isEmpty {
-                    let imageSender = ImageSender(tmux: self.tmuxAdapter)
-                    try await imageSender.waitForReady(sessionName: tmuxName, assistant: assistant)
-
-                    if !images.isEmpty && assistant.supportsImageUpload {
-                        try await imageSender.sendImages(
-                            sessionName: tmuxName,
-                            images: images,
-                            setClipboard: { data in
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setData(data, forType: .png)
-                            }
-                        )
-                    }
-
-                    if !prompt.isEmpty {
-                        try await self.tmuxAdapter.sendPrompt(to: tmuxName, text: prompt)
-                    }
-                }
-
-                // Detect new session by polling for new session file
-                // Worktree launches need more attempts (slower startup)
-                let maxAttempts = worktreeName != nil ? 12 : 6
-                var sessionLink: SessionLink?
-                for attempt in 0..<maxAttempts {
-                    try? await Task.sleep(for: .milliseconds(500))
-
-                    // Build list of dirs to scan (re-list for worktree — dir may appear mid-poll)
-                    let dirsToScan: [String]
-                    if worktreeName != nil {
-                        let allDirs = (try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsDir)) ?? []
-                        dirsToScan = allDirs
-                            .filter { $0.hasPrefix(encodedProject) }
-                            .map { (claudeProjectsDir as NSString).appendingPathComponent($0) }
-                    } else {
-                        dirsToScan = [sessionDir]
-                    }
-
-                    for dir in dirsToScan {
-                        let baseline = existingFilesByDir[dir] ?? [] // empty for newly-created dirs
-                        let currentFiles = Set(
-                            ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [])
-                                .filter { $0.hasSuffix(sessionFileExt) }
-                        )
-                        if let newFile = currentFiles.subtracting(baseline).first {
-                            let sessionId = (newFile as NSString).deletingPathExtension
-                            let sessionPath = (dir as NSString).appendingPathComponent(newFile)
-                            KanbanCodeLog.info("launch", "Detected session file after \(attempt+1) attempts in \((dir as NSString).lastPathComponent): \(sessionId.prefix(8))")
-                            sessionLink = SessionLink(sessionId: sessionId, sessionPath: sessionPath)
+                // Send prompt via send-keys after assistant is ready
+                if !prompt.isEmpty {
+                    // Wait for the assistant to be ready
+                    for _ in 0..<20 {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        if let paneContent = try? await self.tmuxAdapter.capturePane(sessionName: tmuxName),
+                           paneContent.contains(assistant.promptCharacter) {
                             break
                         }
                     }
-                    if sessionLink != nil { break }
+                    try await self.tmuxAdapter.sendPrompt(to: tmuxName, text: prompt)
                 }
 
-                // If worktree launch, try to extract branch from the session file immediately
-                var worktreeLink: WorktreeLink?
-                if worktreeName != nil, let sl = sessionLink, let sp = sl.sessionPath {
-                    worktreeLink = Self.extractWorktreeLink(sessionPath: sp, projectPath: projectPath)
+                // Detect new session by polling for new session file
+                var sessionLink: SessionLink?
+                for attempt in 0..<6 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    let currentFiles = Set(
+                        ((try? FileManager.default.contentsOfDirectory(atPath: sessionDir)) ?? [])
+                            .filter { $0.hasSuffix(sessionFileExt) }
+                    )
+                    if let newFile = currentFiles.subtracting(existingFiles).first {
+                        let sessionId = (newFile as NSString).deletingPathExtension
+                        let sessionPath = (sessionDir as NSString).appendingPathComponent(newFile)
+                        KanbanCodeLog.info("launch", "Detected session file after \(attempt+1) attempts: \(sessionId.prefix(8))")
+                        sessionLink = SessionLink(sessionId: sessionId, sessionPath: sessionPath)
+                        break
+                    }
                 }
 
-                store.dispatch(.launchCompleted(cardId: cardId, tmuxName: tmuxName, sessionLink: sessionLink, worktreeLink: worktreeLink, isRemote: isRemote))
+                store.dispatch(.launchCompleted(cardId: cardId, tmuxName: tmuxName, sessionLink: sessionLink))
             } catch {
                 KanbanCodeLog.error("launch", "Launch failed for card=\(cardId.prefix(12)): \(error.localizedDescription)")
                 store.dispatch(.launchFailed(cardId: cardId, error: error.localizedDescription))
@@ -2380,80 +2081,14 @@ struct ContentView: View {
         }
     }
 
-    /// Extract worktreeLink from a newly-created session file by reading its first line for gitBranch and cwd.
-    private static func extractWorktreeLink(sessionPath: String, projectPath: String) -> WorktreeLink? {
-        // Read metadata from the first line of the .jsonl — it has the actual cwd and gitBranch
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: sessionPath)),
-              let firstNewline = data.firstIndex(of: UInt8(ascii: "\n")),
-              let firstLine = String(data: data[data.startIndex..<firstNewline], encoding: .utf8),
-              let lineData = firstLine.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
-            return nil
-        }
-
-        // Use the cwd from the session metadata — it has the exact worktree path
-        // (avoids lossy decoding of the directory name which mangles dashes in worktree names)
-        let worktreePath: String
-        if let cwd = obj["cwd"] as? String,
-           cwd.contains("/.claude/worktrees/") || cwd.contains("/.claude-worktrees/") {
-            worktreePath = cwd
-        } else {
-            // Fallback: derive from directory name structure
-            // suffix is like ".claude-worktrees-<name>" or "claude-worktrees-<name>"
-            let sessionDir = (sessionPath as NSString).deletingLastPathComponent
-            let dirName = (sessionDir as NSString).lastPathComponent
-            let encodedProject = SessionFileMover.encodeProjectPath(projectPath)
-            guard dirName.hasPrefix(encodedProject) else { return nil }
-            let rest = String(dirName.dropFirst(encodedProject.count))
-            // Match known pattern: [-.]claude-worktrees-<worktreeName>
-            // Only convert the structural separators, keep worktree name dashes intact
-            guard let wtRange = rest.range(of: "claude-worktrees-") else { return nil }
-            let worktreeName = String(rest[wtRange.upperBound...])
-            worktreePath = projectPath + "/.claude/worktrees/" + worktreeName
-        }
-
-        var branchName: String?
-        if let branch = obj["gitBranch"] as? String {
-            branchName = branch.replacingOccurrences(of: "refs/heads/", with: "")
-        }
-
-        // Fallback: extract worktree name from path
-        if branchName == nil {
-            let components = worktreePath.components(separatedBy: "/.claude/worktrees/")
-            if components.count == 2 {
-                branchName = components[1]
-            }
-        }
-
-        guard let branchName, !branchName.isEmpty else { return nil }
-        KanbanCodeLog.info("launch", "Extracted worktreeLink: branch=\(branchName) path=\(worktreePath)")
-        return WorktreeLink(path: worktreePath, branch: branchName)
-    }
-
-    /// Build a shell preamble that flushes mutagen and shows remote uname before launching claude.
-    private static func remotePreamble(host: String) -> String {
-        // Use ; instead of && so a flush failure doesn't block claude from starting
-        "printf '\\e[2mSyncing files...\\e[0m' && mutagen sync flush --label-selector kanban=true 2>/dev/null; printf '\\e[2mRemote: %s\\e[0m\\n' \"$(ssh -o ConnectTimeout=5 \(host) uname -snr 2>/dev/null || echo 'unavailable')\""
-    }
-
-    @State private var pendingWorktreeCleanup: WorktreeCleanupInfo?
     @State private var pendingDeleteCardId: String?
     @State private var pendingArchiveCardId: String?
     @State private var pendingForkCardId: String?
     @State private var pendingMoveToProject: (cardId: String, projectPath: String, projectName: String)?
     @State private var pendingMoveToFolder: (cardId: String, folderPath: String, parentProjectPath: String, displayName: String)?
     @State private var pendingMigration: (cardId: String, targetAssistant: CodingAssistant)?
-    @State private var pendingWorktreeCleanupCardId: String?
     @State private var shouldFocusTerminal = false
     @State private var keyMonitor: Any?
-
-    struct WorktreeCleanupInfo: Identifiable {
-        let id = UUID()
-        let cardId: String
-        let remotePath: String
-        let localPath: String
-        let errorMessage: String
-    }
 
     private func selectFolderForMove(cardId: String) {
         let panel = NSOpenPanel()
@@ -2501,7 +2136,7 @@ struct ContentView: View {
               let sessionLink = card.link.sessionLink,
               let sessionPath = sessionLink.sessionPath else { return }
         let sourceAssistant = card.link.effectiveAssistant
-        let runRemotely = card.link.isRemote
+        let runRemotely = false
         guard let sourceStore = assistantRegistry.store(for: sourceAssistant),
               let targetStore = assistantRegistry.store(for: targetAssistant) else { return }
 
@@ -2539,102 +2174,20 @@ struct ContentView: View {
         }
     }
 
-    private func cleanupWorktree(cardId: String) async {
-        guard let card = store.state.cards.first(where: { $0.id == cardId }),
-              let worktreePath = card.link.worktreeLink?.path,
-              !worktreePath.isEmpty else { return }
-
-        store.dispatch(.setBusy(cardId: cardId, busy: true))
-        let adapter = GitWorktreeAdapter()
-        do {
-            try await adapter.removeWorktree(path: worktreePath, force: true)
-            store.dispatch(.setBusy(cardId: cardId, busy: false))
-            // If card has no session, delete it entirely — it was only a worktree
-            if card.link.sessionLink == nil {
-                store.dispatch(.deleteCard(cardId: cardId))
-            } else {
-                store.dispatch(.unlinkFromCard(cardId: cardId, linkType: .worktree))
-            }
-        } catch {
-            store.dispatch(.setBusy(cardId: cardId, busy: false))
-            if let localPath = translateRemoteWorktreePath(worktreePath, projectPath: card.link.projectPath) {
-                pendingWorktreeCleanup = WorktreeCleanupInfo(
-                    cardId: cardId,
-                    remotePath: worktreePath,
-                    localPath: localPath,
-                    errorMessage: error.localizedDescription
-                )
-            } else {
-                store.dispatch(.setError("Worktree cleanup failed: \(error.localizedDescription)"))
-            }
-        }
-    }
-
-    private func translateRemoteWorktreePath(_ worktreePath: String, projectPath: String?) -> String? {
-        let remote = store.state.globalRemoteSettings
-        guard let remote else { return nil }
-        guard worktreePath.hasPrefix(remote.remotePath) else { return nil }
-        let suffix = String(worktreePath.dropFirst(remote.remotePath.count))
-        return remote.localPath + suffix
-    }
-
-    private func executeLocalWorktreeCleanup(_ info: WorktreeCleanupInfo) async {
-        let remote = try? await settingsStore.read().remote
-
-        if let remote {
-            let repoRoot: String
-            if let range = info.remotePath.range(of: "/.claude/worktrees/") {
-                repoRoot = String(info.remotePath[..<range.lowerBound])
-            } else {
-                repoRoot = (info.remotePath as NSString).deletingLastPathComponent
-            }
-
-            do {
-                let sshCmd = "cd '\(repoRoot)' && git worktree remove --force '\(info.remotePath)'"
-                let result = try await ShellCommand.run("/usr/bin/ssh", arguments: [remote.host, sshCmd])
-                if !result.succeeded {
-                    KanbanCodeLog.warn("cleanup", "Remote git worktree remove failed: \(result.stderr)")
-                }
-            } catch {
-                KanbanCodeLog.warn("cleanup", "SSH cleanup failed: \(error)")
-            }
-        }
-
-        let fm = FileManager.default
-        if fm.fileExists(atPath: info.localPath) {
-            do {
-                try fm.removeItem(atPath: info.localPath)
-            } catch {
-                store.dispatch(.setError("Failed to remove local copy: \(error.localizedDescription)"))
-                return
-            }
-        }
-
-        // Remove card if it has no session, otherwise just clear worktree link
-        let card = store.state.cards.first(where: { $0.id == info.cardId })
-        if card?.link.sessionLink == nil {
-            store.dispatch(.deleteCard(cardId: info.cardId))
-        } else {
-            store.dispatch(.unlinkFromCard(cardId: info.cardId, linkType: .worktree))
-        }
-    }
-
     // MARK: - Extra Terminals
 
     private func createExtraTerminal(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
 
         if let tmux = card.link.tmuxLink {
-            // Has existing tmux — add an extra shell session
             let existing = tmux.extraSessions ?? []
-            let liveTmux = store.state.tmuxSessions // live tmux sessions from last reconciliation
+            let liveTmux = store.state.tmuxSessions
             let baseName = tmux.sessionName
             var n = 1
             while existing.contains("\(baseName)-sh\(n)") || liveTmux.contains("\(baseName)-sh\(n)") { n += 1 }
             let newName = "\(baseName)-sh\(n)"
             store.dispatch(.addExtraTerminal(cardId: cardId, sessionName: newName))
         } else {
-            // No tmux at all — create a primary terminal session (plain shell, no Claude)
             store.dispatch(.createTerminal(cardId: cardId))
         }
     }
@@ -2642,52 +2195,29 @@ struct ContentView: View {
     private func resumeCard(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
-        // For worktree cards, cd into the worktree — that's where Claude stored the session data.
-        let projectPath: String
-        if let worktreePath = card.link.worktreeLink?.path, !worktreePath.isEmpty {
-            projectPath = worktreePath
-        } else {
-            projectPath = card.link.projectPath ?? NSHomeDirectory()
-        }
-
-        let globalRemote = store.state.globalRemoteSettings
-        let projectIsUnderRemote = globalRemote.map { projectPath.hasPrefix($0.localPath) } ?? false
+        let projectPath = card.link.projectPath ?? NSHomeDirectory()
 
         launchConfig = LaunchConfig(
             cardId: cardId,
             projectPath: projectPath,
             prompt: "",
-            hasExistingWorktree: card.link.worktreeLink != nil,
-            hasRemoteConfig: projectIsUnderRemote,
-            remoteHost: globalRemote?.host,
             isResume: true,
             sessionId: sessionId,
             assistant: card.link.effectiveAssistant
         )
     }
 
-    private func forkCard(cardId: String, keepWorktree: Bool = false) {
+    private func forkCard(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }),
               let sessionPath = card.link.sessionLink?.sessionPath else { return }
         Task {
             do {
-                // Determine the project path and session directory for the fork.
-                // When forking from a worktree (and not keeping it), use the parent project.
-                var forkProjectPath = card.link.projectPath
+                let forkProjectPath = card.link.projectPath
                 var targetDir: String? = nil
-                if !keepWorktree {
-                    // Extract parent project if projectPath is a worktree path
-                    if let pp = forkProjectPath,
-                       let range = pp.range(of: "/.claude/worktrees/") {
-                        forkProjectPath = String(pp[..<range.lowerBound])
-                    }
-                    // Always place the forked session in the correct project dir
-                    // so `claude --resume` can find it from the project root.
-                    if let fp = forkProjectPath {
-                        let encoded = SessionFileMover.encodeProjectPath(fp)
-                        let home = NSHomeDirectory()
-                        targetDir = "\(home)/.claude/projects/\(encoded)"
-                    }
+                if let fp = forkProjectPath {
+                    let encoded = SessionFileMover.encodeProjectPath(fp)
+                    let home = NSHomeDirectory()
+                    targetDir = "\(home)/.claude/projects/\(encoded)"
                 }
 
                 let cardStore = assistantRegistry.store(for: card.link.effectiveAssistant) ?? store.sessionStore
@@ -2695,26 +2225,15 @@ struct ContentView: View {
                     sessionPath: sessionPath, targetDirectory: targetDir
                 )
                 let dir = targetDir ?? (sessionPath as NSString).deletingLastPathComponent
-                let ext = "jsonl"
-                let newPath = (dir as NSString).appendingPathComponent("\(newSessionId).\(ext)")
-                var newLink = Link(
+                let newPath = (dir as NSString).appendingPathComponent("\(newSessionId).jsonl")
+                let newLink = Link(
                     name: (card.link.name ?? card.link.displayTitle) + " (fork)",
                     projectPath: forkProjectPath,
                     column: .waiting,
                     lastActivity: card.link.lastActivity,
                     source: .discovered,
-                    sessionLink: SessionLink(sessionId: newSessionId, sessionPath: newPath),
-                    worktreeLink: keepWorktree ? card.link.worktreeLink : nil
+                    sessionLink: SessionLink(sessionId: newSessionId, sessionPath: newPath)
                 )
-                // Set watermark so reconciler ignores parent's baked-in gitBranch
-                if !keepWorktree && card.link.worktreeLink != nil {
-                    if let path = card.link.sessionLink?.sessionPath {
-                        let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
-                        newLink.manualOverrides.branchWatermark = size
-                    } else {
-                        newLink.manualOverrides.branchWatermark = 0
-                    }
-                }
                 store.dispatch(.createManualTask(newLink))
                 store.dispatch(.selectCard(cardId: newLink.id))
                 shouldFocusTerminal = true
@@ -2724,36 +2243,10 @@ struct ContentView: View {
         }
     }
 
-    private func executeResume(cardId: String, runRemotely: Bool, skipPermissions: Bool = true, commandOverride: String?, assistant: CodingAssistant = .claude) {
+    private func executeResume(cardId: String, runRemotely: Bool = false, skipPermissions: Bool = true, commandOverride: String?, assistant: CodingAssistant = .claude) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
-        // For worktree cards, cd into the worktree — that's where Claude stored the session data.
-        let projectPath: String
-        if let worktreePath = card.link.worktreeLink?.path, !worktreePath.isEmpty {
-            projectPath = worktreePath
-        } else {
-            projectPath = card.link.projectPath ?? NSHomeDirectory()
-        }
-
-        // If the session file lives under a different project key (e.g. a cleaned-up worktree),
-        // move it to the current projectPath so `claude --resume` can find it.
-        if assistant == .claude,
-           let sessionLink = card.link.sessionLink,
-           let sessionPath = sessionLink.sessionPath {
-            let expectedDir = NSHomeDirectory() + "/.claude/projects/" + SessionFileMover.encodeProjectPath(projectPath)
-            let expectedPath = expectedDir + "/" + sessionId + ".jsonl"
-            if sessionPath != expectedPath,
-               FileManager.default.fileExists(atPath: sessionPath) {
-                KanbanCodeLog.info("resume", "Moving session file from worktree project key to \(expectedDir)")
-                if let newPath = try? SessionFileMover.moveSession(
-                    sessionId: sessionId, fromPath: sessionPath, toProjectPath: projectPath
-                ) {
-                    var updatedLink = card.link
-                    updatedLink.sessionLink = SessionLink(sessionId: sessionId, sessionPath: newPath)
-                    store.dispatch(.createManualTask(updatedLink))
-                }
-            }
-        }
+        let projectPath = card.link.projectPath ?? NSHomeDirectory()
 
         store.dispatch(.resumeCard(cardId: cardId))
         shouldFocusTerminal = true
@@ -2761,52 +2254,19 @@ struct ContentView: View {
 
         Task {
             do {
-                let settings = try? await settingsStore.read()
-
-                let shellOverride: String?
-                let extraEnv: [String: String]
-                let isRemote: Bool
-                let preamble: String?
-
-                let globalRemote = settings?.remote
-                if runRemotely, let remote = globalRemote, projectPath.hasPrefix(remote.localPath) {
-                    try? RemoteShellManager.deploy()
-                    shellOverride = RemoteShellManager.shellOverridePath()
-                    let env = RemoteShellManager.setupEnvironment(remote: remote, projectPath: projectPath)
-                    extraEnv = env
-                    isRemote = true
-
-                    let syncName = "kanban-code-sync"
-                    let remoteDest = "\(remote.host):\(remote.remotePath)"
-                    let ignores = remote.syncIgnores ?? MutagenAdapter.defaultIgnores
-                    try? await mutagenAdapter.startSync(
-                        localPath: remote.localPath,
-                        remotePath: remoteDest,
-                        name: syncName,
-                        ignores: ignores
-                    )
-
-                    preamble = Self.remotePreamble(host: remote.host)
-                } else {
-                    shellOverride = nil
-                    extraEnv = [:]
-                    isRemote = false
-                    preamble = nil
-                }
-
                 let actualTmuxName = try await launcher.resume(
                     sessionId: sessionId,
                     projectPath: projectPath,
-                    shellOverride: shellOverride,
-                    extraEnv: extraEnv,
+                    shellOverride: nil,
+                    extraEnv: [:],
                     commandOverride: commandOverride,
                     skipPermissions: skipPermissions,
-                    preamble: preamble,
+                    preamble: nil,
                     assistant: assistant
                 )
                 KanbanCodeLog.info("resume", "Resume launched for card=\(cardId.prefix(12)) actualTmux=\(actualTmuxName)")
 
-                store.dispatch(.resumeCompleted(cardId: cardId, tmuxName: actualTmuxName, isRemote: isRemote))
+                store.dispatch(.resumeCompleted(cardId: cardId, tmuxName: actualTmuxName))
             } catch {
                 KanbanCodeLog.info("resume", "Resume failed for card=\(cardId.prefix(12)): \(error.localizedDescription)")
                 store.dispatch(.resumeFailed(cardId: cardId, error: error.localizedDescription))
@@ -2814,3 +2274,4 @@ struct ContentView: View {
         }
     }
 }
+

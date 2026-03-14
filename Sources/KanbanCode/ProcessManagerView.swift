@@ -42,7 +42,6 @@ struct ProcessManagerView: View {
     @State private var selectedWorktreeIds: Set<String> = []
 
     private let tmuxAdapter = TmuxAdapter()
-    private let worktreeAdapter = GitWorktreeAdapter()
 
     private let tmuxFound = ShellCommand.findExecutable("tmux") != nil
     private let gitFound = ShellCommand.findExecutable("git") != nil
@@ -306,23 +305,7 @@ struct ProcessManagerView: View {
     }
 
     private func loadWorktrees() async {
-        var infos: [WorktreeInfo] = []
-        for project in store.state.configuredProjects {
-            let repoRoot = project.effectiveRepoRoot
-            let projectName = project.name
-            if let worktrees = try? await worktreeAdapter.listWorktrees(repoRoot: repoRoot) {
-                for (i, wt) in worktrees.enumerated() where !wt.isBare {
-                    if i == 0 { continue }  // skip main worktree
-                    infos.append(WorktreeInfo(
-                        project: projectName,
-                        branch: wt.branch,
-                        path: wt.path,
-                        repoRoot: repoRoot
-                    ))
-                }
-            }
-        }
-        worktreeInfos = infos
+        worktreeInfos = []
     }
 
     // MARK: - Claude Process Discovery
@@ -462,12 +445,8 @@ struct ProcessManagerView: View {
     // MARK: - Worktree Actions
 
     private func removeSelectedWorktrees(_ ids: Set<String>) async {
-        for id in ids {
-            guard let info = worktreeInfos.first(where: { $0.id == id }) else { continue }
-            try? await worktreeAdapter.removeWorktree(path: info.path, force: false)
-        }
+        // Worktree removal stripped
         selectedWorktreeIds.removeAll()
-        await loadWorktrees()
     }
 
     // MARK: - Helpers

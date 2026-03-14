@@ -36,11 +36,6 @@ struct CardView: View {
                         .font(.app(.caption))
                         .foregroundStyle(.secondary)
                 }
-                if let branch = card.link.worktreeLink?.branch {
-                    Label(branch, systemImage: "arrow.triangle.branch")
-                        .font(.app(.caption))
-                        .foregroundStyle(.secondary)
-                }
             }
             .lineLimit(1)
 
@@ -117,12 +112,6 @@ struct CardView: View {
                 NSPasteboard.general.setString(card.id, forType: .string)
             } label: {
                 Label("Copy Card ID", systemImage: "number")
-            }
-            if card.link.worktreeLink != nil, canCleanupWorktree {
-                Divider()
-                Button(role: .destructive, action: onCleanupWorktree) {
-                    Label("Cleanup Worktree", systemImage: "trash")
-                }
             }
             if card.link.sessionLink != nil {
                 let currentPath = card.link.projectPath
@@ -261,7 +250,6 @@ struct CardLabelBadge: View {
     private var color: Color {
         switch label {
         case .session: .orange
-        case .worktree: .green
         case .task: .gray
         }
     }
@@ -325,7 +313,7 @@ struct CardBadgesRow: View {
         }
 
         // Remote execution indicator
-        if card.link.isRemote {
+        if false {
             Image(systemName: "cloud")
                 .font(.app(.caption2))
                 .foregroundStyle(.teal)

@@ -8,12 +8,12 @@ public enum UpdateCardColumn {
     public static func update(
         link: inout Link,
         activityState: ActivityState?,
-        hasWorktree: Bool
+        hasTmux: Bool
     ) {
         let newColumn = AssignColumn.assign(
             link: link,
             activityState: activityState,
-            hasWorktree: hasWorktree
+            hasTmux: hasTmux
         )
 
         // If an archived card becomes actively working, clear the archive flag

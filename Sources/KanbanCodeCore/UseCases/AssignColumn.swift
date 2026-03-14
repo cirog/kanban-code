@@ -8,7 +8,7 @@ public enum AssignColumn {
     public static func assign(
         link: Link,
         activityState: ActivityState? = nil,
-        hasWorktree: Bool = false
+        hasTmux: Bool = false
     ) -> KanbanCodeColumn {
         // Manual backlog override is sticky — user explicitly parked this card.
         // Only resumeCard/launchCard (which clear manualOverrides.column) can move it out.
@@ -42,12 +42,9 @@ public enum AssignColumn {
             case .needsAttention:
                 return .waiting
             case .idleWaiting:
-                // Claude is idle/waiting for user — that's Waiting, not In Progress.
-                // Only .activelyWorking should keep a card in In Progress.
                 return .waiting
             case .ended:
-                if hasWorktree { return .waiting }
-                // No worktree: fall through to recency check below
+                break // fall through to recency check below
             case .stale:
                 break // No hook data: fall through to recency check below
             }
@@ -64,16 +61,11 @@ public enum AssignColumn {
         }
 
         // Live tmux session → at least waiting (never allSessions)
-        // A card with an active tmux session is still in-flight, even if
-        // we haven't received hook data yet.
-        if hasWorktree {
+        if hasTmux {
             return .waiting
         }
 
         // Recently active (within 24h) → waiting
-        // These sessions are recent but not confirmed active by hooks/polling.
-        // In Progress is reserved for hook-confirmed actively working sessions.
-        // User can triage from here: drag to All Sessions to archive, or resume.
         if let lastActivity = link.lastActivity {
             let hoursSinceActivity = Date.now.timeIntervalSince(lastActivity) / 3600
             if hoursSinceActivity < 24 {

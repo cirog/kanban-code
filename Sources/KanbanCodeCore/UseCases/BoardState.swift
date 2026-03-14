@@ -97,7 +97,6 @@ public final class BoardState: @unchecked Sendable {
     private let coordinationStore: CoordinationStore
     private let activityDetector: (any ActivityDetector)?
     private let settingsStore: SettingsStore?
-    private let worktreeAdapter: GitWorktreeAdapter?
     private let tmuxAdapter: TmuxAdapter?
     public let sessionStore: SessionStore
 
@@ -106,7 +105,6 @@ public final class BoardState: @unchecked Sendable {
         coordinationStore: CoordinationStore,
         activityDetector: (any ActivityDetector)? = nil,
         settingsStore: SettingsStore? = nil,
-        worktreeAdapter: GitWorktreeAdapter? = nil,
         tmuxAdapter: TmuxAdapter? = TmuxAdapter(),
         sessionStore: SessionStore = ClaudeCodeSessionStore()
     ) {
@@ -114,7 +112,6 @@ public final class BoardState: @unchecked Sendable {
         self.coordinationStore = coordinationStore
         self.activityDetector = activityDetector
         self.settingsStore = settingsStore
-        self.worktreeAdapter = worktreeAdapter
         self.tmuxAdapter = tmuxAdapter
         self.sessionStore = sessionStore
     }
@@ -162,15 +159,6 @@ public final class BoardState: @unchecked Sendable {
         // Direct match: card is at or under the selected project
         if normalizedCard == normalizedSelected || normalizedCard.hasPrefix(normalizedSelected + "/") {
             return true
-        }
-
-        // Worktree match: card's worktree is at the git root (e.g. repo/.claude/worktrees/name)
-        // but the selected project is a subfolder of that repo (monorepo layout).
-        if let range = normalizedCard.range(of: "/.claude/worktrees/") {
-            let repoRoot = String(normalizedCard[..<range.lowerBound])
-            if normalizedSelected == repoRoot || normalizedSelected.hasPrefix(repoRoot + "/") {
-                return true
-            }
         }
 
         return false
@@ -337,23 +325,15 @@ public final class BoardState: @unchecked Sendable {
         }
     }
 
-    /// Remove a typed link from a card (e.g. unlink PR or issue).
+    /// Remove a typed link from a card.
     public enum LinkType: Sendable {
-        case worktree, tmux
+        case tmux
     }
 
     public func unlinkFromCard(cardId: String, linkType: LinkType) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
         var link = cards[index].link
         switch linkType {
-        case .worktree:
-            if let path = link.sessionLink?.sessionPath {
-                let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
-                link.manualOverrides.branchWatermark = size
-            } else {
-                link.manualOverrides.branchWatermark = 0
-            }
-            link.worktreeLink = nil
         case .tmux:
             link.tmuxLink = nil
             link.manualOverrides.tmuxSession = true
@@ -367,28 +347,6 @@ public final class BoardState: @unchecked Sendable {
             try? await coordinationStore.upsertLink(link)
         }
     }
-
-    /// Add a worktree/branch link to a card manually.
-    public func addBranchToCard(cardId: String, branch: String) {
-        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
-        var link = cards[index].link
-        if link.worktreeLink != nil {
-            link.worktreeLink?.branch = branch
-        } else {
-            link.worktreeLink = WorktreeLink(path: "", branch: branch)
-        }
-        link.manualOverrides.worktreePath = true
-        link.updatedAt = .now
-        let session = cards[index].session
-        let activity = cards[index].activityState
-        cards[index] = KanbanCodeCard(link: link, session: session, activityState: activity)
-
-        Task {
-            try? await coordinationStore.upsertLink(link)
-        }
-    }
-
-    // addIssueLinkToCard removed (GitHub integration stripped)
 
     /// Set an error message that auto-dismisses after a delay.
     public func setError(_ message: String, autoDismissSeconds: Double = 8) {
@@ -428,47 +386,32 @@ public final class BoardState: @unchecked Sendable {
             let existingLinks = try await coordinationStore.readLinks()
             let sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
-            // Scan worktrees for each configured project
-            var worktreesByRepo: [String: [Worktree]] = [:]
-            if let worktreeAdapter {
-                for project in configuredProjects {
-                    let repoRoot = project.effectiveRepoRoot
-                    if let worktrees = try? await worktreeAdapter.listWorktrees(repoRoot: repoRoot) {
-                        worktreesByRepo[repoRoot] = worktrees
-                        KanbanCodeLog.info("refresh", "Scanned \(worktrees.count) worktrees for \(repoRoot)")
-                    }
-                }
-            }
-
             // Scan tmux sessions (to detect dead links)
             let tmuxSessions = (try? await tmuxAdapter?.listSessions()) ?? []
 
-            // Reconcile: match sessions/worktrees to existing cards
+            // Reconcile: match sessions to existing cards
             let snapshot = CardReconciler.DiscoverySnapshot(
                 sessions: sessions,
                 tmuxSessions: tmuxSessions,
-                didScanTmux: tmuxAdapter != nil,
-                worktrees: worktreesByRepo
+                didScanTmux: tmuxAdapter != nil
             )
             var mergedLinks = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
-            KanbanCodeLog.info("refresh", "Reconciled: \(existingLinks.count) existing → \(mergedLinks.count) merged (\(sessions.count) sessions, \(worktreesByRepo.values.flatMap { $0 }.count) worktrees)")
+            KanbanCodeLog.info("refresh", "Reconciled: \(existingLinks.count) existing → \(mergedLinks.count) merged (\(sessions.count) sessions)")
 
             // Recalculate columns: f(state) = column
-            // Column is a derived property, not stored state — always recompute.
             let liveTmuxNames = Set(tmuxSessions.map(\.name))
             var newCards: [KanbanCodeCard] = []
             for i in mergedLinks.indices {
                 let sessionId = mergedLinks[i].sessionLink?.sessionId ?? mergedLinks[i].id
                 let activity = await activityDetector?.activityState(for: sessionId)
-                let hasWorktree = mergedLinks[i].worktreeLink?.branch != nil
                 let hasTmux = mergedLinks[i].tmuxLink.map { tmux in
                     tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
                 } ?? false
                 let oldColumn = mergedLinks[i].column
-                UpdateCardColumn.update(link: &mergedLinks[i], activityState: activity, hasWorktree: hasWorktree || hasTmux)
+                UpdateCardColumn.update(link: &mergedLinks[i], activityState: activity, hasTmux: hasTmux)
                 if mergedLinks[i].column != oldColumn {
                     let sessionIdStr = mergedLinks[i].sessionLink.map { String($0.sessionId.prefix(8)) } ?? "nil"
-                    KanbanCodeLog.info("refresh", "Column changed for \(mergedLinks[i].id.prefix(12)): \(oldColumn) → \(mergedLinks[i].column) (activity=\(activity.map { "\($0)" } ?? "nil"), hasWorktree=\(hasWorktree), hasTmux=\(hasTmux), source=\(mergedLinks[i].source), tmux=\(mergedLinks[i].tmuxLink?.sessionName ?? "nil"), session=\(sessionIdStr))")
+                    KanbanCodeLog.info("refresh", "Column changed for \(mergedLinks[i].id.prefix(12)): \(oldColumn) → \(mergedLinks[i].column) (activity=\(activity.map { "\($0)" } ?? "nil"), hasTmux=\(hasTmux), source=\(mergedLinks[i].source), tmux=\(mergedLinks[i].tmuxLink?.sessionName ?? "nil"), session=\(sessionIdStr))")
                 }
                 // Copy session's firstPrompt into link.promptBody so notifications can use it
                 if mergedLinks[i].promptBody == nil,

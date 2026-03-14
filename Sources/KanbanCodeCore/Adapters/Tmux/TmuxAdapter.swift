@@ -134,39 +134,6 @@ public final class TmuxAdapter: TmuxManagerPort, @unchecked Sendable {
         )
     }
 
-    public func findSessionForWorktree(
-        sessions: [TmuxSession],
-        worktreePath: String,
-        branch: String?
-    ) -> TmuxSession? {
-        // Priority 1: Exact path match
-        if let match = sessions.first(where: { $0.path == worktreePath }) {
-            return match
-        }
-
-        // Priority 2: Session name matches directory name
-        let dirName = (worktreePath as NSString).lastPathComponent
-        if let match = sessions.first(where: { $0.name == dirName }) {
-            return match
-        }
-
-        // Priority 3: Branch name match
-        if let branch {
-            if let match = sessions.first(where: { $0.name == branch }) {
-                return match
-            }
-
-            // Priority 4: Branch with slashes replaced by dashes
-            let dashBranch = branch.replacingOccurrences(of: "/", with: "-")
-            if dashBranch != branch {
-                if let match = sessions.first(where: { $0.name == dashBranch }) {
-                    return match
-                }
-            }
-        }
-
-        return nil
-    }
 
     public func isAvailable() async -> Bool {
         ShellCommand.findExecutable("tmux") != nil

@@ -11,13 +11,6 @@ public protocol TmuxManagerPort: Sendable {
     /// Kill a tmux session by name.
     func killSession(name: String) async throws
 
-    /// Find the tmux session for a worktree using matching heuristics.
-    func findSessionForWorktree(
-        sessions: [TmuxSession],
-        worktreePath: String,
-        branch: String?
-    ) -> TmuxSession?
-
     /// Send literal text + Enter to a tmux session (for submitting prompts).
     func sendPrompt(to sessionName: String, text: String) async throws
 

@@ -1,7 +1,7 @@
 import Foundation
 
 /// A transient image attachment for prompt dialogs.
-/// Not persisted in links.json — images are saved as temp files for queued prompts.
+/// Stub: image upload features stripped, but type kept for API compatibility.
 public struct ImageAttachment: Identifiable, Sendable {
     public let id: String
     public let data: Data

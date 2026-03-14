@@ -576,13 +576,6 @@ private struct ListCardRowView: View {
                             .lineLimit(1)
                     }
 
-                    if let branch = card.link.worktreeLink?.branch {
-                        Label(branch, systemImage: "arrow.triangle.branch")
-                            .font(.app(.caption))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-
                     if card.link.cardLabel == .session {
                         AssistantIcon(assistant: card.link.effectiveAssistant)
                             .frame(width: CGFloat(13).scaled, height: CGFloat(13).scaled)
@@ -601,7 +594,7 @@ private struct ListCardRowView: View {
                         .foregroundStyle(.green)
                     }
 
-                    if card.link.isRemote {
+                    if false {
                         Image(systemName: "cloud")
                             .font(.app(.caption2))
                             .foregroundStyle(.teal)
@@ -656,7 +649,7 @@ private struct ListCardRowView: View {
             Button(action: onCopyResumeCmd) {
                 Label("Copy Resume Command", systemImage: "doc.on.doc")
             }
-            if card.link.worktreeLink != nil, canCleanupWorktree {
+            if false {
                 Divider()
                 Button(role: .destructive, action: onCleanupWorktree) {
                     Label("Cleanup Worktree", systemImage: "trash")

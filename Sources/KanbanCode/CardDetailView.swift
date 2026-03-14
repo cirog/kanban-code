@@ -376,12 +376,12 @@ struct CardDetailView: View {
         }
         .alert("Fork Session?", isPresented: $showForkConfirm) {
             Button("Cancel", role: .cancel) {}
-            if card.link.worktreeLink != nil {
+            if false {
                 Button("Fork (same worktree)") { onFork(true) }
             }
             Button("Fork (project root)") { onFork(false) }
         } message: {
-            if card.link.worktreeLink != nil {
+            if false {
                 Text("This creates a duplicate session you can resume independently. Do you want the forked session to continue from the same worktree or from the project root?")
             } else {
                 Text("This creates a duplicate session you can resume independently.")
@@ -985,7 +985,7 @@ struct CardDetailView: View {
 
                     expandCollapseButton
 
-                    if let path = card.link.worktreeLink?.path ?? card.link.projectPath {
+                    if let path = card.link.projectPath {
                         Button {
                             EditorDiscovery.open(path: path, bundleId: editorBundleId)
                         } label: {
@@ -1020,7 +1020,7 @@ struct CardDetailView: View {
                 }
             }
 
-            if card.link.isRemote {
+            if false {
                 HStack(spacing: 2) {
                     Image(systemName: "cloud")
                         .font(.app(.caption))
@@ -1032,12 +1032,6 @@ struct CardDetailView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                if let branch = card.link.worktreeLink?.branch, !branch.isEmpty {
-                    linkPropertyRow(icon: "arrow.triangle.branch", label: "Branch", value: branch, onUnlink: { onUnlink(.worktree) })
-                }
-                if let worktreePath = card.link.worktreeLink?.path, !worktreePath.isEmpty {
-                    copyableRow(icon: "folder", text: worktreePath)
-                }
                 if let projectPath = card.link.projectPath {
                     copyableRow(icon: "folder.badge.gearshape", text: projectPath)
                 }
@@ -1144,7 +1138,7 @@ struct CardDetailView: View {
             menu.addActionItem("Copy Tmux Command", image: "terminal") { [self] in copyToClipboard("tmux attach -t \(tmux)") }
         }
 
-        if card.link.worktreeLink != nil, canCleanupWorktree {
+        if false, canCleanupWorktree {
             menu.addItem(NSMenuItem.separator())
             menu.addActionItem("Cleanup Worktree", image: "trash") { [self] in onCleanupWorktree() }
         }

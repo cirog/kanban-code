@@ -358,14 +358,7 @@ struct GeneralSettingsView: View {
                 mergeCommand = settings.github.mergeCommand
             }
         }
-        .sheet(isPresented: $showOnboarding) {
-            OnboardingWizard(
-                settingsStore: settingsStore,
-                onComplete: {
-                    showOnboarding = false
-                }
-            )
-        }
+        // Onboarding wizard removed
     }
 
     private func scheduleMergeSave() {

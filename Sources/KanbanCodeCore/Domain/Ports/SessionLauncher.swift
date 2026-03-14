@@ -7,7 +7,6 @@ public protocol SessionLauncher: Sendable {
         sessionName: String,
         projectPath: String,
         prompt: String,
-        worktreeName: String?,
         shellOverride: String?,
         extraEnv: [String: String],
         commandOverride: String?,
@@ -35,14 +34,12 @@ extension SessionLauncher {
         sessionName: String,
         projectPath: String,
         prompt: String,
-        worktreeName: String?,
         shellOverride: String?
     ) async throws -> String {
         try await launch(
             sessionName: sessionName,
             projectPath: projectPath,
             prompt: prompt,
-            worktreeName: worktreeName,
             shellOverride: shellOverride,
             extraEnv: [:],
             commandOverride: nil,

@@ -13,7 +13,6 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         sessionName: String,
         projectPath: String,
         prompt: String,
-        worktreeName: String?,
         shellOverride: String?,
         extraEnv: [String: String] = [:],
         commandOverride: String? = nil,
@@ -30,13 +29,6 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
             // Build the CLI command (prompt is sent via send-keys after assistant is ready)
             var built = assistant.cliCommand
             if skipPermissions { built += " \(assistant.autoApproveFlag)" }
-            if assistant.supportsWorktree, let worktreeName {
-                if worktreeName.isEmpty {
-                    built += " --worktree"
-                } else {
-                    built += " --worktree \(worktreeName)"
-                }
-            }
 
             // Prepend environment variables (SHELL override + KANBAN_CODE_* vars)
             let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv)
@@ -130,12 +122,8 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
         return parts.joined(separator: " ")
     }
 
-    public static func tmuxSessionName(project: String, worktree: String?) -> String {
-        let projectName = (project as NSString).lastPathComponent
-        if let worktree {
-            return "\(projectName)-\(worktree)"
-        }
-        return projectName
+    public static func tmuxSessionName(project: String) -> String {
+        (project as NSString).lastPathComponent
     }
 
     private func shellEscape(_ str: String) -> String {

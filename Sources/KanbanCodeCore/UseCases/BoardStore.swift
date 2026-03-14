@@ -44,8 +44,6 @@ public struct AppState: Sendable {
     /// Transient — not persisted. Used to show a spinner on the card.
     public var busyCards: Set<String> = []
 
-    /// Global remote execution settings (from Settings.remote).
-    public var globalRemoteSettings: RemoteSettings?
 
     // MARK: - Derived
 
@@ -112,16 +110,6 @@ public struct AppState: Sendable {
             return true
         }
 
-        // Worktree match: card's worktree is at the git root (e.g. repo/.claude/worktrees/name)
-        // but the selected project is a subfolder of that repo (monorepo layout).
-        // Strip /.claude/worktrees/<name> to get the repo root and check if the selected project is under it.
-        if let range = normalizedCard.range(of: "/.claude/worktrees/") {
-            let repoRoot = String(normalizedCard[..<range.lowerBound])
-            if normalizedSelected == repoRoot || normalizedSelected.hasPrefix(repoRoot + "/") {
-                return true
-            }
-        }
-
         return false
     }
 
@@ -181,10 +169,10 @@ public enum Action: Sendable {
     case sendQueuedPrompt(cardId: String, promptId: String)
 
     // Async completions
-    case launchCompleted(cardId: String, tmuxName: String, sessionLink: SessionLink?, worktreeLink: WorktreeLink?, isRemote: Bool)
+    case launchCompleted(cardId: String, tmuxName: String, sessionLink: SessionLink?)
     case launchTmuxReady(cardId: String)
     case launchFailed(cardId: String, error: String)
-    case resumeCompleted(cardId: String, tmuxName: String, isRemote: Bool)
+    case resumeCompleted(cardId: String, tmuxName: String)
     case resumeFailed(cardId: String, error: String)
     case terminalCreated(cardId: String, tmuxName: String)
     case terminalFailed(cardId: String, error: String)
@@ -201,7 +189,7 @@ public enum Action: Sendable {
     case setBusy(cardId: String, busy: Bool)
 
     // Settings / misc
-    case settingsLoaded(projects: [Project], excludedPaths: [String], remote: RemoteSettings?)
+    case settingsLoaded(projects: [Project], excludedPaths: [String])
     case setError(String?)
     case setRateLimitedRepos(Set<String>)
     case setSelectedProject(String?)
@@ -209,7 +197,7 @@ public enum Action: Sendable {
     case setIsRefreshingBacklog(Bool)
 
     public enum LinkType: Sendable {
-        case worktree, tmux
+        case tmux
     }
 }
 
@@ -222,8 +210,6 @@ public struct ReconciliationResult: Sendable {
     public let configuredProjects: [Project]
     public let excludedPaths: [String]
     public let discoveredProjectPaths: [String]
-    public let globalRemoteSettings: RemoteSettings?
-
     public init(
         links: [Link],
         sessions: [Session],
@@ -231,8 +217,7 @@ public struct ReconciliationResult: Sendable {
         tmuxSessions: Set<String>,
         configuredProjects: [Project] = [],
         excludedPaths: [String] = [],
-        discoveredProjectPaths: [String] = [],
-        globalRemoteSettings: RemoteSettings? = nil
+        discoveredProjectPaths: [String] = []
     ) {
         self.links = links
         self.sessions = sessions
@@ -241,7 +226,6 @@ public struct ReconciliationResult: Sendable {
         self.configuredProjects = configuredProjects
         self.excludedPaths = excludedPaths
         self.discoveredProjectPaths = discoveredProjectPaths
-        self.globalRemoteSettings = globalRemoteSettings
     }
 }
 
@@ -288,16 +272,12 @@ public enum Reducer {
             link.updatedAt = .now
             state.links[cardId] = link
             state.busyCards.insert(cardId)
-            let workDir = link.worktreeLink?.path.isEmpty == false
-                ? link.worktreeLink!.path
-                : (link.projectPath ?? NSHomeDirectory())
+            let workDir = link.projectPath ?? NSHomeDirectory()
             return [.createTmuxSession(cardId: cardId, name: tmuxName, path: workDir), .upsertLink(link)]
 
         case .addExtraTerminal(let cardId, let sessionName):
             guard var link = state.links[cardId] else { return [] }
-            let workDir = link.worktreeLink?.path.isEmpty == false
-                ? link.worktreeLink!.path
-                : (link.projectPath ?? NSHomeDirectory())
+            let workDir = link.projectPath ?? NSHomeDirectory()
             // Add to extra sessions list
             var extras = link.tmuxLink?.extraSessions ?? []
             extras.append(sessionName)
@@ -307,13 +287,10 @@ public enum Reducer {
             state.busyCards.insert(cardId)
             return [.createTmuxSession(cardId: cardId, name: sessionName, path: workDir), .upsertLink(link)]
 
-        case .launchCard(let cardId, _, let projectPath, let worktreeName, _, _):
+        case .launchCard(let cardId, _, let projectPath, _, _, _):
             guard var link = state.links[cardId] else { return [] }
             let projectName = (projectPath as NSString).lastPathComponent
-            let effectiveName = (worktreeName?.isEmpty == false) ? worktreeName! : nil
-            let tmuxName = effectiveName != nil
-                ? "\(projectName)-\(effectiveName!)"
-                : "\(projectName)-\(cardId)"
+            let tmuxName = "\(projectName)-\(cardId)"
             // Preserve existing shell sessions as extras
             var extras = link.tmuxLink?.extraSessions ?? []
             if link.tmuxLink?.isShellOnly == true, let oldPrimary = link.tmuxLink?.sessionName {
@@ -477,15 +454,6 @@ public enum Reducer {
         case .unlinkFromCard(let cardId, let linkType):
             guard var link = state.links[cardId] else { return [] }
             switch linkType {
-            case .worktree:
-                // Set watermark = current JSONL file size. Data before this point is ignored.
-                if let path = link.sessionLink?.sessionPath {
-                    let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
-                    link.manualOverrides.branchWatermark = size
-                } else {
-                    link.manualOverrides.branchWatermark = 0
-                }
-                link.worktreeLink = nil
             case .tmux:
                 link.tmuxLink = nil
                 link.manualOverrides.tmuxSession = true
@@ -502,7 +470,6 @@ public enum Reducer {
                     // Extras exist — keep tmuxLink, mark primary dead
                     link.tmuxLink?.isPrimaryDead = true
                     link.isLaunching = nil
-                    link.isRemote = false
                     link.updatedAt = .now
                     state.links[cardId] = link
                     return [.killTmuxSession(sessionName), .upsertLink(link), .cleanupTerminalCache(sessionNames: [sessionName])]
@@ -510,7 +477,6 @@ public enum Reducer {
                     // No extras — full teardown
                     link.tmuxLink = nil
                     link.isLaunching = nil
-                    link.isRemote = false
                     link.updatedAt = .now
                     state.links[cardId] = link
                     return [.killTmuxSession(sessionName), .upsertLink(link), .cleanupTerminalCache(sessionNames: [sessionName])]
@@ -544,20 +510,8 @@ public enum Reducer {
             }
             return effects
 
-        case .addBranchToCard(let cardId, let branch):
-            guard var link = state.links[cardId] else { return [] }
-            if link.worktreeLink != nil {
-                link.worktreeLink?.branch = branch
-            } else {
-                link.worktreeLink = WorktreeLink(path: "", branch: branch)
-            }
-            link.manualOverrides.worktreePath = true
-            link.updatedAt = .now
-            state.links[cardId] = link
-            return [.upsertLink(link)]
-
-        // addIssueLinkToCard, addPRToCard, markPRMerged removed (GitHub integration stripped)
-            return [.upsertLink(link)]
+        case .addBranchToCard:
+            return [] // Worktree support removed
 
         case .addQueuedPrompt(let cardId, let prompt):
             guard var link = state.links[cardId] else { return [] }
@@ -597,7 +551,7 @@ public enum Reducer {
             link.updatedAt = .now
             state.links[cardId] = link
             let sendEffect: Effect
-            if let imagePaths = prompt.imagePaths, !imagePaths.isEmpty, link.effectiveAssistant.supportsImageUpload {
+            if let imagePaths = prompt.imagePaths, !imagePaths.isEmpty {
                 sendEffect = .sendPromptWithImagesToTmux(sessionName: sessionName, promptBody: prompt.body, imagePaths: imagePaths, assistant: link.effectiveAssistant)
             } else {
                 sendEffect = .sendPromptToTmux(sessionName: sessionName, promptBody: prompt.body, assistant: link.effectiveAssistant)
@@ -608,8 +562,6 @@ public enum Reducer {
             guard var link = state.links[cardId] else { return [] }
             let oldProjectPath = link.projectPath
             link.projectPath = projectPath
-            // Clear repo-specific links — different project means different repo
-            link.worktreeLink = nil
             // Kill tmux sessions — they're running in the old project
             var effects: [Effect] = []
             if let tmux = link.tmuxLink {
@@ -638,10 +590,6 @@ public enum Reducer {
             guard var link = state.links[cardId] else { return [] }
             let oldProjectPath = link.projectPath
             link.projectPath = parentProjectPath
-            // Only clear repo-specific links if the parent project actually changed
-            if oldProjectPath != parentProjectPath {
-                link.worktreeLink = nil
-            }
             var effects: [Effect] = []
             if let tmux = link.tmuxLink {
                 effects.append(.killTmuxSessions(tmux.allSessionNames))
@@ -722,7 +670,6 @@ public enum Reducer {
             // Transfer links from source → target (only fill nil slots)
             if target.sessionLink == nil { target.sessionLink = source.sessionLink }
             if target.tmuxLink == nil { target.tmuxLink = source.tmuxLink }
-            if target.worktreeLink == nil { target.worktreeLink = source.worktreeLink }
             if target.projectPath == nil { target.projectPath = source.projectPath }
             if target.name == nil { target.name = source.name }
             if target.promptBody == nil { target.promptBody = source.promptBody }
@@ -732,9 +679,6 @@ public enum Reducer {
                     target.lastActivity = sourceActivity
                 }
             }
-            // If source is remote, inherit that
-            if source.isRemote { target.isRemote = true }
-
             target.updatedAt = .now
             state.links[targetId] = target
 
@@ -751,18 +695,13 @@ public enum Reducer {
 
         // MARK: Async Completions
 
-        case .launchCompleted(let cardId, let tmuxName, let sessionLink, let worktreeLink, let isRemote):
+        case .launchCompleted(let cardId, let tmuxName, let sessionLink):
             guard var link = state.links[cardId] else { return [] }
             let existingExtras = link.tmuxLink?.extraSessions
             link.tmuxLink = TmuxLink(sessionName: tmuxName, extraSessions: existingExtras)
             if let sl = sessionLink { link.sessionLink = sl }
-            if let wl = worktreeLink, link.worktreeLink == nil { link.worktreeLink = wl }
-            // Clear isLaunching immediately so the terminal shows without waiting
-            // for reconciliation (5s). Setting lastActivity prevents column bounce
-            // to .allSessions — card lands in .waiting until hooks confirm .inProgress.
             link.isLaunching = nil
             link.lastActivity = .now
-            link.isRemote = isRemote
             link.updatedAt = .now
             state.links[cardId] = link
             return [.upsertLink(link)]
@@ -786,11 +725,10 @@ public enum Reducer {
             state.error = "Launch failed: \(error)"
             return [.upsertLink(link)]
 
-        case .resumeCompleted(let cardId, let tmuxName, let isRemote):
+        case .resumeCompleted(let cardId, let tmuxName):
             guard var link = state.links[cardId] else { return [] }
             let existingExtras = link.tmuxLink?.extraSessions
             link.tmuxLink = TmuxLink(sessionName: tmuxName, extraSessions: existingExtras)
-            link.isRemote = isRemote
             link.isLaunching = nil
             link.lastActivity = .now
             link.updatedAt = .now
@@ -862,7 +800,6 @@ public enum Reducer {
             state.configuredProjects = result.configuredProjects
             state.excludedPaths = result.excludedPaths
             state.discoveredProjectPaths = result.discoveredProjectPaths
-            state.globalRemoteSettings = result.globalRemoteSettings
 
             // Rebuild sessions map
             state.sessions = Dictionary(
@@ -924,43 +861,6 @@ public enum Reducer {
                 KanbanCodeLog.info("store", "Preserved \(preservedIds.count) card(s) modified during reconciliation")
             }
 
-            // Absorb orphan worktree cards (worktreeLink but no sessionLink) into
-            // cards that have a session on the same branch. Multiple sessions on the
-            // same branch are legitimate (e.g., forked tasks) and must NOT be merged.
-            var branchToIds: [String: [String]] = [:]
-            for (id, link) in mergedLinks {
-                if let branch = link.worktreeLink?.branch, !branch.isEmpty {
-                    branchToIds[branch, default: []].append(id)
-                }
-            }
-            for (branch, ids) in branchToIds where ids.count > 1 {
-                // Split into "real" cards (have a session or were manually created) vs orphans
-                let realIds = ids.filter { id in
-                    let l = mergedLinks[id]!
-                    return l.sessionLink != nil || l.source == .manual || l.name != nil
-                }
-                let orphanIds = ids.filter { id in
-                    let l = mergedLinks[id]!
-                    return l.sessionLink == nil && l.source != .manual && l.name == nil
-                }
-                guard !orphanIds.isEmpty else { continue } // all legitimate — no dedup needed
-
-                // Pick a keeper among real cards (or the first orphan if no real cards)
-                let keeperId = realIds.first ?? orphanIds.first!
-                var keeper = mergedLinks[keeperId]!
-
-                // Remove all orphans (transfer their data to keeper first)
-                for orphanId in orphanIds where orphanId != keeperId {
-                    if let orphan = mergedLinks[orphanId] {
-                        if keeper.worktreeLink == nil { keeper.worktreeLink = orphan.worktreeLink }
-                        if keeper.tmuxLink == nil { keeper.tmuxLink = orphan.tmuxLink }
-                        KanbanCodeLog.info("store", "Dedup: absorbing orphan \(orphanId.prefix(12)) (branch=\(branch)) into \(keeperId.prefix(12))")
-                    }
-                    mergedLinks.removeValue(forKey: orphanId)
-                }
-                mergedLinks[keeperId] = keeper
-            }
-
             // Recompute columns for cards NOT mid-launch and NOT preserved.
             // Preserved cards have stale tmux/activity data — skip them until
             // the next reconciliation cycle picks up their current state.
@@ -972,8 +872,6 @@ public enum Reducer {
                     guard tmux.isShellOnly != true else { return false }
                     return tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
                 } ?? false
-                let hasWorktree = link.worktreeLink?.branch != nil
-
                 // Clear manual column override when we have definitive data.
                 // Backlog is sticky — the user explicitly parked this card.
                 if link.manualOverrides.column && link.column != .backlog {
@@ -988,7 +886,7 @@ public enum Reducer {
                 UpdateCardColumn.update(
                     link: &link,
                     activityState: activity,
-                    hasWorktree: hasWorktree || hasTmux
+                    hasTmux: hasTmux
                 )
 
                 // Copy session's firstPrompt into link.promptBody
@@ -1032,9 +930,8 @@ public enum Reducer {
             for (id, var link) in state.links where link.isLaunching != true {
                 guard let sessionId = link.sessionLink?.sessionId,
                       let activity = activityMap[sessionId] else { continue }
-                let hasWorktree = link.worktreeLink?.branch != nil
                 let oldColumn = link.column
-                UpdateCardColumn.update(link: &link, activityState: activity, hasWorktree: hasWorktree)
+                UpdateCardColumn.update(link: &link, activityState: activity, hasTmux: false)
                 if link.column != oldColumn {
                     state.links[id] = link
                     changed = true
@@ -1055,10 +952,9 @@ public enum Reducer {
 
         // MARK: Settings / Misc
 
-        case .settingsLoaded(let projects, let excludedPaths, let remote):
+        case .settingsLoaded(let projects, let excludedPaths):
             state.configuredProjects = projects
             state.excludedPaths = excludedPaths
-            state.globalRemoteSettings = remote
             return []
 
         case .setError(let message):
@@ -1098,13 +994,10 @@ public final class BoardStore: @unchecked Sendable {
     // Dependencies for reconciliation
     private var isReconciling = false
     public var appIsActive: Bool = true
-    /// Cached worktree results by repo root, with directory mtime for invalidation
-    private var worktreeCache: [String: (mtime: Date?, worktrees: [Worktree])] = [:]
     private let discovery: SessionDiscovery
     private let coordinationStore: CoordinationStore
     private let activityDetector: (any ActivityDetector)?
     private let settingsStore: SettingsStore?
-    private let worktreeAdapter: GitWorktreeAdapter?
     private let tmuxAdapter: TmuxManagerPort?
 
     public let sessionStore: SessionStore
@@ -1115,7 +1008,6 @@ public final class BoardStore: @unchecked Sendable {
         coordinationStore: CoordinationStore,
         activityDetector: (any ActivityDetector)? = nil,
         settingsStore: SettingsStore? = nil,
-        worktreeAdapter: GitWorktreeAdapter? = nil,
         tmuxAdapter: TmuxManagerPort? = nil,
         sessionStore: SessionStore = ClaudeCodeSessionStore()
     ) {
@@ -1125,7 +1017,6 @@ public final class BoardStore: @unchecked Sendable {
         self.coordinationStore = coordinationStore
         self.activityDetector = activityDetector
         self.settingsStore = settingsStore
-        self.worktreeAdapter = worktreeAdapter
         self.tmuxAdapter = tmuxAdapter
         self.sessionStore = sessionStore
     }
@@ -1207,8 +1098,7 @@ public final class BoardStore: @unchecked Sendable {
             if let settings = try? await store.read() {
                 dispatch(.settingsLoaded(
                     projects: settings.projects,
-                    excludedPaths: settings.globalView.excludedPaths,
-                    remote: settings.remote
+                    excludedPaths: settings.globalView.excludedPaths
                 ))
             }
         }
@@ -1243,13 +1133,11 @@ public final class BoardStore: @unchecked Sendable {
             // Fall back to reading from disk if settings haven't been loaded yet
             var configuredProjects = state.configuredProjects
             var excludedPaths = state.excludedPaths
-            var globalRemoteSettings = state.globalRemoteSettings
             if configuredProjects.isEmpty, let store = settingsStore {
                 if let settings = try? await store.read() {
                     configuredProjects = settings.projects
                     excludedPaths = settings.globalView.excludedPaths
-                    globalRemoteSettings = settings.remote
-                    dispatch(.settingsLoaded(projects: configuredProjects, excludedPaths: excludedPaths, remote: globalRemoteSettings))
+                    dispatch(.settingsLoaded(projects: configuredProjects, excludedPaths: excludedPaths))
                 }
             }
 
@@ -1273,57 +1161,6 @@ public final class BoardStore: @unchecked Sendable {
             // Use in-memory state as source of truth — NOT disk.
             var existingLinks = Array(state.links.values)
 
-            // Deduplicate repo roots — multiple projects can share the same repo
-            let uniqueRepoRoots = Set(configuredProjects.map(\.effectiveRepoRoot))
-
-            // Scan worktrees once per unique repo (parallel, with mtime caching)
-            var worktreesByRepo: [String: [Worktree]] = [:]
-            if let worktreeAdapter {
-                let t = ContinuousClock.now
-                let fm = FileManager.default
-
-                // Check which repos need re-scanning by checking .git/worktrees dir mtime
-                var reposToScan: [String] = []
-                for repoRoot in uniqueRepoRoots {
-                    let worktreesDir = (repoRoot as NSString).appendingPathComponent(".git/worktrees")
-                    let mtime = (try? fm.attributesOfItem(atPath: worktreesDir))?[.modificationDate] as? Date
-                    if let cached = worktreeCache[repoRoot], cached.mtime == mtime {
-                        worktreesByRepo[repoRoot] = cached.worktrees
-                    } else {
-                        reposToScan.append(repoRoot)
-                    }
-                }
-
-                if !reposToScan.isEmpty {
-                    let results = await withTaskGroup(of: (String, [Worktree])?.self) { group in
-                        for repoRoot in reposToScan {
-                            group.addTask {
-                                guard let worktrees = try? await worktreeAdapter.listWorktrees(repoRoot: repoRoot) else {
-                                    return nil
-                                }
-                                return (repoRoot, worktrees)
-                            }
-                        }
-                        var collected: [(String, [Worktree])] = []
-                        for await result in group {
-                            if let result { collected.append(result) }
-                        }
-                        return collected
-                    }
-                    for (repo, worktrees) in results {
-                        let worktreesDir = (repo as NSString).appendingPathComponent(".git/worktrees")
-                        let mtime = (try? fm.attributesOfItem(atPath: worktreesDir))?[.modificationDate] as? Date
-                        worktreeCache[repo] = (mtime: mtime, worktrees: worktrees)
-                        worktreesByRepo[repo] = worktrees
-                    }
-                }
-                // Evict repos no longer configured
-                worktreeCache = worktreeCache.filter { uniqueRepoRoots.contains($0.key) }
-
-                let total = worktreesByRepo.values.flatMap { $0 }.count
-                KanbanCodeLog.info("reconcile", "worktrees: \(t.duration(to: .now)) (\(total) across \(uniqueRepoRoots.count) repos, \(reposToScan.count) scanned)")
-            }
-
             // Scan tmux sessions
             let t2 = ContinuousClock.now
             let tmuxSessions = (try? await tmuxAdapter?.listSessions()) ?? []
@@ -1334,8 +1171,7 @@ public final class BoardStore: @unchecked Sendable {
             let snapshot = CardReconciler.DiscoverySnapshot(
                 sessions: sessions,
                 tmuxSessions: tmuxSessions,
-                didScanTmux: tmuxAdapter != nil,
-                worktrees: worktreesByRepo
+                didScanTmux: tmuxAdapter != nil
             )
             let mergedLinks = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
             KanbanCodeLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) merged)")
@@ -1368,8 +1204,7 @@ public final class BoardStore: @unchecked Sendable {
                 tmuxSessions: Set(tmuxSessions.map(\.name)),
                 configuredProjects: configuredProjects,
                 excludedPaths: excludedPaths,
-                discoveredProjectPaths: discoveredProjectPaths,
-                globalRemoteSettings: globalRemoteSettings
+                discoveredProjectPaths: discoveredProjectPaths
             )
             dispatch(.reconciled(result))
             KanbanCodeLog.info("reconcile", "dispatch: \(t5.duration(to: .now))")
