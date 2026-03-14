@@ -203,7 +203,6 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                 // Notification logic — mirrors claude-pushover, adapted for batch processing.
                 // Uses EVENT TIMESTAMPS (not wall-clock) so batch-processed events
                 // behave identically to claude-pushover's one-event-per-process model.
-                // Normalize Gemini event names (AfterAgent → Stop, BeforeAgent → UserPromptSubmit).
                 let eventName = HookManager.normalizeEventName(event.eventName)
                 switch eventName {
                 case "Stop":
@@ -297,7 +296,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         let renderMarkdown = (try? await SettingsStore().read())?.notifications.renderMarkdownImage ?? false
 
         if let transcriptPath = link?.sessionLink?.sessionPath {
-            // Use the correct session store for the assistant (Gemini=JSON, Claude=JSONL)
+            // Use the correct session store for the assistant
             let assistant = link?.assistant ?? .claude
             let lastText: String?
             if let store = registry?.store(for: assistant),

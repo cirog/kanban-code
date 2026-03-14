@@ -1666,25 +1666,18 @@ struct CardDetailView: View {
         // Preserve expanded window: if user loaded more than pageSize, keep that many
         let loadCount = max(Self.pageSize, turns.count)
         do {
-            if card.link.effectiveAssistant == .gemini {
-                // Gemini uses JSON format — load all turns via session store
-                let allTurns = try await sessionStore.readTranscript(sessionPath: path)
-                turns = allTurns
-                hasMoreTurns = false
+            // Claude uses JSONL — paginated loading with stable incremental reload
+            let result = try await TranscriptReader.readTail(from: path, maxTurns: loadCount)
+            if turns.isEmpty {
+                // Initial load — use the full result
+                turns = result.turns
+                hasMoreTurns = result.hasMore
             } else {
-                // Claude uses JSONL — paginated loading with stable incremental reload
-                let result = try await TranscriptReader.readTail(from: path, maxTurns: loadCount)
-                if turns.isEmpty {
-                    // Initial load — use the full result
-                    turns = result.turns
-                    hasMoreTurns = result.hasMore
-                } else {
-                    // Live reload — only append new turns so existing views stay stable
-                    let lastLineNumber = turns.last?.lineNumber ?? 0
-                    let newTurns = result.turns.filter { $0.lineNumber > lastLineNumber }
-                    if !newTurns.isEmpty {
-                        turns.append(contentsOf: newTurns)
-                    }
+                // Live reload — only append new turns so existing views stay stable
+                let lastLineNumber = turns.last?.lineNumber ?? 0
+                let newTurns = result.turns.filter { $0.lineNumber > lastLineNumber }
+                if !newTurns.isEmpty {
+                    turns.append(contentsOf: newTurns)
                 }
             }
         } catch {

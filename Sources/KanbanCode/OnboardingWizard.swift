@@ -28,7 +28,6 @@ struct OnboardingWizard: View {
             let available: Bool
             switch assistant {
             case .claude: available = status?.claudeAvailable ?? false
-            case .gemini: available = status?.geminiAvailable ?? false
             }
             if available && enabledAssistants.contains(assistant) {
                 result.append(.hooks(assistant))
@@ -167,7 +166,6 @@ struct OnboardingWizard: View {
                 let available: Bool = {
                     switch assistant {
                     case .claude: status?.claudeAvailable ?? false
-                    case .gemini: status?.geminiAvailable ?? false
                     }
                 }()
 
@@ -203,7 +201,6 @@ struct OnboardingWizard: View {
                 guard enabledAssistants.contains(assistant) else { return false }
                 switch assistant {
                 case .claude: return !(status?.claudeAvailable ?? false)
-                case .gemini: return !(status?.geminiAvailable ?? false)
                 }
             }
 
@@ -217,7 +214,6 @@ struct OnboardingWizard: View {
                         let available: Bool = {
                             switch assistant {
                             case .claude: status?.claudeAvailable ?? false
-                            case .gemini: status?.geminiAvailable ?? false
                             }
                         }()
 
@@ -548,7 +544,6 @@ struct OnboardingWizard: View {
                         let available: Bool = {
                             switch assistant {
                             case .claude: status?.claudeAvailable ?? false
-                            case .gemini: status?.geminiAvailable ?? false
                             }
                         }()
                         summaryRow(assistant.displayName, status: available)

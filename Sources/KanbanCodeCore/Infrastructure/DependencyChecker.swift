@@ -5,7 +5,6 @@ public enum DependencyChecker {
 
     public struct Status: Sendable {
         public let claudeAvailable: Bool
-        public let geminiAvailable: Bool
         public let hooksInstalled: Bool
         public let pandocAvailable: Bool
         public let wkhtmltoimageAvailable: Bool
@@ -19,7 +18,7 @@ public enum DependencyChecker {
         public let assistantHooks: [CodingAssistant: Bool]
 
         public init(
-            claudeAvailable: Bool, geminiAvailable: Bool = false,
+            claudeAvailable: Bool,
             hooksInstalled: Bool,
             assistantHooks: [CodingAssistant: Bool] = [:],
             pandocAvailable: Bool,
@@ -28,7 +27,6 @@ public enum DependencyChecker {
             tmuxAvailable: Bool, mutagenAvailable: Bool
         ) {
             self.claudeAvailable = claudeAvailable
-            self.geminiAvailable = geminiAvailable
             self.hooksInstalled = hooksInstalled
             self.pandocAvailable = pandocAvailable
             self.wkhtmltoimageAvailable = wkhtmltoimageAvailable
@@ -46,7 +44,6 @@ public enum DependencyChecker {
     /// Check all dependencies concurrently.
     public static func checkAll(settingsStore: SettingsStore) async -> Status {
         async let claude = ShellCommand.isAvailable("claude")
-        async let gemini = ShellCommand.isAvailable("gemini")
         async let pandoc = ShellCommand.isAvailable("pandoc")
         async let wkhtmltoimage = ShellCommand.isAvailable("wkhtmltoimage")
         async let gh = ShellCommand.isAvailable("gh")
@@ -71,7 +68,6 @@ public enum DependencyChecker {
 
         return await Status(
             claudeAvailable: claude,
-            geminiAvailable: gemini,
             hooksInstalled: hooks[.claude] ?? false,
             assistantHooks: hooks,
             pandocAvailable: pandoc,

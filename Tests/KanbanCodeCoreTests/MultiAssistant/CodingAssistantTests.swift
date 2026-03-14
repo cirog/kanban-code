@@ -12,21 +12,11 @@ struct CodingAssistantTests {
         #expect(CodingAssistant.claude.displayName == "Claude Code")
     }
 
-    @Test("Gemini display name")
-    func geminiDisplayName() {
-        #expect(CodingAssistant.gemini.displayName == "Gemini CLI")
-    }
-
     // MARK: - CLI Commands
 
     @Test("Claude CLI command")
     func claudeCliCommand() {
         #expect(CodingAssistant.claude.cliCommand == "claude")
-    }
-
-    @Test("Gemini CLI command")
-    func geminiCliCommand() {
-        #expect(CodingAssistant.gemini.cliCommand == "gemini")
     }
 
     // MARK: - Prompt Characters
@@ -36,11 +26,6 @@ struct CodingAssistantTests {
         #expect(CodingAssistant.claude.promptCharacter == "❯")
     }
 
-    @Test("Gemini prompt character detects input prompt")
-    func geminiPromptCharacter() {
-        #expect(CodingAssistant.gemini.promptCharacter == "Type your message")
-    }
-
     // MARK: - Auto-Approve Flags
 
     @Test("Claude auto-approve flag")
@@ -48,17 +33,11 @@ struct CodingAssistantTests {
         #expect(CodingAssistant.claude.autoApproveFlag == "--dangerously-skip-permissions")
     }
 
-    @Test("Gemini auto-approve flag")
-    func geminiAutoApproveFlag() {
-        #expect(CodingAssistant.gemini.autoApproveFlag == "--yolo")
-    }
-
     // MARK: - Resume Flag
 
-    @Test("Both assistants use --resume")
+    @Test("Claude uses --resume")
     func resumeFlag() {
         #expect(CodingAssistant.claude.resumeFlag == "--resume")
-        #expect(CodingAssistant.gemini.resumeFlag == "--resume")
     }
 
     // MARK: - Capabilities
@@ -68,19 +47,9 @@ struct CodingAssistantTests {
         #expect(CodingAssistant.claude.supportsWorktree == true)
     }
 
-    @Test("Gemini does not support worktrees")
-    func geminiNoWorktree() {
-        #expect(CodingAssistant.gemini.supportsWorktree == false)
-    }
-
     @Test("Claude supports image upload")
     func claudeSupportsImageUpload() {
         #expect(CodingAssistant.claude.supportsImageUpload == true)
-    }
-
-    @Test("Gemini does not support image upload")
-    func geminiNoImageUpload() {
-        #expect(CodingAssistant.gemini.supportsImageUpload == false)
     }
 
     // MARK: - Config Directory
@@ -90,21 +59,11 @@ struct CodingAssistantTests {
         #expect(CodingAssistant.claude.configDirName == ".claude")
     }
 
-    @Test("Gemini config dir")
-    func geminiConfigDir() {
-        #expect(CodingAssistant.gemini.configDirName == ".gemini")
-    }
-
     // MARK: - Install Command
 
     @Test("Claude install command")
     func claudeInstallCommand() {
         #expect(CodingAssistant.claude.installCommand.contains("claude-code"))
-    }
-
-    @Test("Gemini install command")
-    func geminiInstallCommand() {
-        #expect(CodingAssistant.gemini.installCommand.contains("gemini-cli"))
     }
 
     // MARK: - Codable
@@ -120,9 +79,9 @@ struct CodingAssistantTests {
 
     @Test("CodingAssistant raw value encoding")
     func rawValueEncoding() throws {
-        let data = try JSONEncoder().encode(CodingAssistant.gemini)
+        let data = try JSONEncoder().encode(CodingAssistant.claude)
         let json = String(data: data, encoding: .utf8)!
-        #expect(json == "\"gemini\"")
+        #expect(json == "\"claude\"")
     }
 
     @Test("CodingAssistant decodes from raw string")
@@ -138,7 +97,6 @@ struct CodingAssistantTests {
     func caseIterable() {
         let all = CodingAssistant.allCases
         #expect(all.contains(.claude))
-        #expect(all.contains(.gemini))
-        #expect(all.count == 2)
+        #expect(all.count == 1)
     }
 }

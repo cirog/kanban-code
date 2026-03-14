@@ -91,11 +91,7 @@ public actor EffectHandler {
             }
         case .sendPromptToTmux(let sessionName, let promptBody, let assistant):
             do {
-                if assistant == .gemini {
-                    try await tmuxAdapter?.pastePrompt(to: sessionName, text: promptBody)
-                } else {
-                    try await tmuxAdapter?.sendPrompt(to: sessionName, text: promptBody)
-                }
+                try await tmuxAdapter?.sendPrompt(to: sessionName, text: promptBody)
             } catch {
                 KanbanCodeLog.warn("effect", "sendPromptToTmux failed: \(error)")
             }
@@ -114,11 +110,7 @@ public actor EffectHandler {
                         setClipboard: setClipboard
                     )
                 }
-                if assistant == .gemini {
-                    try await tmux.pastePrompt(to: sessionName, text: promptBody)
-                } else {
-                    try await tmux.sendPrompt(to: sessionName, text: promptBody)
-                }
+                try await tmux.sendPrompt(to: sessionName, text: promptBody)
                 for path in imagePaths {
                     try? FileManager.default.removeItem(atPath: path)
                 }

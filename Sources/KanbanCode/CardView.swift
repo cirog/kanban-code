@@ -241,7 +241,7 @@ struct SessionIcon: View {
 
 // MARK: - Assistant Icon
 
-/// Displays the icon for a coding assistant — clawd pixel art for Claude, sparkle for Gemini.
+/// Displays the icon for a coding assistant.
 struct AssistantIcon: View {
     let assistant: CodingAssistant
 
@@ -249,8 +249,6 @@ struct AssistantIcon: View {
         switch assistant {
         case .claude:
             SessionIcon()
-        case .gemini:
-            GeminiSparkle()
         }
     }
 
@@ -262,64 +260,6 @@ struct AssistantIcon: View {
         case .claude:
             guard let src = SessionIcon.menuImage else { return nil }
             return SessionIcon.resizedForMenu(src, to: size)
-        case .gemini:
-            return geminiMenuImage(size: size)
-        }
-    }
-
-    private static func geminiMenuImage(size: CGFloat) -> NSImage {
-        let img = NSImage(size: NSSize(width: size, height: size))
-        img.lockFocus()
-        let path = GeminiSparkle().path(in: CGRect(origin: .zero, size: CGSize(width: size, height: size)))
-        let bezier = NSBezierPath(cgPath: path.cgPath)
-        NSColor.black.setFill()
-        bezier.fill()
-        img.unlockFocus()
-        img.isTemplate = true
-        return img
-    }
-}
-
-/// The Gemini 4-pointed sparkle/star logo drawn as a SwiftUI Shape.
-struct GeminiSparkle: Shape {
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width
-        let h = rect.height
-        let cx = rect.midX
-        let cy = rect.midY
-
-        // 4-pointed star with curved concave sides
-        let waist: CGFloat = 0.07
-
-        return Path { p in
-            // Start at top point
-            p.move(to: CGPoint(x: cx, y: 0))
-
-            // Top-right curve to right point
-            p.addQuadCurve(
-                to: CGPoint(x: w, y: cy),
-                control: CGPoint(x: cx + w * waist, y: cy - h * waist)
-            )
-
-            // Right curve to bottom point
-            p.addQuadCurve(
-                to: CGPoint(x: cx, y: h),
-                control: CGPoint(x: cx + w * waist, y: cy + h * waist)
-            )
-
-            // Bottom-left curve to left point
-            p.addQuadCurve(
-                to: CGPoint(x: 0, y: cy),
-                control: CGPoint(x: cx - w * waist, y: cy + h * waist)
-            )
-
-            // Left curve back to top
-            p.addQuadCurve(
-                to: CGPoint(x: cx, y: 0),
-                control: CGPoint(x: cx - w * waist, y: cy - h * waist)
-            )
-
-            p.closeSubpath()
         }
     }
 }

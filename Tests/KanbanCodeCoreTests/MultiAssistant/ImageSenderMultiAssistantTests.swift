@@ -31,38 +31,7 @@ struct ImageSenderMultiAssistantTests {
         }
     }
 
-    // MARK: - waitForReady with Gemini
-
-    @Test("waitForReady detects Gemini prompt")
-    func waitForReadyGemini() async throws {
-        let mock = MockTmux()
-        mock.capturedPaneOutputs = [
-            // Gemini startup: ASCII art, auth info
-            """
-             ███            █████████  ██████████
-            Logged in with Google: user@example.com
-            """,
-            // Still loading
-            "Plan: Gemini Code Assist\nLoading...",
-            // Ready
-            """
-            YOLO ctrl+y
-            ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-             *   Type your message or @path/to/file
-            ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-            """,
-        ]
-
-        let sender = ImageSender(tmux: mock)
-        try await sender.waitForReady(
-            sessionName: "test-gemini",
-            assistant: .gemini,
-            pollInterval: .milliseconds(10),
-            timeout: .seconds(5)
-        )
-
-        #expect(mock.captureCallCount == 3)
-    }
+    // MARK: - waitForReady with Claude
 
     @Test("waitForReady detects Claude prompt")
     func waitForReadyClaude() async throws {
@@ -86,27 +55,6 @@ struct ImageSenderMultiAssistantTests {
 
     // MARK: - Timeout errors include assistant name
 
-    @Test("Timeout error says 'Gemini CLI' for Gemini")
-    func timeoutErrorGemini() async throws {
-        let mock = MockTmux()
-        mock.capturedPaneOutputs = ["Loading Gemini..."]
-
-        let sender = ImageSender(tmux: mock)
-        do {
-            try await sender.waitForReady(
-                sessionName: "test",
-                assistant: .gemini,
-                pollInterval: .milliseconds(10),
-                timeout: .milliseconds(50)
-            )
-            Issue.record("Expected error to be thrown")
-        } catch let error as ImageSendError {
-            let message = error.errorDescription ?? ""
-            #expect(message.contains("Gemini CLI"))
-            #expect(!message.contains("Claude"))
-        }
-    }
-
     @Test("Timeout error says 'Claude Code' for Claude")
     func timeoutErrorClaude() async throws {
         let mock = MockTmux()
@@ -124,7 +72,6 @@ struct ImageSenderMultiAssistantTests {
         } catch let error as ImageSendError {
             let message = error.errorDescription ?? ""
             #expect(message.contains("Claude Code"))
-            #expect(!message.contains("Gemini"))
         }
     }
 
@@ -143,21 +90,5 @@ struct ImageSenderMultiAssistantTests {
             timeout: .seconds(1)
         )
         #expect(mock.captureCallCount == 1)
-    }
-
-    @Test("waitForReady with default does not detect Gemini prompt")
-    func defaultDoesNotDetectGemini() async throws {
-        let mock = MockTmux()
-        mock.capturedPaneOutputs = ["Type your message or @path/to/file"]
-
-        let sender = ImageSender(tmux: mock)
-        // Default is .claude, so Gemini's prompt should NOT be detected
-        await #expect(throws: ImageSendError.self) {
-            try await sender.waitForReady(
-                sessionName: "test",
-                pollInterval: .milliseconds(10),
-                timeout: .milliseconds(50)
-            )
-        }
     }
 }

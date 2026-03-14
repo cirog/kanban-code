@@ -1,35 +1,28 @@
 import Foundation
 
-/// Manages hook installation for coding assistants (Claude Code, Gemini CLI).
+/// Manages hook installation for Claude Code.
 ///
-/// Both Claude Code and Gemini CLI use the same hook configuration format:
+/// Claude Code uses hook configuration format:
 /// `settings.json` → `hooks` → `{ EventName: [{ matcher, hooks: [{ type, command }] }] }`
 ///
-/// The same hook script (`~/.kanban-code/hook.sh`) works for both because both pass
+/// The hook script (`~/.kanban-code/hook.sh`) receives
 /// `session_id`, `hook_event_name`, and `transcript_path` via stdin JSON.
-/// The orchestrator normalizes Gemini-specific event names (e.g. `AfterAgent` → `Stop`).
 public enum HookManager {
 
-    /// Hook events needed per assistant. Event names differ but serve the same purpose.
+    /// Hook events needed per assistant.
     public static func requiredHooks(for assistant: CodingAssistant) -> [String] {
         switch assistant {
         case .claude:
             ["Stop", "Notification", "SessionStart", "SessionEnd", "UserPromptSubmit"]
-        case .gemini:
-            ["AfterAgent", "Notification", "SessionStart", "SessionEnd", "BeforeAgent"]
         }
     }
 
     /// Claude Code's required hooks (backward compat).
     static let requiredHooks = requiredHooks(for: .claude)
 
-    /// Normalize Gemini event names to the canonical names the orchestrator understands.
+    /// Normalize event names to the canonical names the orchestrator understands.
     public static func normalizeEventName(_ name: String) -> String {
-        switch name {
-        case "AfterAgent": "Stop"
-        case "BeforeAgent": "UserPromptSubmit"
-        default: name
-        }
+        name
     }
 
     // MARK: - Check
@@ -192,7 +185,7 @@ public enum HookManager {
 
     private static let hookScriptContent = """
     #!/usr/bin/env bash
-    # Kanban hook handler for coding assistants (Claude Code, Gemini CLI).
+    # Kanban hook handler for Claude Code.
     # Receives JSON on stdin from hooks, appends a timestamped
     # event line to ~/.kanban-code/hook-events.jsonl.
 

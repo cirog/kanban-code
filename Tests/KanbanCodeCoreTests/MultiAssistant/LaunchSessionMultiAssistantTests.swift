@@ -49,51 +49,6 @@ struct LaunchSessionMultiAssistantTests {
         let cmd = mock.lastCommand ?? ""
         #expect(cmd.contains("claude"))
         #expect(cmd.contains("--dangerously-skip-permissions"))
-        #expect(!cmd.contains("gemini"))
-        #expect(!cmd.contains("--yolo"))
-    }
-
-    // MARK: - Launch with Gemini
-
-    @Test("Launch with Gemini uses 'gemini' command")
-    func launchGemini() async throws {
-        let mock = RecordingTmux()
-        let launcher = LaunchSession(tmux: mock)
-
-        _ = try await launcher.launch(
-            sessionName: "test",
-            projectPath: "/tmp/project",
-            prompt: "fix bug",
-            worktreeName: nil,
-            shellOverride: nil,
-            skipPermissions: true,
-            assistant: .gemini
-        )
-
-        let cmd = mock.lastCommand ?? ""
-        #expect(cmd.contains("gemini"))
-        #expect(cmd.contains("--yolo"))
-        #expect(!cmd.contains("claude"))
-        #expect(!cmd.contains("--dangerously-skip-permissions"))
-    }
-
-    @Test("Launch with Gemini skips worktree even when provided")
-    func launchGeminiNoWorktree() async throws {
-        let mock = RecordingTmux()
-        let launcher = LaunchSession(tmux: mock)
-
-        _ = try await launcher.launch(
-            sessionName: "test",
-            projectPath: "/tmp/project",
-            prompt: "fix bug",
-            worktreeName: "feat-x",
-            shellOverride: nil,
-            skipPermissions: false,
-            assistant: .gemini
-        )
-
-        let cmd = mock.lastCommand ?? ""
-        #expect(!cmd.contains("--worktree"))
     }
 
     @Test("Launch with Claude includes worktree flag")
@@ -115,7 +70,7 @@ struct LaunchSessionMultiAssistantTests {
         #expect(cmd.contains("--worktree feat-login"))
     }
 
-    // MARK: - Resume with different assistants
+    // MARK: - Resume
 
     @Test("Resume with Claude uses claude command and prefix")
     func resumeClaude() async throws {
@@ -137,26 +92,6 @@ struct LaunchSessionMultiAssistantTests {
         #expect(cmd.contains("--dangerously-skip-permissions"))
     }
 
-    @Test("Resume with Gemini uses gemini command and prefix")
-    func resumeGemini() async throws {
-        let mock = RecordingTmux()
-        let launcher = LaunchSession(tmux: mock)
-
-        let sessionName = try await launcher.resume(
-            sessionId: "sess_xyz12345-rest",
-            projectPath: "/tmp/project",
-            shellOverride: nil,
-            skipPermissions: true,
-            assistant: .gemini
-        )
-
-        #expect(sessionName == "gemini-sess_xyz")
-        let cmd = mock.lastCommand ?? ""
-        #expect(cmd.contains("gemini"))
-        #expect(cmd.contains("--resume sess_xyz12345-rest"))
-        #expect(cmd.contains("--yolo"))
-    }
-
     @Test("Resume without skip permissions omits flag")
     func resumeNoSkipPermissions() async throws {
         let mock = RecordingTmux()
@@ -167,12 +102,12 @@ struct LaunchSessionMultiAssistantTests {
             projectPath: "/tmp",
             shellOverride: nil,
             skipPermissions: false,
-            assistant: .gemini
+            assistant: .claude
         )
 
         let cmd = mock.lastCommand ?? ""
-        #expect(!cmd.contains("--yolo"))
-        #expect(cmd.contains("gemini"))
+        #expect(!cmd.contains("--dangerously-skip-permissions"))
+        #expect(cmd.contains("claude"))
         #expect(cmd.contains("--resume"))
     }
 
@@ -190,38 +125,34 @@ struct LaunchSessionMultiAssistantTests {
             worktreeName: nil,
             shellOverride: "~/.kanban-code/remote/zsh",
             skipPermissions: false,
-            assistant: .gemini
+            assistant: .claude
         )
 
         let cmd = mock.lastCommand ?? ""
         #expect(cmd.contains("SHELL=~/.kanban-code/remote/zsh"))
-        #expect(cmd.contains("gemini"))
+        #expect(cmd.contains("claude"))
     }
 
     // MARK: - Command override
 
-    @Test("Command override is used as-is for both assistants")
+    @Test("Command override is used as-is")
     func commandOverride() async throws {
-        for assistant in CodingAssistant.allCases {
-            let mock = RecordingTmux()
-            let launcher = LaunchSession(tmux: mock)
+        let mock = RecordingTmux()
+        let launcher = LaunchSession(tmux: mock)
 
-            _ = try await launcher.launch(
-                sessionName: "test",
-                projectPath: "/tmp",
-                prompt: "test",
-                worktreeName: nil,
-                shellOverride: nil,
-                commandOverride: "echo 'custom-cmd'",
-                skipPermissions: false,
-                assistant: assistant
-            )
+        _ = try await launcher.launch(
+            sessionName: "test",
+            projectPath: "/tmp",
+            prompt: "test",
+            worktreeName: nil,
+            shellOverride: nil,
+            commandOverride: "echo 'custom-cmd'",
+            skipPermissions: false,
+            assistant: .claude
+        )
 
-            let cmd = mock.lastCommand ?? ""
-            #expect(cmd.contains("echo 'custom-cmd'"))
-            // Should NOT contain the assistant's CLI command since override is used
-            #expect(!cmd.contains("\(assistant.cliCommand) "))
-        }
+        let cmd = mock.lastCommand ?? ""
+        #expect(cmd.contains("echo 'custom-cmd'"))
     }
 
     // MARK: - Default assistant

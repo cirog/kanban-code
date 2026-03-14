@@ -2,8 +2,8 @@ import Foundation
 
 /// An `ActivityDetector` implementation that routes operations to the correct
 /// assistant-specific detector via the registry. Hook events are forwarded to
-/// all registered detectors (both Claude and Gemini now have hooks). Polling
-/// and state queries fan out to all registered detectors and merge results.
+/// all registered detectors. Polling and state queries fan out to all
+/// registered detectors and merge results.
 public final class CompositeActivityDetector: ActivityDetector, @unchecked Sendable {
     private let registry: CodingAssistantRegistry
 
@@ -12,7 +12,7 @@ public final class CompositeActivityDetector: ActivityDetector, @unchecked Senda
     }
 
     /// Forward hook events to all registered detectors.
-    /// Each detector normalizes event names internally (e.g. Gemini's AfterAgent → Stop),
+    /// Each detector normalizes event names internally,
     /// so events from one assistant are harmless to another's detector.
     public func handleHookEvent(_ event: HookEvent) async {
         for assistant in registry.available {
@@ -45,9 +45,7 @@ public final class CompositeActivityDetector: ActivityDetector, @unchecked Senda
     }
 
     /// Query all registered detectors and return the highest-priority state.
-    /// This ensures the correct detector's state wins — e.g. a Gemini session's
-    /// `.activelyWorking` from GeminiActivityDetector beats `.idleWaiting` from
-    /// ClaudeCodeActivityDetector (which may have stored a shared SessionStart event).
+    /// This ensures the correct detector's state wins when multiple detectors are registered.
     public func activityState(for sessionId: String) async -> ActivityState {
         var best: ActivityState = .stale
         for assistant in registry.available {

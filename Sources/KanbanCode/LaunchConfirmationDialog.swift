@@ -243,9 +243,6 @@ struct LaunchConfirmationDialog: View {
 
         if effectiveRunRemotely {
             parts.append("SHELL=~/.kanban-code/remote/zsh")
-            if assistant == .gemini {
-                parts.append("PATH=~/.kanban-code/remote:$PATH")
-            }
         }
 
         if isResume, let sid = sessionId {

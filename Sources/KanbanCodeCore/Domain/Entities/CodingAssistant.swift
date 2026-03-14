@@ -3,19 +3,16 @@ import Foundation
 /// Supported coding assistants that can be managed by Kanban Code.
 public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     case claude
-    case gemini
 
     public var displayName: String {
         switch self {
         case .claude: "Claude Code"
-        case .gemini: "Gemini CLI"
         }
     }
 
     public var cliCommand: String {
         switch self {
         case .claude: "claude"
-        case .gemini: "gemini"
         }
     }
 
@@ -23,7 +20,6 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     public var promptCharacter: String {
         switch self {
         case .claude: "❯"
-        case .gemini: "Type your message"
         }
     }
 
@@ -31,7 +27,6 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     public var autoApproveFlag: String {
         switch self {
         case .claude: "--dangerously-skip-permissions"
-        case .gemini: "--yolo"
         }
     }
 
@@ -42,7 +37,6 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     public var supportsWorktree: Bool {
         switch self {
         case .claude: true
-        case .gemini: false
         }
     }
 
@@ -50,15 +44,13 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     public var supportsImageUpload: Bool {
         switch self {
         case .claude: true
-        case .gemini: false
         }
     }
 
-    /// Name of the config directory under $HOME (e.g. ".claude", ".gemini").
+    /// Name of the config directory under $HOME (e.g. ".claude").
     public var configDirName: String {
         switch self {
         case .claude: ".claude"
-        case .gemini: ".gemini"
         }
     }
 
@@ -66,7 +58,6 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     public var historyPromptSymbol: String {
         switch self {
         case .claude: "❯"
-        case .gemini: "✦"
         }
     }
 
@@ -74,7 +65,6 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     public var installCommand: String {
         switch self {
         case .claude: "npm install -g @anthropic-ai/claude-code"
-        case .gemini: "npm install -g @google/gemini-cli"
         }
     }
 }
