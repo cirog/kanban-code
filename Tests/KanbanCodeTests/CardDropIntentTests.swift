@@ -19,8 +19,8 @@ struct CardDropIntentTests {
         #expect(CardDropIntent.resolve(card, to: .inProgress) == .start)
     }
 
-    @Test("Cards without pull requests cannot be dropped into In Review")
-    func cardWithoutPRCannotMoveToReview() {
+    @Test("Cards can be moved to In Review")
+    func cardCanMoveToReview() {
         let card = KanbanCodeCard(
             link: Link(
                 id: "card_waiting",
@@ -31,29 +31,22 @@ struct CardDropIntentTests {
             )
         )
 
-        #expect(
-            CardDropIntent.resolve(card, to: .inReview)
-                == .invalid("Cannot move to In Review - card has no pull request")
-        )
+        #expect(CardDropIntent.resolve(card, to: .inReview) == .move)
     }
 
-    @Test("Cards without merged pull requests cannot be dropped into Done")
-    func cardWithoutMergedPRCannotMoveToDone() {
+    @Test("Cards can be moved to Done")
+    func cardCanMoveToDone() {
         let card = KanbanCodeCard(
             link: Link(
                 id: "card_review",
                 name: "Open PR",
                 projectPath: "/test/project",
                 column: .inReview,
-                source: .manual,
-                prLinks: [PRLink(number: 42, title: "Open PR")]
+                source: .manual
             )
         )
 
-        #expect(
-            CardDropIntent.resolve(card, to: .done)
-                == .invalid("Cannot move to Done - no merged pull request")
-        )
+        #expect(CardDropIntent.resolve(card, to: .done) == .move)
     }
 
     @Test("Archived cards can be restored to Backlog")

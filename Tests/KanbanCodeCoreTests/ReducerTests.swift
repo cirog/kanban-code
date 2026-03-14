@@ -39,6 +39,13 @@ struct ReducerTests {
         return state
     }
 
+    /// Reduce and rebuild cards to mirror BoardStore.dispatch behavior.
+    private func reduceAndRebuild(state: inout AppState, action: Action) -> [Effect] {
+        let effects = Reducer.reduce(state: &state, action: action)
+        state.rebuildCards()
+        return effects
+    }
+
     // MARK: - Create Manual Task
 
     @Test("createManualTask adds link to state")
@@ -230,8 +237,9 @@ struct ReducerTests {
         let second = makeLink(id: "card_2", column: .backlog, updatedAt: timestamp)
         let third = makeLink(id: "card_3", column: .backlog, updatedAt: timestamp)
         var state = stateWith([first, second, third])
+        state.rebuildCards()
 
-        let effects = Reducer.reduce(state: &state, action: .reorderCard(cardId: "card_3", targetCardId: "card_1", above: true))
+        let effects = reduceAndRebuild(state: &state, action: .reorderCard(cardId: "card_3", targetCardId: "card_1", above: true))
 
         #expect(state.cards(in: .backlog).map(\.id) == ["card_3", "card_1", "card_2"])
         #expect(state.links["card_3"]?.sortOrder == 0)
@@ -490,6 +498,7 @@ struct ReducerTests {
         state.links["card_c1"] = link
         state.sessions["sess_1"] = Session(id: "sess_1", name: "My Session", messageCount: 3, modifiedTime: .now)
         state.activityMap["sess_1"] = .activelyWorking
+        state.rebuildCards()
 
         let cards = state.cards
         #expect(cards.count == 1)
@@ -503,6 +512,7 @@ struct ReducerTests {
         state.links["c1"] = makeLink(id: "c1")  // projectPath = /test/project
         let otherLink = Link(id: "c2", name: "Other", projectPath: "/other/project", column: .backlog, source: .manual)
         state.links["c2"] = otherLink
+        state.rebuildCards()
 
         state.selectedProjectPath = "/test/project"
         #expect(state.filteredCards.count == 1)
@@ -823,53 +833,7 @@ struct ReducerTests {
         #expect(effects.isEmpty)
     }
 
-    @Test("mergeCards blocked when both have different issues")
-    func mergeBlockedDifferentIssues() {
-        var source = makeLink(id: "card_src")
-        source.issueLink = IssueLink(number: 1)
-        var target = makeLink(id: "card_tgt")
-        target.issueLink = IssueLink(number: 2)
-        var state = stateWith([source, target])
-
-        let effects = Reducer.reduce(state: &state, action: .mergeCards(sourceId: "card_src", targetId: "card_tgt"))
-
-        #expect(state.links.count == 2)
-        #expect(state.error != nil)
-        #expect(effects.isEmpty)
-    }
-
-    @Test("mergeCards allowed when both have same issue")
-    func mergeAllowedSameIssue() {
-        var source = makeLink(id: "card_src")
-        source.issueLink = IssueLink(number: 42)
-        var target = makeLink(id: "card_tgt")
-        target.issueLink = IssueLink(number: 42)
-        var state = stateWith([source, target])
-
-        let effects = Reducer.reduce(state: &state, action: .mergeCards(sourceId: "card_src", targetId: "card_tgt"))
-
-        #expect(state.links["card_src"] == nil)
-        #expect(state.links["card_tgt"]?.issueLink?.number == 42)
-        #expect(!effects.isEmpty)
-    }
-
-    @Test("mergeCards deduplicates PR links by number")
-    func mergeDedupsPRs() {
-        var source = makeLink(id: "card_src")
-        source.prLinks = [PRLink(number: 10, title: "PR 10"), PRLink(number: 20, title: "PR 20")]
-        var target = makeLink(id: "card_tgt")
-        target.prLinks = [PRLink(number: 10, title: "Existing PR 10")]
-        var state = stateWith([source, target])
-
-        let _ = Reducer.reduce(state: &state, action: .mergeCards(sourceId: "card_src", targetId: "card_tgt"))
-
-        let prNumbers = state.links["card_tgt"]!.prLinks.map(\.number)
-        #expect(prNumbers.count == 2)
-        #expect(prNumbers.contains(10))
-        #expect(prNumbers.contains(20))
-        // Target's original PR 10 should be kept (not overwritten)
-        #expect(state.links["card_tgt"]!.prLinks.first(where: { $0.number == 10 })?.title == "Existing PR 10")
-    }
+    // mergeCards issue/PR tests removed (GitHub integration stripped)
 
     @Test("mergeCards preserves target fields over source")
     func mergePreservesTargetFields() {

@@ -188,7 +188,6 @@ struct ContentView: View {
             coordinationStore: coordination,
             activityDetector: activityDetector,
             settingsStore: settings,
-            ghAdapter: GhCliAdapter(),
             worktreeAdapter: GitWorktreeAdapter(),
             tmuxAdapter: tmux
         )
@@ -202,7 +201,6 @@ struct ContentView: View {
             coordinationStore: coordination,
             activityDetector: activityDetector,
             tmux: tmux,
-            prTracker: GhCliAdapter(),
             notifier: notifier,
             registry: registry
         )
@@ -303,7 +301,7 @@ struct ContentView: View {
             onMigrateAssistant: { cardId, target in
                 pendingMigration = (cardId: cardId, targetAssistant: target)
             },
-            onRefreshBacklog: { Task { await store.refreshBacklog() } },
+            onRefreshBacklog: { },
             canDropCard: { card, column in
                 CardDropIntent.resolve(card, to: column).isAllowed
             },
@@ -358,7 +356,7 @@ struct ContentView: View {
             onMigrateAssistant: { cardId, target in
                 pendingMigration = (cardId: cardId, targetAssistant: target)
             },
-            onRefreshBacklog: { Task { await store.refreshBacklog() } },
+            onRefreshBacklog: { },
             onDropCard: { cardId, column in handleDrop(cardId: cardId, to: column) },
             canDropCard: { card, column in
                 CardDropIntent.resolve(card, to: column).isAllowed
@@ -413,12 +411,6 @@ struct ContentView: View {
                 onAddBranch: { branch in
                     store.dispatch(.addBranchToCard(cardId: card.id, branch: branch))
                 },
-                onAddIssue: { number in
-                    store.dispatch(.addIssueLinkToCard(cardId: card.id, issueNumber: number))
-                },
-                onAddPR: { number in
-                    store.dispatch(.addPRToCard(cardId: card.id, prNumber: number))
-                },
                 onCleanupWorktree: {
                     Task { await cleanupWorktree(cardId: card.id) }
                 },
@@ -437,9 +429,6 @@ struct ContentView: View {
                 },
                 onReorderTerminal: { sessionName, beforeSession in
                     store.dispatch(.reorderTerminalTab(cardId: card.id, sessionName: sessionName, beforeSession: beforeSession))
-                },
-                onPRMerged: { prNumber in
-                    store.dispatch(.markPRMerged(cardId: card.id, prNumber: prNumber))
                 },
                 onCancelLaunch: {
                     store.dispatch(.cancelLaunch(cardId: card.id))
@@ -464,17 +453,6 @@ struct ContentView: View {
                     editingQueuedPromptId = promptId
                     if let promptId {
                         orchestrator.markPromptEditing(promptId)
-                    }
-                },
-                onDiscover: {
-                    Task {
-                        store.dispatch(.setBusy(cardId: card.id, busy: true))
-                        if let updatedLink = await orchestrator.discoverBranchesForCard(cardId: card.id) {
-                            // Sync to in-memory state so reconcile() picks up cleared watermark
-                            store.dispatch(.createManualTask(updatedLink))
-                        }
-                        await store.reconcile()
-                        store.dispatch(.setBusy(cardId: card.id, busy: false))
                     }
                 },
                 onUpdatePrompt: { body, imagePaths in
@@ -1058,9 +1036,7 @@ struct ContentView: View {
                             Picker("", selection: $detailTab) {
                                 Text("Terminal").tag(DetailTab.terminal)
                                 Text("History").tag(DetailTab.history)
-                                if card.link.issueLink != nil { Text("Issue").tag(DetailTab.issue) }
-                                if !card.link.prLinks.isEmpty { Text("Pull Request").tag(DetailTab.pullRequest) }
-                                if card.link.promptBody != nil && card.link.issueLink == nil { Text("Prompt").tag(DetailTab.prompt) }
+                                if card.link.promptBody != nil { Text("Prompt").tag(DetailTab.prompt) }
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
@@ -2222,8 +2198,6 @@ struct ContentView: View {
             let worktreeName: String?
             if let branch = card.link.worktreeLink?.branch {
                 worktreeName = branch
-            } else if let issueNum = card.link.issueLink?.number {
-                worktreeName = "issue-\(issueNum)"
             } else {
                 worktreeName = nil
             }

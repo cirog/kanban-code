@@ -145,7 +145,7 @@ struct SettingsView: View {
                 enabled: enabledAssistants.contains(assistant)
             )
         }
-        ghAvailable = await GhCliAdapter().isAvailable()
+        ghAvailable = false // GitHub integration removed
         tmuxAvailable = await TmuxAdapter().isAvailable()
     }
 }

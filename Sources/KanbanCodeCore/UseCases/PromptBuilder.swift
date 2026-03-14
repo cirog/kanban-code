@@ -5,7 +5,6 @@ public enum PromptBuilder {
 
     /// Build the full prompt for a card, applying appropriate templates.
     ///
-    /// For issue cards: applies `githubIssuePromptTemplate` then wraps with `promptTemplate`.
     /// For manual tasks: wraps `promptBody` with `promptTemplate`.
     /// For session cards: uses card name as-is (no template needed).
     public static func buildPrompt(
@@ -15,18 +14,7 @@ public enum PromptBuilder {
     ) -> String {
         var prompt: String
 
-        if let issueLink = link.issueLink {
-            // GitHub issue: apply issue template
-            let issueTemplate = project?.githubIssuePromptTemplate
-                ?? settings?.githubIssuePromptTemplate
-                ?? "#${number}: ${title}\n\n${body}"
-            prompt = applyTemplate(issueTemplate, variables: [
-                "number": String(issueLink.number),
-                "title": link.name?.replacingOccurrences(of: "#\(issueLink.number): ", with: "") ?? "",
-                "body": issueLink.body ?? "",
-                "url": issueLink.url ?? "",
-            ])
-        } else if let promptBody = link.promptBody {
+        if let promptBody = link.promptBody {
             prompt = promptBody
         } else {
             prompt = link.name ?? ""

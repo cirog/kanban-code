@@ -118,25 +118,6 @@ struct CardView: View {
             } label: {
                 Label("Copy Card ID", systemImage: "number")
             }
-            Divider()
-            ForEach(card.link.prLinks, id: \.number) { pr in
-                Button {
-                    if let url = pr.url.flatMap({ URL(string: $0) }) {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    Label("Open PR #\(pr.number)", systemImage: "arrow.up.right.square")
-                }
-            }
-            if let issue = card.link.issueLink {
-                Button {
-                    if let url = issue.url.flatMap({ URL(string: $0) }) {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    Label("Open Issue #\(issue.number)", systemImage: "arrow.up.right.square")
-                }
-            }
             if card.link.worktreeLink != nil, canCleanupWorktree {
                 Divider()
                 Button(role: .destructive, action: onCleanupWorktree) {
@@ -181,10 +162,8 @@ struct CardView: View {
             Divider()
             if card.link.manuallyArchived {
                 // Already archived — offer delete (but not for pure issues that would reappear)
-                if card.link.source != .githubIssue {
-                    Button(role: .destructive, action: onDelete) {
-                        Label("Delete Card", systemImage: "trash")
-                    }
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete Card", systemImage: "trash")
                 }
             } else {
                 Button(action: onArchive) {
@@ -283,8 +262,6 @@ struct CardLabelBadge: View {
         switch label {
         case .session: .orange
         case .worktree: .green
-        case .issue: .blue
-        case .pr: .purple
         case .task: .gray
         }
     }
@@ -337,32 +314,8 @@ struct CardBadgesRow: View {
             }
         }
 
-        // PR badge(s) — worst status across all PRs
-        if let primary = card.link.prLink {
-            let totalThreads = card.link.prLinks.compactMap(\.unresolvedThreads).reduce(0, +)
-            PRBadge(status: card.link.worstPRStatus, prNumber: primary.number, unresolvedThreads: totalThreads)
-            if card.link.prLinks.count > 1 {
-                Text(verbatim: "+\(card.link.prLinks.count - 1)")
-                    .font(.app(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-        }
-
-        // Rate limit badge
-        if card.isRateLimited {
-            RateLimitBadge()
-        }
-
-        // Issue indicator
-        if let issue = card.link.issueLink {
-            HStack(spacing: 2) {
-                Image(systemName: "circle.circle")
-                    .font(.app(.caption2))
-                Text(verbatim: "\(issue.number)")
-                    .font(.app(.caption2))
-            }
-            .foregroundStyle(.secondary)
-        }
+        // Rate limit badge (kept for future use)
+        // if card.isRateLimited { RateLimitBadge() }
 
         // Image attachment indicator
         if let imgs = card.link.promptImagePaths, !imgs.isEmpty {

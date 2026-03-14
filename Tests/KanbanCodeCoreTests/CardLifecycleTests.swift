@@ -19,56 +19,9 @@ struct CardLifecycleTests {
         #expect(link.column == .waiting)
     }
 
-    @Test("PR exists + idle → inReview")
-    func prIdleToInReview() {
-        var link = Link(
-            column: .inProgress,
-            sessionLink: SessionLink(sessionId: "s1"),
-            worktreeLink: WorktreeLink(path: "", branch: "feature-x"),
-            prLinks: [PRLink(number: 42, url: "https://github.com/test/pr/42", status: .approved)]
-        )
-        UpdateCardColumn.update(link: &link, activityState: .idleWaiting, hasWorktree: true)
-        #expect(link.column == .inReview)
-    }
 
-    @Test("All PRs merged → done")
-    func prMergedToDone() {
-        var link = Link(
-            column: .inReview,
-            sessionLink: SessionLink(sessionId: "s1"),
-            prLinks: [PRLink(number: 42, status: .merged)]
-        )
-        UpdateCardColumn.update(link: &link, activityState: .ended, hasWorktree: false)
-        #expect(link.column == .done)
-    }
 
-    @Test("Partial PR merge keeps card in review")
-    func partialPRMerge() {
-        var link = Link(
-            column: .inReview,
-            sessionLink: SessionLink(sessionId: "s1"),
-            prLinks: [
-                PRLink(number: 42, status: .merged),
-                PRLink(number: 43, status: .approved),
-            ]
-        )
-        UpdateCardColumn.update(link: &link, activityState: .ended, hasWorktree: false)
-        #expect(link.column == .inReview)
-    }
 
-    @Test("All PRs merged/closed → done")
-    func allPRsDone() {
-        var link = Link(
-            column: .inReview,
-            sessionLink: SessionLink(sessionId: "s1"),
-            prLinks: [
-                PRLink(number: 42, status: .merged),
-                PRLink(number: 43, status: .closed),
-            ]
-        )
-        UpdateCardColumn.update(link: &link, activityState: .ended, hasWorktree: false)
-        #expect(link.column == .done)
-    }
 
     @Test("Actively working overrides manual column to inProgress")
     func activelyWorkingOverridesManual() {

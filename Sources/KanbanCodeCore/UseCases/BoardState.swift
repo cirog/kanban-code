@@ -97,7 +97,6 @@ public final class BoardState: @unchecked Sendable {
     private let coordinationStore: CoordinationStore
     private let activityDetector: (any ActivityDetector)?
     private let settingsStore: SettingsStore?
-    private let ghAdapter: GhCliAdapter?
     private let worktreeAdapter: GitWorktreeAdapter?
     private let tmuxAdapter: TmuxAdapter?
     public let sessionStore: SessionStore
@@ -107,7 +106,6 @@ public final class BoardState: @unchecked Sendable {
         coordinationStore: CoordinationStore,
         activityDetector: (any ActivityDetector)? = nil,
         settingsStore: SettingsStore? = nil,
-        ghAdapter: GhCliAdapter? = nil,
         worktreeAdapter: GitWorktreeAdapter? = nil,
         tmuxAdapter: TmuxAdapter? = TmuxAdapter(),
         sessionStore: SessionStore = ClaudeCodeSessionStore()
@@ -116,7 +114,6 @@ public final class BoardState: @unchecked Sendable {
         self.coordinationStore = coordinationStore
         self.activityDetector = activityDetector
         self.settingsStore = settingsStore
-        self.ghAdapter = ghAdapter
         self.worktreeAdapter = worktreeAdapter
         self.tmuxAdapter = tmuxAdapter
         self.sessionStore = sessionStore
@@ -342,21 +339,13 @@ public final class BoardState: @unchecked Sendable {
 
     /// Remove a typed link from a card (e.g. unlink PR or issue).
     public enum LinkType: Sendable {
-        case pr(number: Int), issue, worktree, tmux
+        case worktree, tmux
     }
 
     public func unlinkFromCard(cardId: String, linkType: LinkType) {
         guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
         var link = cards[index].link
         switch linkType {
-        case .pr(let number):
-            link.prLinks.removeAll { $0.number == number }
-            var dismissed = link.manualOverrides.dismissedPRs ?? []
-            if !dismissed.contains(number) { dismissed.append(number) }
-            link.manualOverrides.dismissedPRs = dismissed
-        case .issue:
-            link.issueLink = nil
-            link.manualOverrides.issueLink = true
         case .worktree:
             if let path = link.sessionLink?.sessionPath {
                 let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
@@ -364,7 +353,6 @@ public final class BoardState: @unchecked Sendable {
             } else {
                 link.manualOverrides.branchWatermark = 0
             }
-            link.discoveredBranches = nil
             link.worktreeLink = nil
         case .tmux:
             link.tmuxLink = nil
@@ -400,20 +388,7 @@ public final class BoardState: @unchecked Sendable {
         }
     }
 
-    public func addIssueLinkToCard(cardId: String, issueNumber: Int) {
-        guard let index = cards.firstIndex(where: { $0.id == cardId }) else { return }
-        var link = cards[index].link
-        link.issueLink = IssueLink(number: issueNumber)
-        link.manualOverrides.issueLink = true
-        link.updatedAt = .now
-        let session = cards[index].session
-        let activity = cards[index].activityState
-        cards[index] = KanbanCodeCard(link: link, session: session, activityState: activity)
-
-        Task {
-            try? await coordinationStore.upsertLink(link)
-        }
-    }
+    // addIssueLinkToCard removed (GitHub integration stripped)
 
     /// Set an error message that auto-dismisses after a delay.
     public func setError(_ message: String, autoDismissSeconds: Double = 8) {
@@ -465,94 +440,18 @@ public final class BoardState: @unchecked Sendable {
                 }
             }
 
-            // Fetch PRs for each configured project (basic metadata for branch matching)
-            var pullRequests: [String: PullRequest] = [:]
-            if let ghAdapter {
-                for project in configuredProjects {
-                    let repoRoot = project.effectiveRepoRoot
-                    if let prs = try? await ghAdapter.fetchPRs(repoRoot: repoRoot) {
-                        for (branch, pr) in prs {
-                            KanbanCodeLog.info("refresh", "PR #\(pr.number) [\(pr.state)] on branch \(branch) — \(pr.title)")
-                        }
-                        pullRequests.merge(prs, uniquingKeysWith: { existing, _ in existing })
-                    }
-                }
-            }
-
             // Scan tmux sessions (to detect dead links)
             let tmuxSessions = (try? await tmuxAdapter?.listSessions()) ?? []
 
-            // Reconcile: match sessions/worktrees/PRs to existing cards
+            // Reconcile: match sessions/worktrees to existing cards
             let snapshot = CardReconciler.DiscoverySnapshot(
                 sessions: sessions,
                 tmuxSessions: tmuxSessions,
                 didScanTmux: tmuxAdapter != nil,
-                worktrees: worktreesByRepo,
-                pullRequests: pullRequests
+                worktrees: worktreesByRepo
             )
             var mergedLinks = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
-            KanbanCodeLog.info("refresh", "Reconciled: \(existingLinks.count) existing → \(mergedLinks.count) merged (\(sessions.count) sessions, \(worktreesByRepo.values.flatMap { $0 }.count) worktrees, \(pullRequests.count) PRs)")
-
-            // Post-reconciliation: targeted PR discovery + status refresh via batched GraphQL
-            if let ghAdapter {
-                let coveredBranches = Set(pullRequests.keys)
-                let coveredPRNumbers = Set(pullRequests.values.map(\.number))
-
-                // Group lookups by repo for batching
-                var branchesByRepo: [String: [(index: Int, branch: String)]] = [:]
-                var prNumbersByRepo: [String: [(index: Int, prIndex: Int, number: Int)]] = [:]
-
-                for i in mergedLinks.indices {
-                    let link = mergedLinks[i]
-                    guard !link.manuallyArchived else { continue }
-                    guard let repoRoot = link.projectPath, !repoRoot.isEmpty else { continue }
-
-                    if let branch = link.worktreeLink?.branch, link.prLinks.isEmpty, !coveredBranches.contains(branch) {
-                        branchesByRepo[repoRoot, default: []].append((index: i, branch: branch))
-                    }
-                    // Also look up PRs for discovered branches (from git push scanning)
-                    if link.prLinks.isEmpty, let discovered = link.discoveredBranches {
-                        for branch in discovered where !coveredBranches.contains(branch) {
-                            branchesByRepo[repoRoot, default: []].append((index: i, branch: branch))
-                        }
-                    }
-                    for j in link.prLinks.indices {
-                        let prNumber = link.prLinks[j].number
-                        if !coveredPRNumbers.contains(prNumber) {
-                            prNumbersByRepo[repoRoot, default: []].append((index: i, prIndex: j, number: prNumber))
-                        }
-                    }
-                }
-
-                let allRepos = Set(branchesByRepo.keys).union(prNumbersByRepo.keys)
-                for repoRoot in allRepos {
-                    let branches = (branchesByRepo[repoRoot] ?? []).map(\.branch)
-                    let numbers = (prNumbersByRepo[repoRoot] ?? []).map(\.number)
-                    guard !branches.isEmpty || !numbers.isEmpty else { continue }
-
-                    KanbanCodeLog.info("refresh", "Batch PR lookup for \(repoRoot): \(branches.count) branches, \(numbers.count) PRs to refresh")
-                    let (byBranch, byNumber) = (try? await ghAdapter.batchPRLookup(repoRoot: repoRoot, branches: branches, prNumbers: numbers)) ?? ([:], [:])
-
-                    for entry in branchesByRepo[repoRoot] ?? [] {
-                        if let pr = byBranch[entry.branch] {
-                            mergedLinks[entry.index].prLinks.append(PRLink(number: pr.number, url: pr.url, status: pr.status, title: pr.title, mergeStateStatus: pr.mergeStateStatus))
-                            KanbanCodeLog.info("refresh", "Discovered PR #\(pr.number) [\(pr.status)] for branch=\(entry.branch)")
-                        }
-                    }
-                    for entry in prNumbersByRepo[repoRoot] ?? [] {
-                        if let pr = byNumber[entry.number] {
-                            mergedLinks[entry.index].prLinks[entry.prIndex].status = pr.status
-                            mergedLinks[entry.index].prLinks[entry.prIndex].title = pr.title
-                            mergedLinks[entry.index].prLinks[entry.prIndex].url = pr.url
-                            mergedLinks[entry.index].prLinks[entry.prIndex].mergeStateStatus = pr.mergeStateStatus
-                            if pr.approvalCount > 0 {
-                                mergedLinks[entry.index].prLinks[entry.prIndex].approvalCount = pr.approvalCount
-                            }
-                            KanbanCodeLog.info("refresh", "Refreshed PR #\(entry.number) → \(pr.status)")
-                        }
-                    }
-                }
-            }
+            KanbanCodeLog.info("refresh", "Reconciled: \(existingLinks.count) existing → \(mergedLinks.count) merged (\(sessions.count) sessions, \(worktreesByRepo.values.flatMap { $0 }.count) worktrees)")
 
             // Recalculate columns: f(state) = column
             // Column is a derived property, not stored state — always recompute.
@@ -611,9 +510,6 @@ public final class BoardState: @unchecked Sendable {
                 }
             }
 
-            // Fetch GitHub issues if enough time has elapsed
-            await refreshGitHubIssuesIfNeeded()
-
             // Validate selected card still exists
             if let selectedId = selectedCardId,
                !newCards.contains(where: { $0.id == selectedId }) {
@@ -626,111 +522,5 @@ public final class BoardState: @unchecked Sendable {
         isLoading = false
     }
 
-    /// Force-refresh GitHub issues from all configured project filters.
-    public func refreshBacklog() async {
-        lastGitHubRefresh = nil // reset timer to force fetch
-        isRefreshingBacklog = true
-        await refreshGitHubIssues()
-        isRefreshingBacklog = false
-    }
-
-    /// Fetch GitHub issues if enough time has elapsed since last fetch.
-    private func refreshGitHubIssuesIfNeeded() async {
-        guard ghAdapter != nil else { return }
-        let interval: TimeInterval
-        if let store = settingsStore, let settings = try? await store.read() {
-            interval = TimeInterval(settings.github.pollIntervalSeconds)
-        } else {
-            interval = 300
-        }
-        if let last = lastGitHubRefresh, Date.now.timeIntervalSince(last) < interval {
-            return
-        }
-        await refreshGitHubIssues()
-    }
-
-    /// Fetch GitHub issues from all configured project filters and sync to links.
-    private func refreshGitHubIssues() async {
-        guard let ghAdapter else { return }
-
-        let settings: Settings?
-        if let store = settingsStore {
-            settings = try? await store.read()
-        } else {
-            settings = nil
-        }
-        guard let settings else { return }
-
-        guard var links = try? await coordinationStore.readLinks() else { return }
-
-        var fetchedIssueKeys: Set<String> = [] // "projectPath:issueNumber"
-        var changed = false
-
-        for project in settings.projects {
-            guard let filter = project.githubFilter, !filter.isEmpty else { continue }
-
-            do {
-                let issues = try await ghAdapter.fetchIssues(repoRoot: project.effectiveRepoRoot, filter: filter)
-                for issue in issues {
-                    let key = "\(project.path):\(issue.number)"
-                    fetchedIssueKeys.insert(key)
-
-                    // Check if link already exists
-                    let existing = links.first(where: {
-                        $0.issueLink?.number == issue.number && $0.projectPath == project.path
-                    })
-                    if existing == nil {
-                        let link = Link(
-                            name: "#\(issue.number): \(issue.title)",
-                            projectPath: project.path,
-                            column: .backlog,
-                            source: .githubIssue,
-                            issueLink: IssueLink(number: issue.number, url: issue.url, body: issue.body, title: issue.title)
-                        )
-                        links.append(link)
-                        changed = true
-                    }
-                }
-            } catch {
-                // Surface GitHub API errors briefly
-                setError("GitHub: \(error.localizedDescription)")
-            }
-        }
-
-        // Remove stale GitHub issue links (still in backlog, no longer in fetch results)
-        let before = links.count
-        links.removeAll { link in
-            guard link.source == .githubIssue,
-                  link.column == .backlog,
-                  let issueNum = link.issueLink?.number,
-                  let projPath = link.projectPath else { return false }
-            let key = "\(projPath):\(issueNum)"
-            return !fetchedIssueKeys.contains(key)
-        }
-        if links.count != before { changed = true }
-
-        if changed {
-            try? await coordinationStore.writeLinks(links)
-            // Re-build cards from updated links
-            let sessions = (try? await discovery.discoverSessions()) ?? []
-            let sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            var newCards: [KanbanCodeCard] = []
-            for link in links {
-                let activity: ActivityState?
-                if let sessionId = link.sessionLink?.sessionId {
-                    activity = await activityDetector?.activityState(for: sessionId)
-                } else {
-                    activity = nil
-                }
-                newCards.append(KanbanCodeCard(
-                    link: link,
-                    session: link.sessionLink.flatMap { sessionsById[$0.sessionId] },
-                    activityState: activity
-                ))
-            }
-            cards = newCards
-        }
-
-        lastGitHubRefresh = Date()
-    }
+    // GitHub issue methods removed (GitHub integration stripped)
 }

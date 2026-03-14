@@ -52,59 +52,6 @@ public struct WorktreeLink: Codable, Sendable, Equatable {
     }
 }
 
-/// Link to a GitHub pull request.
-public struct PRLink: Codable, Sendable, Equatable {
-    public var number: Int
-    public var url: String?
-    public var status: PRStatus?
-    public var unresolvedThreads: Int?
-    public var title: String?
-    public var body: String?
-    public var approvalCount: Int?
-    public var checkRuns: [CheckRun]?
-    public var firstUnresolvedThreadURL: String?
-    public var mergeStateStatus: String?
-
-    public init(
-        number: Int,
-        url: String? = nil,
-        status: PRStatus? = nil,
-        unresolvedThreads: Int? = nil,
-        title: String? = nil,
-        body: String? = nil,
-        approvalCount: Int? = nil,
-        checkRuns: [CheckRun]? = nil,
-        firstUnresolvedThreadURL: String? = nil,
-        mergeStateStatus: String? = nil
-    ) {
-        self.number = number
-        self.url = url
-        self.status = status
-        self.unresolvedThreads = unresolvedThreads
-        self.title = title
-        self.body = body
-        self.approvalCount = approvalCount
-        self.checkRuns = checkRuns
-        self.firstUnresolvedThreadURL = firstUnresolvedThreadURL
-        self.mergeStateStatus = mergeStateStatus
-    }
-}
-
-/// Link to a GitHub issue.
-public struct IssueLink: Codable, Sendable, Equatable {
-    public var number: Int
-    public var url: String?
-    public var body: String?
-    public var title: String?
-
-    public init(number: Int, url: String? = nil, body: String? = nil, title: String? = nil) {
-        self.number = number
-        self.url = url
-        self.body = body
-        self.title = title
-    }
-}
-
 /// A prompt queued to be sent to a Claude session.
 public struct QueuedPrompt: Codable, Sendable, Equatable, Identifiable {
     public let id: String
@@ -126,8 +73,6 @@ public struct QueuedPrompt: Codable, Sendable, Equatable, Identifiable {
 public enum CardLabel: String, Sendable {
     case session = "SESSION"
     case worktree = "WORKTREE"
-    case issue = "ISSUE"
-    case pr = "PR"
     case task = "TASK"
 }
 
@@ -156,17 +101,7 @@ public struct Link: Identifiable, Codable, Sendable {
     public var sessionLink: SessionLink?
     public var tmuxLink: TmuxLink?
     public var worktreeLink: WorktreeLink?
-    public var prLinks: [PRLink]
-    public var issueLink: IssueLink?
     public var queuedPrompts: [QueuedPrompt]?
-
-    /// Branches discovered by scanning the conversation for `git push` commands.
-    /// nil = not yet scanned; empty = scanned but no branches found.
-    public var discoveredBranches: [String]?
-
-    /// Repo paths for discovered branches that differ from the card's projectPath.
-    /// Key = branch name, value = git repo root path.
-    public var discoveredRepos: [String: String]?
 
     /// Whether this card's project is configured for remote execution.
     public var isRemote: Bool
@@ -187,29 +122,14 @@ public struct Link: Identifiable, Codable, Sendable {
 
     // MARK: - Display
 
-    /// Best display title from link data alone: name → promptBody → branch → PR title → session ID.
+    /// Best display title from link data alone: name → promptBody → branch → session ID.
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
         if let promptBody, !promptBody.isEmpty { return String(promptBody.prefix(100)) }
         if let branch = worktreeLink?.branch, !branch.isEmpty { return branch }
-        if let prTitle = prLink?.title, !prTitle.isEmpty { return prTitle }
         if let sid = sessionLink?.sessionId { return sid }
         return id
     }
-
-    // MARK: - Multi-PR computed properties
-
-    /// Primary PR (first in array, or nil). Backward-compat shorthand.
-    public var prLink: PRLink? { prLinks.first }
-    /// The single open PR eligible for merge, or nil if 0 or 2+ open PRs exist.
-    public var mergeablePR: PRLink? {
-        let open = prLinks.filter { $0.status != .merged && $0.status != .closed }
-        return open.count == 1 ? open.first : nil
-    }
-    /// Worst PR status across all PRs (highest urgency).
-    public var worstPRStatus: PRStatus? { prLinks.compactMap(\.status).min() }
-    /// True if ALL PRs are merged or closed.
-    public var allPRsDone: Bool { !prLinks.isEmpty && prLinks.allSatisfy { $0.status == .merged || $0.status == .closed } }
 
     // MARK: - Backward-compat computed properties
 
@@ -223,21 +143,13 @@ public struct Link: Identifiable, Codable, Sendable {
     public var worktreePath: String? { worktreeLink?.path }
     /// Git branch name. Use `worktreeLink?.branch` for new code.
     public var worktreeBranch: String? { worktreeLink?.branch }
-    /// GitHub issue number. Use `issueLink?.number` for new code.
-    public var githubIssue: Int? { issueLink?.number }
-    /// GitHub PR number. Use `prLinks.first?.number` for new code.
-    public var githubPR: Int? { prLinks.first?.number }
     /// Session display number. Use `sessionLink?.sessionNumber` for new code.
     public var sessionNumber: Int? { sessionLink?.sessionNumber }
-    /// Issue body or manual prompt. Use `issueLink?.body ?? promptBody` for new code.
-    public var issueBody: String? { issueLink?.body ?? promptBody }
 
     /// The primary label for this card based on which links are present.
     public var cardLabel: CardLabel {
         if sessionLink != nil { return .session }
         if worktreeLink != nil { return .worktree }
-        if issueLink != nil { return .issue }
-        if !prLinks.isEmpty { return .pr }
         return .task
     }
 
@@ -251,10 +163,6 @@ public struct Link: Identifiable, Codable, Sendable {
         }
         if source.tmuxLink != nil && target.tmuxLink != nil {
             return "Cannot merge: both cards have terminals"
-        }
-        if source.issueLink != nil && target.issueLink != nil
-            && source.issueLink != target.issueLink {
-            return "Cannot merge: both cards have different issues"
         }
         if source.worktreeLink != nil && target.worktreeLink != nil
             && source.worktreeLink != target.worktreeLink {
@@ -282,15 +190,11 @@ public struct Link: Identifiable, Codable, Sendable {
         sessionLink: SessionLink? = nil,
         tmuxLink: TmuxLink? = nil,
         worktreeLink: WorktreeLink? = nil,
-        prLinks: [PRLink] = [],
-        issueLink: IssueLink? = nil,
         queuedPrompts: [QueuedPrompt]? = nil,
         assistant: CodingAssistant? = nil,
         isRemote: Bool = false,
         isLaunching: Bool? = nil,
-        sortOrder: Int? = nil,
-        discoveredBranches: [String]? = nil,
-        discoveredRepos: [String: String]? = nil
+        sortOrder: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -308,15 +212,11 @@ public struct Link: Identifiable, Codable, Sendable {
         self.sessionLink = sessionLink
         self.tmuxLink = tmuxLink
         self.worktreeLink = worktreeLink
-        self.prLinks = prLinks
-        self.issueLink = issueLink
         self.queuedPrompts = queuedPrompts
         self.assistant = assistant
         self.isRemote = isRemote
         self.isLaunching = isLaunching
         self.sortOrder = sortOrder
-        self.discoveredBranches = discoveredBranches
-        self.discoveredRepos = discoveredRepos
     }
 
     // MARK: - Backward-compatible Codable
@@ -325,13 +225,12 @@ public struct Link: Identifiable, Codable, Sendable {
         // Card-level
         case id, name, projectPath, column, createdAt, updatedAt, lastActivity, lastOpenedAt
         case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isRemote, isLaunching, sortOrder
-        case discoveredBranches, discoveredRepos, assistant
+        case assistant
         // Typed links (new nested format)
-        case sessionLink, tmuxLink, worktreeLink, prLinks, issueLink, queuedPrompts
+        case sessionLink, tmuxLink, worktreeLink, queuedPrompts
         // Old format keys (for reading legacy format)
-        case prLink
         case sessionId, sessionPath, worktreePath, worktreeBranch
-        case tmuxSession, githubIssue, githubPR, sessionNumber, issueBody
+        case tmuxSession, sessionNumber, issueBody
     }
 
     public init(from decoder: Decoder) throws {
@@ -353,8 +252,6 @@ public struct Link: Identifiable, Codable, Sendable {
         isRemote = try c.decodeIfPresent(Bool.self, forKey: .isRemote) ?? false
         isLaunching = try c.decodeIfPresent(Bool.self, forKey: .isLaunching)
         sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
-        discoveredBranches = try c.decodeIfPresent([String].self, forKey: .discoveredBranches)
-        discoveredRepos = try c.decodeIfPresent([String: String].self, forKey: .discoveredRepos)
         assistant = try c.decodeIfPresent(CodingAssistant.self, forKey: .assistant)
 
         // Session link: try nested first, fallback to flat
@@ -391,29 +288,9 @@ public struct Link: Identifiable, Codable, Sendable {
             }
         }
 
-        // PR links: try array first, fallback to singular prLink, fallback to legacy githubPR
-        if let pls = try c.decodeIfPresent([PRLink].self, forKey: .prLinks) {
-            prLinks = pls
-        } else if let pl = try c.decodeIfPresent(PRLink.self, forKey: .prLink) {
-            prLinks = [pl]
-        } else if let pn = try c.decodeIfPresent(Int.self, forKey: .githubPR) {
-            prLinks = [PRLink(number: pn)]
-        } else {
-            prLinks = []
-        }
-
-        // Issue link
-        if let il = try c.decodeIfPresent(IssueLink.self, forKey: .issueLink) {
-            issueLink = il
-        } else if let issueNum = try c.decodeIfPresent(Int.self, forKey: .githubIssue) {
-            let body = try c.decodeIfPresent(String.self, forKey: .issueBody)
-            issueLink = IssueLink(number: issueNum, body: body)
-        } else {
-            issueLink = nil
-            // Migrate issueBody to promptBody for manual tasks
-            if promptBody == nil {
-                promptBody = try c.decodeIfPresent(String.self, forKey: .issueBody)
-            }
+        // Migrate legacy issueBody to promptBody for manual tasks
+        if promptBody == nil {
+            promptBody = try c.decodeIfPresent(String.self, forKey: .issueBody)
         }
 
         queuedPrompts = try c.decodeIfPresent([QueuedPrompt].self, forKey: .queuedPrompts)
@@ -438,18 +315,12 @@ public struct Link: Identifiable, Codable, Sendable {
         try c.encode(isRemote, forKey: .isRemote)
         try c.encodeIfPresent(isLaunching, forKey: .isLaunching)
         try c.encodeIfPresent(sortOrder, forKey: .sortOrder)
-        try c.encodeIfPresent(discoveredBranches, forKey: .discoveredBranches)
-        try c.encodeIfPresent(discoveredRepos, forKey: .discoveredRepos)
         try c.encodeIfPresent(assistant, forKey: .assistant)
 
         // Always write new nested format
         try c.encodeIfPresent(sessionLink, forKey: .sessionLink)
         try c.encodeIfPresent(tmuxLink, forKey: .tmuxLink)
         try c.encodeIfPresent(worktreeLink, forKey: .worktreeLink)
-        if !prLinks.isEmpty {
-            try c.encode(prLinks, forKey: .prLinks)
-        }
-        try c.encodeIfPresent(issueLink, forKey: .issueLink)
         try c.encodeIfPresent(queuedPrompts, forKey: .queuedPrompts)
     }
 }
@@ -460,12 +331,6 @@ public struct ManualOverrides: Codable, Sendable {
     public var tmuxSession: Bool
     public var name: Bool
     public var column: Bool
-    public var prLink: Bool
-    public var issueLink: Bool
-
-    /// PR numbers the user explicitly dismissed. Prevents re-discovery of specific PRs
-    /// while allowing other PRs to still be attached.
-    public var dismissedPRs: [Int]?
 
     /// Byte offset into the session JSONL. Data before this point is ignored for branch discovery.
     /// Advances as incremental scanning processes new bytes.
@@ -478,30 +343,17 @@ public struct ManualOverrides: Codable, Sendable {
         branchWatermark != nil || worktreePath
     }
 
-    /// Whether a specific PR number has been dismissed by the user.
-    public func isPRDismissed(_ number: Int) -> Bool {
-        // Legacy: prLink == true means all PRs were dismissed (old format)
-        if prLink { return true }
-        return dismissedPRs?.contains(number) == true
-    }
-
     public init(
         worktreePath: Bool = false,
         tmuxSession: Bool = false,
         name: Bool = false,
         column: Bool = false,
-        prLink: Bool = false,
-        issueLink: Bool = false,
-        dismissedPRs: [Int]? = nil,
         branchWatermark: Int? = nil
     ) {
         self.worktreePath = worktreePath
         self.tmuxSession = tmuxSession
         self.name = name
         self.column = column
-        self.prLink = prLink
-        self.issueLink = issueLink
-        self.dismissedPRs = dismissedPRs
         self.branchWatermark = branchWatermark
     }
 
@@ -511,9 +363,6 @@ public struct ManualOverrides: Codable, Sendable {
         tmuxSession = try c.decodeIfPresent(Bool.self, forKey: .tmuxSession) ?? false
         name = try c.decodeIfPresent(Bool.self, forKey: .name) ?? false
         column = try c.decodeIfPresent(Bool.self, forKey: .column) ?? false
-        prLink = try c.decodeIfPresent(Bool.self, forKey: .prLink) ?? false
-        issueLink = try c.decodeIfPresent(Bool.self, forKey: .issueLink) ?? false
-        dismissedPRs = try c.decodeIfPresent([Int].self, forKey: .dismissedPRs)
         branchWatermark = try c.decodeIfPresent(Int.self, forKey: .branchWatermark)
     }
 }
@@ -522,7 +371,6 @@ public struct ManualOverrides: Codable, Sendable {
 public enum LinkSource: String, Codable, Sendable {
     case discovered // Found via session scanning
     case hook // Created via Claude hook event
-    case githubIssue = "github_issue" // Created from a GitHub issue
     case manual // User-created task
 }
 

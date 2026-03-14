@@ -16,7 +16,6 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     private let activityDetector: any ActivityDetector
     private let hookEventStore: HookEventStore
     private let tmux: TmuxManagerPort?
-    private let prTracker: PRTrackerPort?
     private let notificationDedup: NotificationDeduplicator
     private var notifier: NotifierPort?
     private let registry: CodingAssistantRegistry?
@@ -34,7 +33,6 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         activityDetector: any ActivityDetector,
         hookEventStore: HookEventStore = .init(),
         tmux: TmuxManagerPort? = nil,
-        prTracker: PRTrackerPort? = nil,
         notificationDedup: NotificationDeduplicator = .init(),
         notifier: NotifierPort? = nil,
         registry: CodingAssistantRegistry? = nil
@@ -44,7 +42,6 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         self.activityDetector = activityDetector
         self.hookEventStore = hookEventStore
         self.tmux = tmux
-        self.prTracker = prTracker
         self.notificationDedup = notificationDedup
         self.notifier = notifier
         self.registry = registry
@@ -82,88 +79,6 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     /// Set the dispatch callback for sending actions to the BoardStore.
     public func setDispatch(_ dispatch: @MainActor @Sendable @escaping (Action) -> Void) {
         self.dispatch = dispatch
-    }
-
-    /// Force re-scan a card's conversation for pushed branches and re-fetch PRs.
-    /// Used by the UI "Discover" button to manually trigger discovery for older cards.
-    /// Returns the updated Link so callers can sync it to in-memory state.
-    @discardableResult
-    public func discoverBranchesForCard(cardId: String) async -> Link? {
-        do {
-            var links = try await coordinationStore.readLinks()
-            guard let idx = links.firstIndex(where: { $0.id == cardId }),
-                  let sessionPath = links[idx].sessionLink?.sessionPath else { return nil }
-
-            // Explicit discovery: clear watermark, legacy flags, and PR override for full rescan
-            links[idx].manualOverrides.branchWatermark = nil
-            links[idx].manualOverrides.worktreePath = false
-            links[idx].manualOverrides.prLink = false
-            links[idx].manualOverrides.dismissedPRs = nil
-            links[idx].discoveredBranches = nil
-            links[idx].discoveredRepos = nil
-            let scanned = (try? await JsonlParser.extractPushedBranches(from: sessionPath)) ?? []
-            links[idx].discoveredBranches = scanned.map(\.branch)
-            // Store repo paths for branches that differ from projectPath
-            var repos: [String: String] = [:]
-            for db in scanned {
-                if let repo = db.repoPath, repo != links[idx].projectPath {
-                    repos[db.branch] = repo
-                }
-            }
-            links[idx].discoveredRepos = repos.isEmpty ? nil : repos
-
-            // Re-fetch PRs — group branches by repo for batch fetching
-            if let prTracker {
-                let projectPath = links[idx].projectPath
-                // Collect all branches with their effective repo paths
-                var branchesByRepo: [String: [String]] = [:]
-                if let branch = links[idx].worktreeLink?.branch, let pp = projectPath {
-                    branchesByRepo[pp, default: []].append(branch)
-                }
-                for db in scanned {
-                    let repo = db.repoPath ?? projectPath ?? ""
-                    guard !repo.isEmpty else { continue }
-                    branchesByRepo[repo, default: []].append(db.branch)
-                }
-
-                // Fetch PRs from each repo
-                for (repo, branches) in branchesByRepo {
-                    var allPRs: [String: PullRequest] = [:]
-                    if var prs = try? await prTracker.fetchPRs(repoRoot: repo) {
-                        try? await prTracker.enrichPRDetails(repoRoot: repo, prs: &prs)
-                        allPRs = prs
-                    }
-                    for branch in branches {
-                        if let pr = allPRs[branch],
-                           !links[idx].prLinks.contains(where: { $0.number == pr.number }) {
-                            links[idx].prLinks.append(PRLink(
-                                number: pr.number, url: pr.url,
-                                status: pr.status, title: pr.title,
-                                approvalCount: pr.approvalCount > 0 ? pr.approvalCount : nil,
-                                checkRuns: pr.checkRuns.isEmpty ? nil : pr.checkRuns,
-                                firstUnresolvedThreadURL: pr.firstUnresolvedThreadURL,
-                                mergeStateStatus: pr.mergeStateStatus
-                            ))
-                        }
-                    }
-                }
-            }
-
-            // Run column assignment after discovery
-            var activityState: ActivityState?
-            if let sessionId = links[idx].sessionLink?.sessionId {
-                activityState = await activityDetector.activityState(for: sessionId)
-            }
-            let hasWorktree = links[idx].worktreeLink?.branch != nil
-            UpdateCardColumn.update(link: &links[idx], activityState: activityState, hasWorktree: hasWorktree)
-
-            links[idx].updatedAt = .now
-            try await coordinationStore.writeLinks(links)
-            return links[idx]
-        } catch {
-            // Best-effort
-            return nil
-        }
     }
 
     /// Stop the background loop.

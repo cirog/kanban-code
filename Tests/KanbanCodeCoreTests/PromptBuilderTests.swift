@@ -16,42 +16,8 @@ struct PromptBuilderTests {
         #expect(prompt == "Fix the authentication bug in the login flow")
     }
 
-    @Test("GitHub issue applies default template")
-    func githubIssueDefaultTemplate() {
-        let link = Link(
-            name: "#42: Fix login",
-            source: .githubIssue,
-            issueLink: IssueLink(number: 42, body: "The login form crashes")
-        )
-        let prompt = PromptBuilder.buildPrompt(card: link)
-        #expect(prompt.contains("#42:"))
-        #expect(prompt.contains("The login form crashes"))
-    }
 
-    @Test("GitHub issue with custom template")
-    func githubIssueCustomTemplate() {
-        let link = Link(
-            name: "#42: Fix login",
-            source: .githubIssue,
-            issueLink: IssueLink(number: 42, body: "Bug report")
-        )
-        let settings = Settings(githubIssuePromptTemplate: "Issue ${number}: ${body}")
-        let prompt = PromptBuilder.buildPrompt(card: link, settings: settings)
-        #expect(prompt == "Issue 42: Bug report")
-    }
 
-    @Test("Project template overrides global")
-    func projectTemplateOverridesGlobal() {
-        let link = Link(
-            name: "#10: Feature",
-            source: .githubIssue,
-            issueLink: IssueLink(number: 10, body: "Add dark mode")
-        )
-        let settings = Settings(githubIssuePromptTemplate: "GLOBAL: ${body}")
-        let project = Project(path: "/p", githubIssuePromptTemplate: "PROJECT: ${body}")
-        let prompt = PromptBuilder.buildPrompt(card: link, project: project, settings: settings)
-        #expect(prompt == "PROJECT: Add dark mode")
-    }
 
     @Test("Prompt template wraps the result")
     func promptTemplateWraps() {

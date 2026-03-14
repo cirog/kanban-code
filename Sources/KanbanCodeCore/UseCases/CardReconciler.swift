@@ -8,10 +8,9 @@ import Foundation
 /// - Create new cards for truly unmatched sessions
 /// - Match discovered worktrees to existing cards (by branch)
 /// - Create orphan worktree cards for unmatched worktrees
-/// - Add/update PR links via branch matching
 /// - Clear dead tmux and worktree links
 ///
-/// NOT responsible for: column assignment, activity detection, GitHub issue syncing.
+/// NOT responsible for: column assignment, activity detection.
 public enum CardReconciler {
 
     /// A point-in-time snapshot of all discovered external resources.
@@ -20,20 +19,17 @@ public enum CardReconciler {
         public let tmuxSessions: [TmuxSession]
         public let didScanTmux: Bool                    // true if tmux was queried (even if 0 results)
         public let worktrees: [String: [Worktree]]     // repoRoot → worktrees
-        public let pullRequests: [String: PullRequest]  // branch → PR
 
         public init(
             sessions: [Session] = [],
             tmuxSessions: [TmuxSession] = [],
             didScanTmux: Bool = false,
-            worktrees: [String: [Worktree]] = [:],
-            pullRequests: [String: PullRequest] = [:]
+            worktrees: [String: [Worktree]] = [:]
         ) {
             self.sessions = sessions
             self.tmuxSessions = tmuxSessions
             self.didScanTmux = didScanTmux
             self.worktrees = worktrees
-            self.pullRequests = pullRequests
         }
     }
 
@@ -61,14 +57,6 @@ public enum CardReconciler {
             }
             if let branch = link.worktreeLink?.branch {
                 cardIdsByBranch[branch, default: []].append(link.id)
-            }
-            // Also index discovered branches (from git push scanning) for PR matching
-            if let discovered = link.discoveredBranches {
-                for branch in discovered {
-                    if !(cardIdsByBranch[branch]?.contains(link.id) ?? false) {
-                        cardIdsByBranch[branch, default: []].append(link.id)
-                    }
-                }
             }
         }
 
@@ -238,8 +226,7 @@ public enum CardReconciler {
                                 continue
                             } else {
                                 // Attach worktree only if repo matches the card's expected repo for this branch.
-                                // discoveredRepos tracks which repo each branch came from; absent = projectPath.
-                                let expectedRepo = link.discoveredRepos?[baseName] ?? link.projectPath
+                                let expectedRepo = link.projectPath
                                 guard expectedRepo == nil || expectedRepo == repoRoot else { continue }
                                 KanbanCodeLog.info("reconciler", "Setting worktreeLink on card \(cardId.prefix(12)) for branch=\(baseName)")
                                 link.worktreeLink = WorktreeLink(path: worktree.path, branch: baseName)
@@ -263,7 +250,6 @@ public enum CardReconciler {
                    newBranch != oldBranch {
                     var updated = link
                     updated.worktreeLink?.branch = newBranch
-                    updated.prLinks = []  // PR was matched via old branch — clear stale link
                     linksById[link.id] = updated
                     // Update branch index
                     cardIdsByBranch[oldBranch]?.removeAll { $0 == link.id }
@@ -300,32 +286,7 @@ public enum CardReconciler {
             cardIdsByBranch[branch] = cardIds.filter { !orphanIds.contains($0) || $0 == keeperId }
         }
 
-        // C. Match PRs to existing cards via branch (add or update)
-        for (branch, pr) in snapshot.pullRequests {
-            let cardIds = cardIdsByBranch[branch] ?? []
-            if cardIds.isEmpty {
-                KanbanCodeLog.info("reconciler", "PR #\(pr.number) on branch=\(branch) has no matching card")
-            }
-            for cardId in cardIds {
-                if var link = linksById[cardId] {
-                    // User dismissed this PR — don't re-add
-                    if link.manualOverrides.isPRDismissed(pr.number) { continue }
-                    if let idx = link.prLinks.firstIndex(where: { $0.number == pr.number }) {
-                        KanbanCodeLog.info("reconciler", "Updating PR #\(pr.number) on card \(cardId.prefix(12)): status=\(pr.status)")
-                        link.prLinks[idx].status = pr.status
-                        link.prLinks[idx].url = pr.url
-                        link.prLinks[idx].title = pr.title
-                        link.prLinks[idx].mergeStateStatus = pr.mergeStateStatus
-                    } else {
-                        KanbanCodeLog.info("reconciler", "Adding PR #\(pr.number) to card \(cardId.prefix(12)): status=\(pr.status)")
-                        link.prLinks.append(PRLink(number: pr.number, url: pr.url, status: pr.status, title: pr.title, mergeStateStatus: pr.mergeStateStatus))
-                    }
-                    linksById[cardId] = link
-                }
-            }
-        }
-
-        // D. Clear dead links
+        // C. Clear dead links
         for (id, var link) in linksById {
             var changed = false
 

@@ -8,8 +8,6 @@ public enum AssignColumn {
     public static func assign(
         link: Link,
         activityState: ActivityState? = nil,
-        hasPR: Bool = false,
-        allPRsDone: Bool = false,
         hasWorktree: Bool = false
     ) -> KanbanCodeColumn {
         // Manual backlog override is sticky — user explicitly parked this card.
@@ -31,21 +29,9 @@ public enum AssignColumn {
             return .allSessions
         }
 
-        // Terminal PR state
-        if allPRsDone {
-            return .done
-        }
-
         // Manual drag override (non-terminal)
         if link.manualOverrides.column {
             return link.column
-        }
-
-        // PR exists and session not actively working → inReview
-        // This skips Waiting when addressing review feedback: Claude stops → goes directly to In Review
-        if hasPR, let state = activityState,
-           state == .needsAttention || state == .idleWaiting || state == .ended || state == .stale {
-            return .inReview
         }
 
         // Activity-based assignment
@@ -65,11 +51,6 @@ public enum AssignColumn {
             case .stale:
                 break // No hook data: fall through to recency check below
             }
-        }
-
-        // GitHub issue source without a session yet → backlog
-        if link.source == .githubIssue && link.sessionLink == nil {
-            return .backlog
         }
 
         // Manual task without a session yet → backlog

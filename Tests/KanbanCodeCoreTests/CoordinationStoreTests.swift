@@ -189,16 +189,10 @@ struct CoordinationStoreTests {
         #expect(link.tmuxLink?.sessionName == "feat-login")
         #expect(link.worktreeLink?.path == "/path/to/worktree")
         #expect(link.worktreeLink?.branch == "feat/login")
-        #expect(link.issueLink?.number == 123)
-        #expect(link.issueLink?.body == "Fix the bug")
-        #expect(link.prLink?.number == 456)
-
         // Backward-compat computed properties still work
         #expect(link.sessionId == "claude-session-1")
         #expect(link.tmuxSession == "feat-login")
         #expect(link.worktreePath == "/path/to/worktree")
         #expect(link.worktreeBranch == "feat/login")
-        #expect(link.githubIssue == 123)
-        #expect(link.githubPR == 456)
     }
 }

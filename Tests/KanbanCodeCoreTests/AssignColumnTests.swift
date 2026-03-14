@@ -35,31 +35,13 @@ struct AssignColumnTests {
         #expect(col == .allSessions)
     }
 
-    @Test("All PRs merged → done")
-    func allPRsDone() {
-        let link = Link(sessionLink: SessionLink(sessionId: "s1"), prLinks: [PRLink(number: 1, status: .merged)])
-        let col = AssignColumn.assign(link: link, hasPR: true, allPRsDone: true)
-        #expect(col == .done)
-    }
 
-    @Test("PR exists + idle → inReview")
-    func prExistsIdle() {
-        let link = Link(sessionLink: SessionLink(sessionId: "s1"))
-        let col = AssignColumn.assign(link: link, activityState: .idleWaiting, hasPR: true)
-        #expect(col == .inReview)
-    }
 
-    @Test("PR exists + needsAttention → inReview (skips waiting for review workflow)")
-    func prExistsNeedsAttention() {
-        let link = Link(sessionLink: SessionLink(sessionId: "s1"))
-        let col = AssignColumn.assign(link: link, activityState: .needsAttention, hasPR: true)
-        #expect(col == .inReview)
-    }
 
     @Test("PR exists + actively working → inProgress (not inReview)")
     func prExistsActive() {
         let link = Link(sessionLink: SessionLink(sessionId: "s1"))
-        let col = AssignColumn.assign(link: link, activityState: .activelyWorking, hasPR: true)
+        let col = AssignColumn.assign(link: link, activityState: .activelyWorking)
         #expect(col == .inProgress)
     }
 
@@ -135,7 +117,7 @@ struct AssignColumnTests {
 
     @Test("GitHub issue without session → backlog")
     func githubIssueBacklog() {
-        let link = Link(source: .githubIssue)
+        let link = Link(source: .manual)
         let col = AssignColumn.assign(link: link)
         #expect(col == .backlog)
     }

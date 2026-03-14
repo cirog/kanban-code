@@ -527,8 +527,6 @@ private struct ListCardRowView: View {
 
     private var supportingText: String? {
         let candidates = [
-            card.link.issueLink?.title,
-            card.link.prLink?.title,
             card.link.promptBody,
         ]
         return candidates.first(where: { text in
@@ -603,25 +601,6 @@ private struct ListCardRowView: View {
                         .foregroundStyle(.green)
                     }
 
-                    if let primary = card.link.prLink {
-                        let totalThreads = card.link.prLinks.compactMap(\.unresolvedThreads).reduce(0, +)
-                        PRBadge(status: card.link.worstPRStatus, prNumber: primary.number, unresolvedThreads: totalThreads)
-                    }
-
-                    if card.isRateLimited {
-                        RateLimitBadge()
-                    }
-
-                    if let issue = card.link.issueLink {
-                        HStack(spacing: 2) {
-                            Image(systemName: "circle.circle")
-                                .font(.app(.caption2))
-                            Text(verbatim: "\(issue.number)")
-                                .font(.app(.caption2))
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-
                     if card.link.isRemote {
                         Image(systemName: "cloud")
                             .font(.app(.caption2))
@@ -677,25 +656,6 @@ private struct ListCardRowView: View {
             Button(action: onCopyResumeCmd) {
                 Label("Copy Resume Command", systemImage: "doc.on.doc")
             }
-            Divider()
-            ForEach(card.link.prLinks, id: \.number) { pr in
-                Button {
-                    if let url = pr.url.flatMap({ URL(string: $0) }) {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    Label("Open PR #\(pr.number)", systemImage: "arrow.up.right.square")
-                }
-            }
-            if let issue = card.link.issueLink {
-                Button {
-                    if let url = issue.url.flatMap({ URL(string: $0) }) {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    Label("Open Issue #\(issue.number)", systemImage: "arrow.up.right.square")
-                }
-            }
             if card.link.worktreeLink != nil, canCleanupWorktree {
                 Divider()
                 Button(role: .destructive, action: onCleanupWorktree) {
@@ -739,10 +699,8 @@ private struct ListCardRowView: View {
             }
             Divider()
             if card.link.manuallyArchived {
-                if card.link.source != .githubIssue {
-                    Button(role: .destructive, action: onDelete) {
-                        Label("Delete Card", systemImage: "trash")
-                    }
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete Card", systemImage: "trash")
                 }
             } else {
                 Button(action: onArchive) {

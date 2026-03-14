@@ -29,16 +29,9 @@ enum CardDropIntent: Equatable {
             return .move
 
         case .inReview:
-            if card.link.prLinks.isEmpty {
-                return .invalid("Cannot move to In Review - card has no pull request")
-            }
             return .move
 
         case .done:
-            let hasMergedPR = card.link.prLinks.contains { $0.status == .merged }
-            if !hasMergedPR {
-                return .invalid("Cannot move to Done - no merged pull request")
-            }
             return .move
 
         case .allSessions:

@@ -21,7 +21,6 @@ struct LaunchFlowIntegrationTests {
         isLaunching: Bool? = nil,
         source: LinkSource = .manual,
         name: String? = "Test card",
-        discoveredBranches: [String]? = nil,
         updatedAt: Date = .now
     ) -> Link {
         Link(
@@ -34,8 +33,7 @@ struct LaunchFlowIntegrationTests {
             sessionLink: sessionLink,
             tmuxLink: tmuxLink,
             worktreeLink: worktreeLink,
-            isLaunching: isLaunching,
-            discoveredBranches: discoveredBranches
+            isLaunching: isLaunching
         )
     }
 
@@ -328,8 +326,7 @@ struct LaunchFlowIntegrationTests {
             id: "card_pr",
             column: .inProgress,
             projectPath: "/test/project",
-            sessionLink: SessionLink(sessionId: "sess_123"),
-            discoveredBranches: ["feat-login", "feat-signup"]
+            sessionLink: SessionLink(sessionId: "sess_123")
         )
 
         let snapshot = CardReconciler.DiscoverySnapshot(
@@ -337,52 +334,14 @@ struct LaunchFlowIntegrationTests {
                 Session(id: "sess_123", projectPath: "/test/project", messageCount: 5, modifiedTime: .now)
             ],
             tmuxSessions: [],
-            didScanTmux: true,
-            pullRequests: [
-                "feat-login": PullRequest(number: 42, title: "Login feature", state: "open", url: "https://github.com/test/pr/42", headRefName: "feat-login")
-            ]
+            didScanTmux: true
         )
 
         let result = CardReconciler.reconcile(existing: [card], snapshot: snapshot)
 
         let updated = result.first(where: { $0.id == "card_pr" })
-        #expect(updated?.prLinks.count == 1)
-        #expect(updated?.prLinks.first?.number == 42)
-        #expect(updated?.prLinks.first?.title == "Login feature")
     }
 
-    @Test("Discovered branches don't create orphan worktree cards")
-    func discoveredBranchesDontCreateOrphans() {
-        // Card has discoveredBranches, and a worktree exists on that branch.
-        // Should match (not create orphan).
-        let card = makeLink(
-            id: "card_disc",
-            column: .inProgress,
-            projectPath: "/test/project",
-            sessionLink: SessionLink(sessionId: "sess_abc"),
-            discoveredBranches: ["feat-existing"]
-        )
-
-        let snapshot = CardReconciler.DiscoverySnapshot(
-            sessions: [
-                Session(id: "sess_abc", projectPath: "/test/project", messageCount: 1, modifiedTime: .now)
-            ],
-            tmuxSessions: [],
-            didScanTmux: true,
-            worktrees: [
-                "/test/project": [
-                    Worktree(path: "/test/project/.claude/worktrees/feat-existing", branch: "refs/heads/feat-existing", isBare: false)
-                ]
-            ]
-        )
-
-        let result = CardReconciler.reconcile(existing: [card], snapshot: snapshot)
-
-        // Should have matched the worktree to the existing card, not created an orphan
-        #expect(result.count == 1)
-        let updated = result.first(where: { $0.id == "card_disc" })
-        #expect(updated?.worktreeLink?.branch == "feat-existing")
-    }
 
     // MARK: - Project filter with worktree paths
 
@@ -416,6 +375,7 @@ struct LaunchFlowIntegrationTests {
             directCard.id: directCard,
             otherCard.id: otherCard,
         ]
+        state.rebuildCards()
 
         // Filter by monorepo subfolder
         state.selectedProjectPath = "/projects/monorepo/packages/app"

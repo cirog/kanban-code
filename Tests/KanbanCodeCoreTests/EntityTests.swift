@@ -22,49 +22,10 @@ struct EntityTests {
         #expect(session.displayTitle == "abc-1234...")
     }
 
-    @Test("PullRequest status derivation — failing CI")
-    func prStatusFailing() {
-        let pr = PullRequest(
-            number: 1, title: "Test", state: "open", url: "", headRefName: "feat",
-            checksStatus: .fail
-        )
-        #expect(pr.status == .failing)
-    }
 
-    @Test("PullRequest status derivation — unresolved threads")
-    func prStatusUnresolved() {
-        let pr = PullRequest(
-            number: 1, title: "Test", state: "open", url: "", headRefName: "feat",
-            checksStatus: .pass, unresolvedThreads: 3
-        )
-        #expect(pr.status == .unresolved)
-    }
 
-    @Test("PullRequest status derivation — approved")
-    func prStatusApproved() {
-        let pr = PullRequest(
-            number: 1, title: "Test", state: "open", url: "", headRefName: "feat",
-            reviewDecision: "APPROVED", checksStatus: .pass
-        )
-        #expect(pr.status == .approved)
-    }
 
-    @Test("PullRequest status derivation — merged")
-    func prStatusMerged() {
-        let pr = PullRequest(
-            number: 1, title: "Test", state: "merged", url: "", headRefName: "feat"
-        )
-        #expect(pr.status == .merged)
-    }
 
-    @Test("PRStatus ordering — failing has highest urgency")
-    func prStatusOrdering() {
-        #expect(PRStatus.failing < PRStatus.unresolved)
-        #expect(PRStatus.unresolved < PRStatus.changesRequested)
-        #expect(PRStatus.changesRequested < PRStatus.reviewNeeded)
-        #expect(PRStatus.reviewNeeded < PRStatus.approved)
-        #expect(PRStatus.approved < PRStatus.merged)
-    }
 
     @Test("KanbanCodeColumn display names")
     func columnDisplayNames() {
@@ -99,77 +60,6 @@ struct EntityTests {
     func projectRepoRootFallback() {
         let p = Project(path: "/a/b/langwatch")
         #expect(p.effectiveRepoRoot == "/a/b/langwatch")
-    }
-
-    // MARK: - Codable round-trips
-
-    @Test("CheckRun Codable round-trip")
-    func checkRunCodable() throws {
-        let run = CheckRun(name: "build", status: .completed, conclusion: .success)
-        let data = try JSONEncoder().encode(run)
-        let decoded = try JSONDecoder().decode(CheckRun.self, from: data)
-        #expect(decoded == run)
-    }
-
-    @Test("CheckRun with in_progress status Codable")
-    func checkRunInProgressCodable() throws {
-        let run = CheckRun(name: "deploy", status: .inProgress)
-        let data = try JSONEncoder().encode(run)
-        let json = String(data: data, encoding: .utf8)!
-        #expect(json.contains("in_progress"))
-        let decoded = try JSONDecoder().decode(CheckRun.self, from: data)
-        #expect(decoded == run)
-        #expect(decoded.conclusion == nil)
-    }
-
-    @Test("PRLink with new fields Codable round-trip")
-    func prLinkCodable() throws {
-        let link = PRLink(
-            number: 42,
-            url: "https://github.com/org/repo/pull/42",
-            status: .approved,
-            unresolvedThreads: 2,
-            title: "Fix login flow",
-            approvalCount: 3,
-            checkRuns: [
-                CheckRun(name: "build", status: .completed, conclusion: .success),
-                CheckRun(name: "lint", status: .completed, conclusion: .failure),
-            ]
-        )
-        let data = try JSONEncoder().encode(link)
-        let decoded = try JSONDecoder().decode(PRLink.self, from: data)
-        #expect(decoded == link)
-        #expect(decoded.title == "Fix login flow")
-        #expect(decoded.approvalCount == 3)
-        #expect(decoded.checkRuns?.count == 2)
-    }
-
-    @Test("PRLink backward-compat decodes without new fields")
-    func prLinkBackwardCompat() throws {
-        let json = #"{"number":7,"url":"https://example.com/pull/7","status":"approved"}"#
-        let decoded = try JSONDecoder().decode(PRLink.self, from: json.data(using: .utf8)!)
-        #expect(decoded.number == 7)
-        #expect(decoded.title == nil)
-        #expect(decoded.approvalCount == nil)
-        #expect(decoded.checkRuns == nil)
-    }
-
-    @Test("IssueLink with title Codable round-trip")
-    func issueLinkCodable() throws {
-        let link = IssueLink(number: 123, url: "https://github.com/org/repo/issues/123", body: "Fix bug", title: "Login broken")
-        let data = try JSONEncoder().encode(link)
-        let decoded = try JSONDecoder().decode(IssueLink.self, from: data)
-        #expect(decoded == link)
-        #expect(decoded.title == "Login broken")
-    }
-
-    @Test("IssueLink backward-compat decodes without title")
-    func issueLinkBackwardCompat() throws {
-        let json = #"{"number":5,"body":"some body"}"#
-        let decoded = try JSONDecoder().decode(IssueLink.self, from: json.data(using: .utf8)!)
-        #expect(decoded.number == 5)
-        #expect(decoded.title == nil)
-        #expect(decoded.body == "some body")
     }
 
     // MARK: - TmuxLink

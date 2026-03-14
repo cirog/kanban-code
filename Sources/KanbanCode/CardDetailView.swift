@@ -9,13 +9,11 @@ final class ActionsMenuProvider {
 }
 
 enum DetailTab: String {
-    case terminal, history, issue, pullRequest, prompt
+    case terminal, history, prompt
 
     static func initialTab(for card: KanbanCodeCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
         if card.link.sessionLink != nil { return .history }
-        if card.link.issueLink != nil { return .issue }
-        if !card.link.prLinks.isEmpty { return .pullRequest }
         if card.link.promptBody != nil { return .prompt }
         return .history
     }
@@ -64,8 +62,6 @@ struct CardDetailView: View {
     var onDismiss: () -> Void = {}
     var onUnlink: (Action.LinkType) -> Void = { _ in }
     var onAddBranch: (String) -> Void = { _ in }
-    var onAddIssue: (Int) -> Void = { _ in }
-    var onAddPR: (Int) -> Void = { _ in }
     var onCleanupWorktree: () -> Void = {}
     var canCleanupWorktree: Bool = true
     var onDeleteCard: () -> Void = {}
@@ -73,14 +69,12 @@ struct CardDetailView: View {
     var onKillTerminal: (String) -> Void = { _ in }
     var onRenameTerminal: (String, String) -> Void = { _, _ in } // (sessionName, label)
     var onReorderTerminal: (String, String?) -> Void = { _, _ in } // (sessionName, beforeSession)
-    var onPRMerged: (Int) -> Void = { _ in }
     var onCancelLaunch: () -> Void = {}
     var onAddQueuedPrompt: (QueuedPrompt) -> Void = { _ in }
     var onUpdateQueuedPrompt: (String, String, Bool) -> Void = { _, _, _ in } // promptId, body, sendAuto
     var onRemoveQueuedPrompt: (String) -> Void = { _ in }
     var onSendQueuedPrompt: (String) -> Void = { _ in }
     var onEditingQueuedPrompt: (String?) -> Void = { _ in } // promptId when editing, nil when done
-    var onDiscover: () -> Void = {}
     var onUpdatePrompt: (String, [String]?) -> Void = { _, _ in } // body, imagePaths
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String) -> Void = { _ in }
@@ -117,15 +111,6 @@ struct CardDetailView: View {
     // Copy toast
     @State private var copyToast: String?
 
-    // Resolved GitHub base URL for constructing issue/PR links
-    @State private var githubBaseURL: String?
-
-    // Lazy PR body loading
-    @State private var prBody: String?
-    @State private var isLoadingPRBody = false
-    @State private var isMerging = false
-    @State private var mergeError: String?
-    @State private var showMergeBlockedPopover = false
 
     // Queued prompts
     @State private var queuedPromptItem: QueuedPromptItem?
@@ -157,7 +142,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onAddIssue: @escaping (Int) -> Void = { _ in }, onAddPR: @escaping (Int) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onPRMerged: @escaping (Int) -> Void = { _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onDiscover: @escaping () -> Void = {}, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isExpanded: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
+    init(card: KanbanCodeCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onAddBranch: @escaping (String) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isExpanded: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -166,8 +151,6 @@ struct CardDetailView: View {
         self.onDismiss = onDismiss
         self.onUnlink = onUnlink
         self.onAddBranch = onAddBranch
-        self.onAddIssue = onAddIssue
-        self.onAddPR = onAddPR
         self.onCleanupWorktree = onCleanupWorktree
         self.canCleanupWorktree = canCleanupWorktree
         self.onDeleteCard = onDeleteCard
@@ -175,14 +158,12 @@ struct CardDetailView: View {
         self.onKillTerminal = onKillTerminal
         self.onRenameTerminal = onRenameTerminal
         self.onReorderTerminal = onReorderTerminal
-        self.onPRMerged = onPRMerged
         self.onCancelLaunch = onCancelLaunch
         self.onAddQueuedPrompt = onAddQueuedPrompt
         self.onUpdateQueuedPrompt = onUpdateQueuedPrompt
         self.onRemoveQueuedPrompt = onRemoveQueuedPrompt
         self.onSendQueuedPrompt = onSendQueuedPrompt
         self.onEditingQueuedPrompt = onEditingQueuedPrompt
-        self.onDiscover = onDiscover
         self.onUpdatePrompt = onUpdatePrompt
         self.availableProjects = availableProjects
         self.onMoveToProject = onMoveToProject
@@ -223,10 +204,6 @@ struct CardDetailView: View {
                     onLoadAroundTurn: { turnIndex in Task { await loadAroundTurn(turnIndex) } },
                     sessionPath: card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath
                 )
-            case .issue:
-                issueTabView
-            case .pullRequest:
-                prTabView
             case .prompt:
                 promptTabView
             }
@@ -239,25 +216,14 @@ struct CardDetailView: View {
             isLoadingMore = false
             hasMoreTurns = false
             checkpointMode = false
-            prBody = nil
-            isLoadingPRBody = false
             selectedTerminalSession = nil
             terminalGrabFocus = false
             // Reset tab to a valid one for this card (skip auto-focus)
             suppressTerminalFocus = true
             selectedTab = defaultTab(for: card)
-            // Resolve GitHub base URL for constructing issue/PR links
-            if let projectPath = card.link.projectPath {
-                githubBaseURL = await GitRemoteResolver.shared.githubBaseURL(for: projectPath)
-            } else {
-                githubBaseURL = nil
-            }
             await loadHistory()
             if selectedTab == .history {
                 startHistoryWatcher()
-            }
-            if selectedTab == .pullRequest {
-                await loadPRBody()
             }
         }
         .onChange(of: selectedTab) {
@@ -273,9 +239,6 @@ struct CardDetailView: View {
                 startHistoryWatcher()
             } else {
                 stopHistoryWatcher()
-            }
-            if selectedTab == .pullRequest && prBody == nil && !isLoadingPRBody {
-                Task { await loadPRBody() }
             }
         }
         .onChange(of: card.link.sessionLink?.sessionPath) {
@@ -886,143 +849,8 @@ struct CardDetailView: View {
         DetailTab.initialTab(for: card)
     }
 
-    // MARK: - Issue Tab
 
-    @ViewBuilder
-    private var issueTabView: some View {
-        if let issue = card.link.issueLink {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    // Header: title + number + open button
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(issue.title ?? card.displayTitle)
-                                .font(.app(.headline))
-                                .textSelection(.enabled)
-                            Text(verbatim: "#\(issue.number)")
-                                .font(.app(.subheadline))
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if let url = resolvedIssueURL(issue) {
-                            Button {
-                                NSWorkspace.shared.open(url)
-                            } label: {
-                                Label("Open in Browser", systemImage: "arrow.up.right.square")
-                                    .font(.app(.caption))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                    }
-
-                    Divider()
-
-                    // Markdown body
-                    if let body = issue.body, !body.isEmpty {
-                        Markdown(body)
-                            .markdownTheme(.compact)
-                            .textSelection(.enabled)
-                    } else {
-                        Text("No description provided.")
-                            .foregroundStyle(.tertiary)
-                            .italic()
-                    }
-                }
-                .padding(16)
-            }
-        }
-    }
-
-    // MARK: - Pull Request Tab
-
-    @ViewBuilder
-    private var prTabView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(card.link.prLinks.enumerated()), id: \.element.number) { index, pr in
-                    if index > 0 { Divider().padding(.vertical, 4) }
-
-                    // Header: title + badge
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(pr.title ?? "Pull Request")
-                            .font(.app(.headline))
-                            .textSelection(.enabled)
-                        HStack {
-                            PRBadge(status: pr.status, prNumber: pr.number)
-                            Spacer()
-                            if let url = resolvedPRURL(pr) {
-                                Button {
-                                    NSWorkspace.shared.open(url)
-                                } label: {
-                                    Label("Open in Browser", systemImage: "arrow.up.right.square")
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                    }
-
-                    // CI Check Runs
-                    if let checks = pr.checkRuns, !checks.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Checks")
-                                .font(.app(.subheadline, weight: .bold))
-                                .foregroundStyle(.secondary)
-                            ForEach(checks, id: \.name) { check in
-                                HStack(spacing: 6) {
-                                    checkRunIcon(check)
-                                    Text(check.name)
-                                        .font(.app(.caption))
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
-                    }
-
-                    // Reviews summary
-                    if pr.approvalCount != nil || pr.unresolvedThreads != nil {
-                        HStack(spacing: 16) {
-                            if let approvals = pr.approvalCount, approvals > 0 {
-                                Label("\(approvals) approval\(approvals == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
-                                    .font(.app(.caption))
-                                    .foregroundStyle(.green)
-                            }
-                            if let unresolved = pr.unresolvedThreads, unresolved > 0 {
-                                Label("\(unresolved) unresolved", systemImage: "bubble.left.fill")
-                                    .font(.app(.caption))
-                                    .foregroundStyle(.orange)
-                            }
-                        }
-                    }
-                }
-
-                Divider()
-
-                // PR Body (lazy loaded — shows primary PR body)
-                if isLoadingPRBody {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Loading PR description...")
-                            .font(.app(.caption))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .padding(.vertical, 8)
-                } else if let body = prBody ?? card.link.prLink?.body, !body.isEmpty {
-                    Markdown(htmlToMarkdownImages(body))
-                        .markdownTheme(.compact)
-                        .textSelection(.enabled)
-                } else {
-                    Text("No description provided.")
-                        .foregroundStyle(.tertiary)
-                        .italic()
-                }
-            }
-            .padding(16)
-        }
-    }
+    // Issue Tab, PR Tab, and PR helpers removed (GitHub integration stripped)
 
     // MARK: - Prompt Tab
 
@@ -1088,53 +916,8 @@ struct CardDetailView: View {
         }
     }
 
-    // MARK: - PR helpers
-
-    private func checkRunIcon(_ check: CheckRun) -> some View {
-        Group {
-            switch check.status {
-            case .completed:
-                switch check.conclusion {
-                case .success:
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                case .failure:
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                case .neutral, .skipped:
-                    Image(systemName: "minus.circle.fill")
-                        .foregroundStyle(.secondary)
-                case .cancelled, .timedOut, .actionRequired:
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(.orange)
-                case nil:
-                    Image(systemName: "questionmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-            case .inProgress:
-                Image(systemName: "clock.fill")
-                    .foregroundStyle(.yellow)
-            case .queued:
-                Image(systemName: "clock")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.app(.caption))
-    }
-
-    private func resolvedIssueURL(_ issue: IssueLink) -> URL? {
-        let urlString = issue.url ?? githubBaseURL.map { GitRemoteResolver.issueURL(base: $0, number: issue.number) }
-        return urlString.flatMap { URL(string: $0) }
-    }
-
-    private func resolvedPRURL(_ pr: PRLink) -> URL? {
-        let urlString = pr.url ?? githubBaseURL.map { GitRemoteResolver.prURL(base: $0, number: pr.number) }
-        return urlString.flatMap { URL(string: $0) }
-    }
-
     /// Convert HTML img tags to Markdown image syntax so MarkdownUI can render them.
     private func htmlToMarkdownImages(_ text: String) -> String {
-        // Match <img ... src="url" ... /> or <img ... src="url" ...>
         guard let regex = try? NSRegularExpression(
             pattern: #"<img\s+[^>]*?src\s*=\s*"([^"]+)"[^>]*?/?>"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
@@ -1143,13 +926,11 @@ struct CardDetailView: View {
         var result = text
         let matches = regex.matches(in: result, range: NSRange(result.startIndex..., in: result))
 
-        // Replace in reverse order to preserve ranges
         for match in matches.reversed() {
             guard let fullRange = Range(match.range, in: result),
                   let srcRange = Range(match.range(at: 1), in: result) else { continue }
             let src = String(result[srcRange])
 
-            // Try to extract alt text
             var alt = "image"
             if let altRegex = try? NSRegularExpression(pattern: #"alt\s*=\s*"([^"]*)""#, options: .caseInsensitive),
                let altMatch = altRegex.firstMatch(in: String(result[fullRange]), range: NSRange(0..<result[fullRange].count)),
@@ -1162,212 +943,6 @@ struct CardDetailView: View {
         }
 
         return result
-    }
-
-    private func loadPRBody() async {
-        guard let pr = card.link.prLink,
-              let projectPath = card.link.projectPath else {
-            KanbanCodeLog.warn("detail", "loadPRBody skipped: prLink=\(card.link.prLink != nil), projectPath=\(card.link.projectPath ?? "nil")")
-            return
-        }
-        KanbanCodeLog.info("detail", "Loading PR #\(pr.number) body from \(projectPath)")
-        isLoadingPRBody = true
-        do {
-            let body = try await GhCliAdapter().fetchPRBody(repoRoot: projectPath, prNumber: pr.number)
-            prBody = body
-            KanbanCodeLog.info("detail", "PR #\(pr.number) body loaded: \(body?.prefix(100) ?? "nil")")
-        } catch {
-            KanbanCodeLog.error("detail", "PR #\(pr.number) body failed: \(error)")
-        }
-        isLoadingPRBody = false
-    }
-
-    @ViewBuilder
-    private func prSummaryPill(primary: PRLink) -> some View {
-        let totalApprovals = card.link.prLinks.compactMap(\.approvalCount).reduce(0, +)
-        let totalThreads = card.link.prLinks.compactMap(\.unresolvedThreads).reduce(0, +)
-        let targetURL = totalThreads > 0
-            ? (primary.firstUnresolvedThreadURL ?? primary.url)
-            : primary.url
-
-        if totalApprovals > 0 || totalThreads > 0 {
-            Button {
-                if let urlStr = targetURL, let url = URL(string: urlStr) {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    if totalApprovals > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "checkmark")
-                                .font(.app(size: 10, weight: .bold))
-                            Text(verbatim: "\(totalApprovals)")
-                                .font(.app(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(.green)
-                    }
-                    if totalThreads > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "bubble.left")
-                                .font(.app(size: 10))
-                            Text(verbatim: "\(totalThreads)")
-                                .font(.app(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(.orange)
-                    }
-                }
-                .frame(height: 36)
-                .padding(.horizontal, 10)
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular, in: .capsule)
-            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
-            .modifier(HoverBrightness())
-            .help(totalThreads > 0 ? "Open unresolved comment" : "Open pull request")
-        }
-    }
-
-    private var isMergeable: Bool {
-        guard let ms = card.link.mergeablePR?.mergeStateStatus?.uppercased() else { return false }
-        return ms == "CLEAN" || ms == "UNSTABLE" || ms == "HAS_HOOKS"
-    }
-
-    /// Human-readable reason the PR cannot be merged, or nil if it can.
-    private var mergeBlockedReason: String? {
-        guard let pr = card.link.mergeablePR else { return nil }
-        guard let ms = pr.mergeStateStatus?.uppercased() else { return nil } // still loading
-        switch ms {
-        case "CLEAN", "UNSTABLE", "HAS_HOOKS": return nil
-        case "BLOCKED": return "Blocked by branch protection rules"
-        case "BEHIND": return "Branch is behind the base branch and needs to be updated"
-        case "DIRTY": return "Merge conflicts must be resolved first"
-        case "DRAFT": return "Pull request is still a draft"
-        case "UNKNOWN": return "GitHub is still calculating merge status"
-        default: return "Merge state: \(ms.lowercased())"
-        }
-    }
-
-    /// True when mergeStateStatus hasn't been fetched yet.
-    private var isMergeStatusLoading: Bool {
-        guard let pr = card.link.mergeablePR else { return false }
-        return pr.mergeStateStatus == nil
-    }
-
-
-    @ViewBuilder
-    private func mergeButton(pr: PRLink) -> some View {
-        let canMerge = isMergeable
-        let loading = isMergeStatusLoading
-        let blocked = mergeBlockedReason
-        if canMerge {
-            // Mergeable — green button
-            Button {
-                guard !isMerging, let repoRoot = card.link.projectPath else { return }
-                isMerging = true
-                mergeError = nil
-                Task {
-                    let gh = GhCliAdapter()
-                    let settings = try await SettingsStore().read()
-                    let result = try await gh.mergePR(repoRoot: repoRoot, prNumber: pr.number, commandTemplate: settings.github.mergeCommand)
-                    isMerging = false
-                    switch result {
-                    case .success(let warning):
-                        showCopyToast("PR #\(pr.number) merged")
-                        onPRMerged(pr.number)
-                        if let warning, !warning.isEmpty {
-                            KanbanCodeLog.info("merge", "PR #\(pr.number) merged with warning: \(warning)")
-                        }
-                    case .failure(let msg):
-                        mergeError = msg
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    if isMerging {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.triangle.merge")
-                    }
-                    Text("Merge")
-                }
-                .font(.app(size: 13))
-                .foregroundStyle(Color.green.opacity(0.8))
-                .padding(.horizontal, 12)
-                .frame(height: 36)
-                .background(Color.green.opacity(0.08), in: Capsule())
-                .background(.ultraThinMaterial, in: Capsule())
-            }
-            .buttonStyle(HoverFeedbackStyle())
-            .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-            .disabled(isMerging)
-            .help("Merge pull request")
-            .popover(isPresented: .init(get: { mergeError != nil }, set: { if !$0 { mergeError = nil } })) {
-                if let err = mergeError {
-                    Text(err)
-                        .font(.app(.caption))
-                        .padding(8)
-                        .frame(maxWidth: 300)
-                }
-            }
-        } else if loading {
-            // Still loading merge status — gray with spinner, click opens PR on GitHub
-            Button {
-                if let url = pr.url.flatMap({ URL(string: $0 + "#partial-timeline") }) {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    ProgressView().controlSize(.small)
-                    Text("Merge")
-                }
-                .font(.app(size: 13))
-                .foregroundStyle(Color.secondary.opacity(0.6))
-                .padding(.horizontal, 12)
-                .frame(height: 36)
-                .background(Color.secondary.opacity(0.06), in: Capsule())
-                .background(.ultraThinMaterial, in: Capsule())
-            }
-            .buttonStyle(HoverFeedbackStyle())
-            .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-            .help("Loading merge status… Click to open PR on GitHub")
-        } else {
-            // Blocked — gray button with reason popover + clickable to open PR
-            VStack(spacing: 0) {
-                Button {
-                    if let url = pr.url.flatMap({ URL(string: $0 + "#partial-timeline") }) {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "nosign")
-                        Text("Merge")
-                    }
-                    .font(.app(size: 13))
-                    .foregroundStyle(Color.secondary.opacity(0.6))
-                    .padding(.horizontal, 12)
-                    .frame(height: 36)
-                    .background(Color.secondary.opacity(0.06), in: Capsule())
-                    .background(.ultraThinMaterial, in: Capsule())
-                }
-                .buttonStyle(HoverFeedbackStyle())
-                .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-                .onHover { showMergeBlockedPopover = $0 }
-
-                // Invisible anchor below the button — popover opens downward, away from button
-                Color.clear
-                    .frame(width: 0, height: 0)
-                    .popover(isPresented: $showMergeBlockedPopover, arrowEdge: .bottom) {
-                        if let reason = blocked {
-                            Text(reason)
-                                .font(.app(.caption))
-                                .padding(8)
-                                .frame(maxWidth: 300)
-                                .fixedSize()
-                        }
-                    }
-            }
-        }
     }
 
     // MARK: - Normal Header (collapsed inspector)
@@ -1391,12 +966,6 @@ struct CardDetailView: View {
                 Spacer(minLength: 8)
 
                 HStack(spacing: 8) {
-                    if let primary = card.link.prLink {
-                        prSummaryPill(primary: primary)
-                    }
-                    if let mergePR = card.link.mergeablePR {
-                        mergeButton(pr: mergePR)
-                    }
                     if card.link.tmuxLink == nil {
                         let hasSession = card.link.sessionLink != nil
                         let isStart = card.column == .backlog || !hasSession
@@ -1465,20 +1034,9 @@ struct CardDetailView: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let branch = card.link.worktreeLink?.branch, !branch.isEmpty {
                     linkPropertyRow(icon: "arrow.triangle.branch", label: "Branch", value: branch, onUnlink: { onUnlink(.worktree) })
-                } else if let discovered = card.link.discoveredBranches?.first {
-                    linkPropertyRow(icon: "arrow.triangle.branch", label: "Branch", value: discovered, onUnlink: { onUnlink(.worktree) })
                 }
                 if let worktreePath = card.link.worktreeLink?.path, !worktreePath.isEmpty {
                     copyableRow(icon: "folder", text: worktreePath)
-                }
-                ForEach(card.link.prLinks, id: \.number) { pr in
-                    let detail = pr.status.map { " · \($0.rawValue)" } ?? ""
-                    let prURL = pr.url ?? githubBaseURL.map { GitRemoteResolver.prURL(base: $0, number: pr.number) }
-                    linkPropertyRow(icon: "arrow.triangle.pull", label: "PR", value: "#\(String(pr.number))\(detail)", url: prURL, onUnlink: { onUnlink(.pr(number: pr.number)) })
-                }
-                if let issue = card.link.issueLink {
-                    let issueURL = issue.url ?? githubBaseURL.map { GitRemoteResolver.issueURL(base: $0, number: issue.number) }
-                    linkPropertyRow(icon: "circle.circle", label: "Issue", value: "#\(String(issue.number))", url: issueURL, onUnlink: { onUnlink(.issue) })
                 }
                 if let projectPath = card.link.projectPath {
                     copyableRow(icon: "folder.badge.gearshape", text: projectPath)
@@ -1496,9 +1054,7 @@ struct CardDetailView: View {
                 .buttonStyle(.plain)
                 .popover(isPresented: $showAddLink) {
                     AddLinkPopover(
-                        onAddBranch: { onAddBranch($0); showAddLink = false },
-                        onAddIssue: { onAddIssue($0); showAddLink = false },
-                        onAddPR: { onAddPR($0); showAddLink = false }
+                        onAddBranch: { onAddBranch($0); showAddLink = false }
                     )
                 }
             }
@@ -1512,9 +1068,7 @@ struct CardDetailView: View {
             Picker("", selection: $selectedTab) {
                 Text("Terminal").tag(DetailTab.terminal)
                 Text("History").tag(DetailTab.history)
-                if card.link.issueLink != nil { Text("Issue").tag(DetailTab.issue) }
-                if !card.link.prLinks.isEmpty { Text("Pull Request").tag(DetailTab.pullRequest) }
-                if card.link.promptBody != nil && card.link.issueLink == nil { Text("Prompt").tag(DetailTab.prompt) }
+                if card.link.promptBody != nil { Text("Prompt").tag(DetailTab.prompt) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -1588,26 +1142,6 @@ struct CardDetailView: View {
 
         if let tmux = card.link.tmuxLink?.sessionName {
             menu.addActionItem("Copy Tmux Command", image: "terminal") { [self] in copyToClipboard("tmux attach -t \(tmux)") }
-        }
-
-        if !card.link.prLinks.isEmpty {
-            menu.addItem(NSMenuItem.separator())
-            for pr in card.link.prLinks {
-                menu.addActionItem("Open PR #\(pr.number)", image: "arrow.up.right.square") {
-                    if let url = pr.url.flatMap({ URL(string: $0) }) { NSWorkspace.shared.open(url) }
-                }
-            }
-        }
-
-        if card.link.sessionLink != nil || card.link.worktreeLink != nil {
-            menu.addItem(NSMenuItem.separator())
-            menu.addActionItem("Discover Branch", image: "arrow.triangle.pull") { [self] in onDiscover() }
-        }
-
-        if let issue = card.link.issueLink {
-            menu.addActionItem("Open Issue #\(issue.number)", image: "arrow.up.right.square") {
-                if let url = issue.url.flatMap({ URL(string: $0) }) { NSWorkspace.shared.open(url) }
-            }
         }
 
         if card.link.worktreeLink != nil, canCleanupWorktree {
