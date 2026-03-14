@@ -114,9 +114,6 @@ struct SettingsView: View {
 
             NotificationSettingsView()
                 .tabItem { Label("Notifications", systemImage: "bell") }
-
-            AmphetamineSettingsView()
-                .tabItem { Label("Amphetamine", systemImage: "bolt.fill") }
         }
         .frame(width: 520, height: 460)
         .task {
@@ -224,89 +221,6 @@ struct GeneralSettingsView: View {
             Text(available ? "Available" : "Not found")
                 .foregroundStyle(.secondary)
                 .font(.caption)
-        }
-    }
-}
-
-// MARK: - Amphetamine
-
-struct AmphetamineSettingsView: View {
-    @AppStorage("sessionLingerTimeout") private var lingerTimeout: Double = 60
-
-    var body: some View {
-        Form {
-            Section("Setup") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Kanban spawns a **kanban-code-active-session** helper process when Claude sessions are actively working. Configure Amphetamine to detect it:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        instructionRow(1, "Install **Amphetamine** from the Mac App Store")
-                        instructionRow(2, "Open Amphetamine → Preferences → **Triggers**")
-                        instructionRow(3, "Add new trigger → select **Application**")
-                        instructionRow(4, "Search for **\"kanban-code-active-session\"** and select it")
-                    }
-
-                    Text("Amphetamine will keep your Mac awake whenever Claude is working, and allow sleep when all sessions finish.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
-            Section("Linger Timeout") {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Slider(value: $lingerTimeout, in: 0...900, step: 30)
-                        Text(formatTimeout(lingerTimeout))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 50, alignment: .trailing)
-                    }
-                    Text("Keep the helper running for this long after the last active session ends, so Amphetamine doesn't immediately allow sleep.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
-            Section("Logs") {
-                HStack {
-                    Text("~/.kanban-code/logs/")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Open in Finder") {
-                        let path = (NSHomeDirectory() as NSString).appendingPathComponent(".kanban-code/logs")
-                        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
-                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                    }
-                    .controlSize(.small)
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-
-    private func formatTimeout(_ seconds: Double) -> String {
-        if seconds == 0 { return "Off" }
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        if mins == 0 { return "\(secs)s" }
-        if secs == 0 { return "\(mins)m" }
-        return "\(mins)m \(secs)s"
-    }
-
-    private func instructionRow(_ number: Int, _ text: LocalizedStringKey) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text("\(number).")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-                .frame(width: 14, alignment: .trailing)
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 }

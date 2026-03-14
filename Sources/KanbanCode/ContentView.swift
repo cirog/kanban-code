@@ -133,13 +133,6 @@ struct ContentView: View {
         )
     }
 
-    private var showInspector: Binding<Bool> {
-        Binding(
-            get: { store.state.selectedCardId != nil },
-            set: { if !$0 { store.dispatch(.selectCard(cardId: nil)) } }
-        )
-    }
-
     init() {
         let claudeDiscovery = ClaudeCodeSessionDiscovery()
         let claudeDetector = ClaudeCodeActivityDetector()
@@ -368,14 +361,8 @@ struct ContentView: View {
         }
     }
 
-    /// Inspector width when expanded — full screen or 80% if board is visible alongside.
-    private var expandedInspectorWidth: CGFloat {
-        let screenWidth = NSScreen.main?.frame.width ?? 10000
-        return showBoardInExpanded ? screenWidth * 0.8 : screenWidth
-    }
-
     @ViewBuilder
-    private var inspectorContent: some View {
+    private var terminalPanelContent: some View {
         if let card = store.state.cards.first(where: { $0.id == store.state.selectedCardId }) {
             CardDetailView(
                 card: card,
@@ -464,31 +451,40 @@ struct ContentView: View {
                 ),
                 isDroppingImage: $isDroppingImage
             )
-            .inspectorColumnWidth(
-                min: isExpandedDetail ? expandedInspectorWidth : 600,
-                ideal: isExpandedDetail ? expandedInspectorWidth : 800,
-                max: isExpandedDetail ? expandedInspectorWidth : 1000
-            )
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "terminal")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.tertiary)
+                Text("Select a card to view terminal")
+                    .font(.app(.title3))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     private var boardWithOverlays: some View {
-        Group {
-            if isExpandedDetail && !showBoardInExpanded && store.state.selectedCardId != nil {
-                Spacer()
-                    .frame(width: 0)
-                    .clipped()
-            } else {
-                activeBoardView
-                    .environment(\.projectColorMap, projectColorMap)
+        HSplitView {
+            Group {
+                if isExpandedDetail && !showBoardInExpanded && store.state.selectedCardId != nil {
+                    Spacer()
+                        .frame(width: 0)
+                        .clipped()
+                } else {
+                    activeBoardView
+                        .environment(\.projectColorMap, projectColorMap)
+                }
             }
+            .frame(minWidth: 400)
+            .layoutPriority(1)
+
+            terminalPanelContent
+                .frame(minWidth: 400, idealWidth: 700)
         }
             .ignoresSafeArea(edges: .top)
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .navigationTitle("")
-            .inspector(isPresented: showInspector) {
-                inspectorContent
-            }
             .onChange(of: store.state.selectedCardId) {
                 if let cardId = store.state.selectedCardId,
                    let card = store.state.cards.first(where: { $0.id == cardId }) {
@@ -970,7 +966,7 @@ struct ContentView: View {
                     }
                     .disabled(store.state.selectedCardId == nil)
                     .opacity(store.state.selectedCardId != nil ? 1.0 : 0.3)
-                    .help("Toggle session details")
+                    .help("Deselect card")
                 }
             }
             .background { shortcutButtons }

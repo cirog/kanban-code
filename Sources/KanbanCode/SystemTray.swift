@@ -10,15 +10,11 @@ private let systemTrayLogDir: String = {
 
 /// Manages the menu bar status item (system tray).
 /// Shows session icon when Claude sessions are actively working.
-/// Launches a helper .app so tools like Amphetamine can detect active sessions.
 @MainActor
 final class SystemTray: NSObject, @unchecked Sendable {
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
     private weak var store: BoardStore?
-    private var activeSessionApp: NSRunningApplication?
-    /// Fallback for dev mode (bare binary, no .app bundle).
-    private var activeSessionProcess: Process?
     /// Time when In Progress last had sessions (for linger timeout).
     private var lastActiveTime: Date?
     /// Timer for live-updating the countdown while menu is open.
@@ -26,21 +22,15 @@ final class SystemTray: NSObject, @unchecked Sendable {
     /// Reference to the countdown menu item for live updates.
     private weak var countdownItem: NSMenuItem?
 
-    private static let activeSessionBundleID = "com.kanban-code.active-session"
-
     /// How long to keep tray visible after last active session.
-    /// Reads from UserDefaults (synced with @AppStorage("sessionLingerTimeout") in settings).
-    private var lingerTimeout: TimeInterval {
-        let stored = UserDefaults.standard.double(forKey: "sessionLingerTimeout")
-        return stored > 0 ? stored : 60
-    }
+    private var lingerTimeout: TimeInterval { 60 }
 
     func setup(store: BoardStore) {
         self.store = store
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         // Build icon with 1x + 2x representations for crisp rendering at 22x22pt
-        // (same approach as cc-amphetamine's Electron nativeImage)
+        // Build 1x + 2x representations for crisp rendering at 22x22pt
         let icon = NSImage(size: NSSize(width: 22, height: 22))
         var hasReps = false
 
@@ -148,7 +138,6 @@ final class SystemTray: NSObject, @unchecked Sendable {
     }
 
     /// Show tray icon when there are In Progress sessions, or within linger timeout.
-    /// Also manages the active-session helper app for Amphetamine integration.
     private func updateVisibility() {
         guard let store else { return }
         let hasActive = store.state.cardCount(in: .inProgress) > 0
@@ -156,101 +145,12 @@ final class SystemTray: NSObject, @unchecked Sendable {
         if hasActive {
             lastActiveTime = Date()
             statusItem?.isVisible = true
-            startActiveSessionIfNeeded()
         } else if let lastActive = lastActiveTime,
                   Date().timeIntervalSince(lastActive) < lingerTimeout {
             // Linger: keep visible for a bit after last active session
             statusItem?.isVisible = true
-            // Keep active-session running during linger
         } else {
             statusItem?.isVisible = false
-            stopActiveSession()
-        }
-    }
-
-    // MARK: - Active session helper app (for Amphetamine)
-
-    /// Launches the active-session helper .app so tools like Amphetamine can detect it.
-    /// Falls back to bare binary for development.
-    private func startActiveSessionIfNeeded() {
-        // Already running via .app?
-        if let app = activeSessionApp, !app.isTerminated { return }
-        // Already running via bare binary?
-        if let proc = activeSessionProcess, proc.isRunning { return }
-        // Check if already running from a previous app launch
-        if let existing = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == Self.activeSessionBundleID }) {
-            activeSessionApp = existing
-            Self.log("active-session already running: pid=\(existing.processIdentifier)")
-            return
-        }
-
-        // Try .app bundle first (Amphetamine can detect this)
-        if let appURL = Self.findActiveSessionApp() {
-            let config = NSWorkspace.OpenConfiguration()
-            config.activates = false
-            config.addsToRecentItems = false
-            NSWorkspace.shared.openApplication(at: appURL, configuration: config) { [weak self] app, error in
-                Task { @MainActor in
-                    if let error {
-                        Self.log("active-session app failed to start: \(error)")
-                    } else if let app {
-                        self?.activeSessionApp = app
-                        Self.log("active-session started: pid=\(app.processIdentifier)")
-                    }
-                }
-            }
-            return
-        }
-
-        // Fallback: bare binary (dev mode — no Amphetamine support)
-        if let path = Self.findActiveSessionBinary() {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: path)
-            proc.qualityOfService = .background
-            proc.terminationHandler = { process in
-                let reason = process.terminationReason == .exit ? "exit" : "uncaughtSignal"
-                Self.log("active-session terminated: status=\(process.terminationStatus) reason=\(reason)")
-            }
-            do {
-                try proc.run()
-                activeSessionProcess = proc
-                Self.log("active-session started (bare binary): pid=\(proc.processIdentifier)")
-            } catch {
-                Self.log("active-session failed to start: \(error)")
-            }
-            return
-        }
-
-        Self.log("active-session not found")
-    }
-
-    /// Stop the active-session helper when no more active sessions.
-    /// Also discovers and kills orphaned processes from previous app instances.
-    private func stopActiveSession() {
-        if let app = activeSessionApp, !app.isTerminated {
-            Self.log("stopping active-session: pid=\(app.processIdentifier)")
-            app.terminate()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                if let app = self?.activeSessionApp, !app.isTerminated {
-                    app.forceTerminate()
-                }
-            }
-        }
-        activeSessionApp = nil
-
-        if let proc = activeSessionProcess, proc.isRunning {
-            Self.log("stopping active-session (bare): pid=\(proc.processIdentifier)")
-            proc.terminate()
-        }
-        activeSessionProcess = nil
-
-        // Kill any orphaned active-session from a previous app instance (crash, rebuild, etc.)
-        for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier == Self.activeSessionBundleID && !app.isTerminated {
-            Self.log("stopping orphaned active-session: pid=\(app.processIdentifier)")
-            app.terminate()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if !app.isTerminated { app.forceTerminate() }
-            }
         }
     }
 
@@ -269,61 +169,6 @@ final class SystemTray: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Find the active-session .app bundle.
-    private static func findActiveSessionApp() -> URL? {
-        var candidates: [String] = []
-
-        // 1. Inside main app bundle: KanbanCode.app/Contents/Helpers/kanban-code-active-session.app
-        candidates.append(
-            (Bundle.main.bundlePath as NSString).appendingPathComponent("Contents/Helpers/kanban-code-active-session.app")
-        )
-
-        // 2. Next to the main app bundle
-        candidates.append(
-            ((Bundle.main.bundlePath as NSString).deletingLastPathComponent as NSString)
-                .appendingPathComponent("kanban-code-active-session.app")
-        )
-
-        for candidate in candidates {
-            if FileManager.default.fileExists(atPath: candidate) {
-                log("active-session app found at: \(candidate)")
-                return URL(fileURLWithPath: candidate)
-            }
-        }
-
-        return nil
-    }
-
-    /// Find the bare active-session binary (fallback for development).
-    private static func findActiveSessionBinary() -> String? {
-        var candidates: [String] = []
-
-        // 1. Next to the running Kanban binary (swift run, .app bundle)
-        let kanbanPath = ProcessInfo.processInfo.arguments[0]
-        let dir = (kanbanPath as NSString).deletingLastPathComponent
-        candidates.append((dir as NSString).appendingPathComponent("kanban-code-active-session"))
-
-        // 2. Inside .app bundle's MacOS directory
-        if let bundlePath = Bundle.main.executablePath {
-            let bundleDir = (bundlePath as NSString).deletingLastPathComponent
-            candidates.append((bundleDir as NSString).appendingPathComponent("kanban-code-active-session"))
-        }
-
-        // 3. ~/.kanban-code/bin/kanban-code-active-session for installed locations
-        candidates.append(
-            (NSHomeDirectory() as NSString).appendingPathComponent(".kanban-code/bin/kanban-code-active-session")
-        )
-
-        for candidate in candidates {
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                log("active-session found at: \(candidate)")
-                return candidate
-            }
-        }
-
-        log("active-session binary not found, searched: \(candidates)")
-        return nil
-    }
 }
 
 // MARK: - NSMenuDelegate (live countdown)
