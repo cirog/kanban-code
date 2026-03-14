@@ -1100,7 +1100,8 @@ public final class BoardStore: @unchecked Sendable {
         // Also load cached links so cards appear instantly
         if state.links.isEmpty {
             if let cached = try? await coordinationStore.readLinks(), !cached.isEmpty {
-                for link in cached {
+                let cleaned = AutoCleanup.clean(links: cached)
+                for link in cleaned {
                     state.links[link.id] = link
                 }
                 state.rebuildCards()
@@ -1141,7 +1142,8 @@ public final class BoardStore: @unchecked Sendable {
                 let t = ContinuousClock.now
                 let cached = try await coordinationStore.readLinks()
                 if !cached.isEmpty {
-                    for link in cached {
+                    let cleaned = AutoCleanup.clean(links: cached)
+                    for link in cleaned {
                         state.links[link.id] = link
                     }
                 }
