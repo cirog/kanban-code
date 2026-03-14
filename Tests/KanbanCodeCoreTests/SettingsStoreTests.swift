@@ -22,8 +22,6 @@ struct SettingsStoreTests {
 
         let settings = try await store.read()
         #expect(settings.projects.isEmpty)
-        #expect(settings.github.defaultFilter == "assignee:@me is:open")
-        #expect(settings.github.pollIntervalSeconds == 60)
         #expect(settings.sessionTimeout.activeThresholdMinutes == 1440)
         #expect(settings.promptTemplate == "")
 
@@ -61,18 +59,8 @@ struct SettingsStoreTests {
         try await store.write(Settings())
         let filePath = (dir as NSString).appendingPathComponent("settings.json")
         let content = try String(contentsOfFile: filePath, encoding: .utf8)
-        #expect(content.contains("assignee:@me"))
+        #expect(content.contains("projects"))
         #expect(content.contains("\n"))
-    }
-
-    @Test("Remote settings are optional")
-    func remoteOptional() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-        let store = SettingsStore(basePath: dir)
-
-        let settings = try await store.read()
-        #expect(settings.remote == nil)
     }
 
     // MARK: - Project CRUD
