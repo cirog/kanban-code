@@ -20,9 +20,16 @@ public actor UsageService {
 
     public func start() {
         timer = Task {
-            while !Task.isCancelled {
+            // First fetch — retry once after 5s if it fails
+            await fetchUsage()
+            if cachedData.fiveHourUtilization == 0 && cachedData.sevenDayUtilization == 0 {
+                try? await Task.sleep(for: .seconds(5))
                 await fetchUsage()
-                try? await Task.sleep(for: .seconds(600)) // 10 minutes
+            }
+            // Then poll every 5 minutes
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(300))
+                await fetchUsage()
             }
         }
     }
