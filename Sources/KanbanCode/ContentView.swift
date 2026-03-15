@@ -46,6 +46,7 @@ struct ContentView: View {
     @State private var showOnboarding = false
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .auto
     @AppStorage("boardViewMode") private var boardViewModeRaw = BoardViewMode.kanban.rawValue
+    @State private var showDonePopover = false
     @State private var showProcessManager = false
     @State private var showQuitConfirmation = false
     @State private var quitOwnedSessions: [TmuxSession] = []
@@ -87,6 +88,10 @@ struct ContentView: View {
     private let mutagenAdapter = MutagenAdapter()
     private let hookEventsPath: String
     private let settingsFilePath: String
+
+    private var doneCards: [KanbanCodeCard] {
+        store.state.cards(in: .done)
+    }
 
     private var boardViewMode: BoardViewMode {
         BoardViewMode(rawValue: boardViewModeRaw) ?? .kanban
@@ -922,6 +927,24 @@ struct ContentView: View {
 
                     ToolbarItem(placement: .primaryAction) {
                         expandedActionsMenu
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showDonePopover.toggle()
+                    } label: {
+                        Label("Done", systemImage: "archivebox")
+                            .font(.app(.body))
+                    }
+                    .badge(doneCards.count)
+                    .popover(isPresented: $showDonePopover) {
+                        DoneCardsPopover(
+                            cards: doneCards,
+                            onRestore: { cardId in
+                                store.dispatch(.moveCard(cardId: cardId, to: .waiting))
+                            }
+                        )
                     }
                 }
 
@@ -2230,6 +2253,64 @@ struct ContentView: View {
                 store.dispatch(.resumeFailed(cardId: cardId, error: error.localizedDescription))
             }
         }
+    }
+}
+
+// MARK: - Done Cards Popover
+
+struct DoneCardsPopover: View {
+    let cards: [KanbanCodeCard]
+    var onRestore: (String) -> Void = { _ in }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Done Sessions")
+                .font(.app(.headline))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+            Divider()
+
+            if cards.isEmpty {
+                Text("No completed sessions")
+                    .font(.app(.caption))
+                    .foregroundStyle(.secondary)
+                    .padding(16)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(cards) { card in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(card.displayTitle)
+                                        .font(.app(.body))
+                                        .lineLimit(1)
+                                    Text(card.relativeTime)
+                                        .font(.app(.caption2))
+                                        .foregroundStyle(.tertiary)
+                                }
+
+                                Spacer()
+
+                                Button {
+                                    onRestore(card.id)
+                                } label: {
+                                    Image(systemName: "arrow.uturn.backward")
+                                        .font(.app(.caption))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Restore to Waiting")
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                        }
+                    }
+                }
+                .frame(maxHeight: 400)
+            }
+        }
+        .frame(width: 280)
     }
 }
 

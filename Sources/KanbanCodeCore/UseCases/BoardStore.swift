@@ -88,7 +88,7 @@ public struct AppState: Sendable {
 
     /// The visible columns (non-empty or always-shown).
     public var visibleColumns: [KanbanCodeColumn] {
-        return [.backlog, .inProgress, .waiting, .done]
+        return [.backlog, .inProgress, .waiting]
     }
 
     private func cardMatchesProjectFilter(_ card: KanbanCodeCard) -> Bool {

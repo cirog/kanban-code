@@ -181,7 +181,7 @@ public final class BoardState: @unchecked Sendable {
 
     /// The visible columns (non-empty or always-shown).
     public var visibleColumns: [KanbanCodeColumn] {
-        return [.backlog, .inProgress, .waiting, .done]
+        return [.backlog, .inProgress, .waiting]
     }
 
     /// Add a new card to the board immediately (synchronous, no disk round-trip).
