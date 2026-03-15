@@ -6,19 +6,19 @@ struct AutoCleanupTests {
     @Test func removesOldDoneCards() {
         let old = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-8 * 86400),
+            updatedAt: Date.now.addingTimeInterval(-25 * 3600), // 25h ago
             source: .discovered
         )
 
         let recent = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-86400),
+            updatedAt: Date.now.addingTimeInterval(-12 * 3600), // 12h ago
             source: .discovered
         )
 
         let waiting = Link(
             column: .waiting,
-            updatedAt: Date.now.addingTimeInterval(-8 * 86400),
+            updatedAt: Date.now.addingTimeInterval(-72 * 3600), // 3 days ago — never expires
             source: .discovered
         )
 
@@ -44,14 +44,24 @@ struct AutoCleanupTests {
         #expect(result.count == 1000)
     }
 
-    @Test func keepsNonDoneCards_evenIfOld() {
-        let old = Link(
+    @Test func keepsNonDoneCards_evenIfVeryOld() {
+        let backlog = Link(
             column: .backlog,
-            updatedAt: Date.now.addingTimeInterval(-30 * 86400),
+            updatedAt: Date.now.addingTimeInterval(-30 * 86400), // 30 days ago
             source: .manual
         )
+        let inProgress = Link(
+            column: .inProgress,
+            updatedAt: Date.now.addingTimeInterval(-30 * 86400),
+            source: .discovered
+        )
+        let waiting = Link(
+            column: .waiting,
+            updatedAt: Date.now.addingTimeInterval(-30 * 86400),
+            source: .discovered
+        )
 
-        let result = AutoCleanup.clean(links: [old])
-        #expect(result.count == 1)
+        let result = AutoCleanup.clean(links: [backlog, inProgress, waiting])
+        #expect(result.count == 3) // none removed — only Done expires
     }
 }

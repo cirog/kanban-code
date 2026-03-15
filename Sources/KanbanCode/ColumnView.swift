@@ -28,7 +28,7 @@ struct ColumnView: View {
             .padding(.top, 44) // space for the floating header
             .padding(.bottom, 8)
         }
-        .frame(minWidth: 200, maxWidth: 200)
+        .frame(minWidth: 220, maxWidth: 220)
         .background(Color(.windowBackgroundColor).opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(

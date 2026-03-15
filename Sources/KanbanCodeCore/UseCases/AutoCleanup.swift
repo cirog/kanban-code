@@ -3,10 +3,10 @@ import Foundation
 public enum AutoCleanup {
     public static func clean(
         links: [Link],
-        maxAgeDays: Int = 7,
+        maxAgeHours: Int = 24,
         maxCards: Int = 1000
     ) -> [Link] {
-        let cutoff = Date.now.addingTimeInterval(-Double(maxAgeDays) * 86400)
+        let cutoff = Date.now.addingTimeInterval(-Double(maxAgeHours) * 3600)
 
         // Move scheduled tasks from waiting to done
         var cleaned = links.map { link -> Link in
