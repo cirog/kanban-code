@@ -478,11 +478,10 @@ struct ContentView: View {
                         .environment(\.projectColorMap, projectColorMap)
                 }
             }
-            .frame(minWidth: 400)
-            .layoutPriority(1)
+            .frame(width: 820)
 
             terminalPanelContent
-                .frame(minWidth: 400, idealWidth: 700)
+                .frame(minWidth: 300, maxWidth: .infinity)
         }
             .ignoresSafeArea(edges: .top)
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
