@@ -1920,12 +1920,7 @@ struct ContentView: View {
     // MARK: - Archive
 
     private func archiveCard(cardId: String) {
-        guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
-        if card.link.tmuxLink != nil {
-            pendingArchiveCardId = cardId
-        } else {
-            store.dispatch(.archiveCard(cardId: cardId))
-        }
+        store.dispatch(.archiveCard(cardId: cardId))
     }
 
     // MARK: - Drag & Drop
