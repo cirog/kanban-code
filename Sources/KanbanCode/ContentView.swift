@@ -944,20 +944,6 @@ struct ContentView: View {
                     UsageBarView(label: "7d", utilization: usageData.sevenDayUtilization, resetsAt: usageData.sevenDayResetsAt)
                 }
 
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        if store.state.selectedCardId != nil {
-                            store.dispatch(.selectCard(cardId: nil))
-                        }
-                    } label: {
-                        Image(systemName: "sidebar.right")
-                    }
-                    .disabled(store.state.selectedCardId == nil)
-                    .opacity(store.state.selectedCardId != nil ? 1.0 : 0.3)
-                    .help("Deselect card")
-                }
             }
             .background { shortcutButtons }
         } // NavigationStack
