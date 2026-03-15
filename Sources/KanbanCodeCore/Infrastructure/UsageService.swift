@@ -22,7 +22,7 @@ public actor UsageService {
         timer = Task {
             while !Task.isCancelled {
                 await fetchUsage()
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(600)) // 10 minutes
             }
         }
     }

@@ -29,7 +29,7 @@ struct BoardView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let terminalWidth = max(500, geometry.size.width - 850)
+            let terminalWidth = max(300, geometry.size.width - 850)
             boardContent(terminalWidth: terminalWidth)
         }
     }

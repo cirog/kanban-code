@@ -18,12 +18,16 @@ struct UsageBarView: View {
         return formatter.localizedString(for: date, relativeTo: .now)
     }
 
+    private var percentText: String {
+        "\(Int(utilization))%"
+    }
+
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Text(label)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 18, alignment: .leading)
+                .fixedSize()
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -36,11 +40,12 @@ struct UsageBarView: View {
             }
             .frame(width: 120, height: 8)
 
-            Text("\(Int(utilization))%")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+            Text(percentText)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 28, alignment: .trailing)
+                .fixedSize()
         }
+        .fixedSize()
         .help("Resets \(resetText)")
     }
 }
