@@ -23,11 +23,12 @@ struct UsageBarView: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 10) {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .fixedSize()
+                .padding(.leading, 4)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -38,12 +39,13 @@ struct UsageBarView: View {
                         .frame(width: geo.size.width * min(utilization / 100, 1.0))
                 }
             }
-            .frame(width: 120, height: 8)
+            .frame(width: 360, height: 8)
 
             Text(percentText)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .fixedSize()
+                .padding(.trailing, 4)
         }
         .fixedSize()
         .help("Resets \(resetText)")
