@@ -10,12 +10,15 @@ public enum AutoCleanup {
 
         // Move scheduled tasks from waiting to done
         var cleaned = links.map { link -> Link in
-            if link.column == .waiting,
-               let name = link.name ?? link.promptBody,
-               name.hasPrefix("<scheduled-task name=") {
-                var updated = link
-                updated.column = .done
-                return updated
+            if link.column == .waiting {
+                let text = [link.name, link.promptBody]
+                    .compactMap { $0 }
+                    .first { !$0.isEmpty && $0.hasPrefix("<scheduled-task name=") }
+                if text != nil {
+                    var updated = link
+                    updated.column = .done
+                    return updated
+                }
             }
             return link
         }
