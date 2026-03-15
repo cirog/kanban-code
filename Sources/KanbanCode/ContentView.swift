@@ -39,6 +39,8 @@ struct ContentView: View {
     @State private var searchInitialQuery = ""
     @State private var terminalHadFocusBeforeSearch = false
     @State private var deepSearchTrigger = false
+    @State private var usageService = UsageService()
+    @State private var usageData: UsageData = .empty
     @AppStorage("showBoardInExpanded") private var showBoardInExpanded = false
     @State private var showNewTask = false
     @State private var showOnboarding = false
@@ -498,10 +500,6 @@ struct ContentView: View {
                 detailExpandedPersisted = store.state.detailExpanded
             }
             .overlay {
-                // Search overlay removed
-            }
-            .animation(.easeInOut(duration: 0.15), value: showSearch)
-            .overlay {
                 FolderDropZone(isTargeted: $isDroppingFolder) { url in
                     addDroppedFolder(url)
                 }
@@ -776,13 +774,17 @@ struct ContentView: View {
                     systemTray.update()
                 }
             }
+            .task(id: "usage-poll") {
+                await usageService.start()
+                while !Task.isCancelled {
+                    usageData = await usageService.currentUsage()
+                    try? await Task.sleep(for: .seconds(5))
+                }
+            }
             .onAppear { installKeyMonitor() }
             .onDisappear {
                 if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
                 keyMonitor = nil
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .kanbanCodeToggleSearch)) { _ in
-                if showSearch { closePalette() } else { openPalette() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .kanbanCodeNewTask)) { _ in
                 presentNewTask()
@@ -937,21 +939,9 @@ struct ContentView: View {
                     }
                 }
 
-                ToolbarItem(placement: .primaryAction) {
-                    Button { if showSearch { closePalette() } else { openPalette() } } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "magnifyingglass")
-                            Text("Search")
-                            Text("⌘P")
-                                .font(.app(.caption))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
-                        }
-                        .padding(.horizontal, 4)
-                    }
-                    .help("Search sessions (⌘K / ⌘P)")
+                ToolbarItemGroup(placement: .primaryAction) {
+                    UsageBarView(label: "5h", utilization: usageData.fiveHourUtilization, resetsAt: usageData.fiveHourResetsAt)
+                    UsageBarView(label: "7d", utilization: usageData.sevenDayUtilization, resetsAt: usageData.sevenDayResetsAt)
                 }
 
                 ToolbarSpacer(.fixed, placement: .primaryAction)

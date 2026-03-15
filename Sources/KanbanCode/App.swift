@@ -22,13 +22,6 @@ struct KanbanCodeApp: App {
             }
 
             CommandGroup(after: .toolbar) {
-                Button("Search Sessions") {
-                    NotificationCenter.default.post(name: .kanbanCodeToggleSearch, object: nil)
-                }
-                .keyboardShortcut("k", modifiers: .command)
-
-                Divider()
-
                 Button("Zoom In") {
                     Self.adjustZoom(by: 1)
                 }
@@ -221,8 +214,7 @@ enum AppearanceMode: String, CaseIterable {
 
 extension Notification.Name {
     static let kanbanCodeNewTask = Notification.Name("kanbanCodeNewTask")
-    static let kanbanCodeToggleSearch = Notification.Name("kanbanCodeToggleSearch")
-    static let kanbanCodeHookEvent = Notification.Name("kanbanCodeHookEvent")
+static let kanbanCodeHookEvent = Notification.Name("kanbanCodeHookEvent")
     static let kanbanCodeHistoryChanged = Notification.Name("kanbanCodeHistoryChanged")
     static let kanbanCodeSettingsChanged = Notification.Name("kanbanCodeSettingsChanged")
     static let kanbanCodeSelectCard = Notification.Name("kanbanCodeSelectCard")
