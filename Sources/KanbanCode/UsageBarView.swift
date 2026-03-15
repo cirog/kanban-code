@@ -1,9 +1,15 @@
 import SwiftUI
 
+enum UsageResetDisplay {
+    case countdown   // "3h 22m"
+    case dateTime    // "Mar 20 10:00"
+}
+
 struct UsageBarView: View {
     let label: String
     let utilization: Double  // 0-100
     let resetsAt: Date?
+    var resetDisplay: UsageResetDisplay = .countdown
 
     private var fillColor: Color {
         if utilization >= 80 { return .red }
@@ -11,11 +17,21 @@ struct UsageBarView: View {
         return .green
     }
 
-    private var resetText: String {
+    private var resetLabel: String {
         guard let date = resetsAt else { return "" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: .now)
+        switch resetDisplay {
+        case .countdown:
+            let diff = date.timeIntervalSince(.now)
+            guard diff > 0 else { return "now" }
+            let hours = Int(diff) / 3600
+            let mins = (Int(diff) % 3600) / 60
+            return "\(hours)h \(mins)m"
+        case .dateTime:
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d HH:mm"
+            formatter.timeZone = .current
+            return formatter.string(from: date)
+        }
     }
 
     private var percentText: String {
@@ -24,7 +40,7 @@ struct UsageBarView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(label)
+            Text(resetLabel)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .fixedSize()
@@ -48,6 +64,5 @@ struct UsageBarView: View {
                 .padding(.trailing, 4)
         }
         .fixedSize()
-        .help("Resets \(resetText)")
     }
 }

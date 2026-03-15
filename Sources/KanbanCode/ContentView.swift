@@ -926,8 +926,8 @@ struct ContentView: View {
                 }
 
                 ToolbarItemGroup(placement: .principal) {
-                    UsageBarView(label: "5h", utilization: usageData.fiveHourUtilization, resetsAt: usageData.fiveHourResetsAt)
-                    UsageBarView(label: "7d", utilization: usageData.sevenDayUtilization, resetsAt: usageData.sevenDayResetsAt)
+                    UsageBarView(label: "5h", utilization: usageData.fiveHourUtilization, resetsAt: usageData.fiveHourResetsAt, resetDisplay: .countdown)
+                    UsageBarView(label: "7d", utilization: usageData.sevenDayUtilization, resetsAt: usageData.sevenDayResetsAt, resetDisplay: .dateTime)
                 }
 
             }
