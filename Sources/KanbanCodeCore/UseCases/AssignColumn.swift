@@ -25,11 +25,6 @@ public enum AssignColumn {
             return .done
         }
 
-        // Scheduled tasks go straight to done (unless actively working, handled above)
-        if let prompt = link.promptBody, prompt.hasPrefix("<scheduled-task name=") {
-            return .done
-        }
-
         // Manual drag override
         if link.manualOverrides.column {
             return link.column
