@@ -8,13 +8,27 @@ public enum AutoCleanup {
     ) -> [Link] {
         let cutoff = Date.now.addingTimeInterval(-Double(maxAgeDays) * 86400)
 
-        var cleaned = links.filter { link in
+        // Move scheduled tasks from waiting to done
+        var cleaned = links.map { link -> Link in
+            if link.column == .waiting,
+               let name = link.name ?? link.promptBody,
+               name.hasPrefix("<scheduled-task name=") {
+                var updated = link
+                updated.column = .done
+                return updated
+            }
+            return link
+        }
+
+        // Remove old Done cards
+        cleaned = cleaned.filter { link in
             if link.column == .done && link.updatedAt < cutoff {
                 return false
             }
             return true
         }
 
+        // Cap total count — remove oldest Done cards first
         if cleaned.count > maxCards {
             let doneCards = cleaned.filter { $0.column == .done }
                 .sorted { $0.updatedAt < $1.updatedAt }

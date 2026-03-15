@@ -2,7 +2,7 @@ import SwiftUI
 
 enum UsageResetDisplay {
     case countdown   // "3h 22m"
-    case dateTime    // "Mar 20 10:00"
+    case weekday     // "Friday 10:00"
 }
 
 struct UsageBarView: View {
@@ -26,9 +26,9 @@ struct UsageBarView: View {
             let hours = Int(diff) / 3600
             let mins = (Int(diff) % 3600) / 60
             return "\(hours)h \(mins)m"
-        case .dateTime:
+        case .weekday:
             let formatter = DateFormatter()
-            formatter.dateFormat = "MMM d HH:mm"
+            formatter.dateFormat = "EEEE HH:mm"
             formatter.timeZone = .current
             return formatter.string(from: date)
         }
@@ -44,7 +44,6 @@ struct UsageBarView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .fixedSize()
-                .padding(.leading, 4)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -61,8 +60,8 @@ struct UsageBarView: View {
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .fixedSize()
-                .padding(.trailing, 4)
         }
+        .padding(.horizontal, 12)
         .fixedSize()
     }
 }
