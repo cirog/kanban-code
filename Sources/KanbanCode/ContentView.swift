@@ -939,7 +939,7 @@ struct ContentView: View {
                     }
                 }
 
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .principal) {
                     UsageBarView(label: "5h", utilization: usageData.fiveHourUtilization, resetsAt: usageData.fiveHourResetsAt)
                     UsageBarView(label: "7d", utilization: usageData.sevenDayUtilization, resetsAt: usageData.sevenDayResetsAt)
                 }

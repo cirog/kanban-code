@@ -34,7 +34,7 @@ struct UsageBarView: View {
                         .frame(width: geo.size.width * min(utilization / 100, 1.0))
                 }
             }
-            .frame(width: 60, height: 8)
+            .frame(width: 120, height: 8)
 
             Text("\(Int(utilization))%")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
