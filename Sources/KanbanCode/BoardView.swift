@@ -75,13 +75,12 @@ struct BoardView: View {
                     onCardClicked: onCardClicked,
                     onColumnBackgroundClick: onColumnBackgroundClick
                 )
-                .frame(width: 150)
                 .id(column)
             }
 
             if let terminalContent {
                 terminalContent
-                    .frame(minWidth: 150, maxWidth: .infinity)
+                    .frame(minWidth: 180, maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
