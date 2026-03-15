@@ -10,7 +10,7 @@ struct KanbanCodeApp: App {
     var body: some Scene {
         Window("Kanban Code", id: "main") {
             ContentView()
-                .frame(minWidth: 900, minHeight: 500)
+                .frame(minWidth: 750, minHeight: 500)
         }
         .defaultSize(width: 1200, height: 700)
         .commands {

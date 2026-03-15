@@ -28,84 +28,66 @@ struct BoardView: View {
     var terminalContent: AnyView? = nil
 
     var body: some View {
-        GeometryReader { geometry in
-            let terminalWidth = max(300, geometry.size.width - 850)
-            boardContent(terminalWidth: terminalWidth)
-        }
+        boardContent
     }
 
-    private func boardContent(terminalWidth: CGFloat) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: true) {
-                HStack(alignment: .top, spacing: 6) {
-                    ForEach(store.state.visibleColumns, id: \.self) { column in
-                        DroppableColumnView(
-                            column: column,
-                            cards: store.state.cards(in: column),
-                            selectedCardId: Binding(
-                                get: { store.state.selectedCardId },
-                                set: { store.dispatch(.selectCard(cardId: $0)) }
-                            ),
-                            dragState: dragState,
-                            canDropCard: canDropCard,
-                            isRefreshingBacklog: store.state.isRefreshingBacklog,
-                            onMoveCard: { cardId, targetColumn in
-                                onDropCard(cardId, targetColumn)
-                            },
-                            onMergeCards: { sourceId, targetId in
-                                onMergeCards(sourceId, targetId)
-                            },
-                            onReorderCard: { cardId, targetCardId, above in
-                                store.dispatch(.reorderCard(cardId: cardId, targetCardId: targetCardId, above: above))
-                            },
-                            onRenameCard: { cardId, name in
-                                store.dispatch(.renameCard(cardId: cardId, name: name))
-                            },
-                            onArchiveCard: { cardId in
-                                onArchiveCard(cardId)
-                            },
-                            onStartCard: onStartCard,
-                            onResumeCard: onResumeCard,
-                            onForkCard: onForkCard,
-                            onCopyResumeCmd: onCopyResumeCmd,
-                            onCleanupWorktree: onCleanupWorktree,
-                            canCleanupWorktree: canCleanupWorktree,
-                            onDeleteCard: onDeleteCard,
-                            availableProjects: availableProjects,
-                            onMoveToProject: onMoveToProject,
-                            onMoveToFolder: onMoveToFolder,
-                            enabledAssistants: enabledAssistants,
-                            onMigrateAssistant: onMigrateAssistant,
-                            onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil,
-                            onCardClicked: onCardClicked,
-                            onColumnBackgroundClick: onColumnBackgroundClick
-                        )
-                        .id(column)
-                    }
-
-                    if let terminalContent {
-                        terminalContent
-                            .frame(width: terminalWidth)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 52)
-                .padding(.bottom, 16)
+    private var boardContent: some View {
+        HStack(alignment: .top, spacing: 6) {
+            ForEach(store.state.visibleColumns, id: \.self) { column in
+                DroppableColumnView(
+                    column: column,
+                    cards: store.state.cards(in: column),
+                    selectedCardId: Binding(
+                        get: { store.state.selectedCardId },
+                        set: { store.dispatch(.selectCard(cardId: $0)) }
+                    ),
+                    dragState: dragState,
+                    canDropCard: canDropCard,
+                    isRefreshingBacklog: store.state.isRefreshingBacklog,
+                    onMoveCard: { cardId, targetColumn in
+                        onDropCard(cardId, targetColumn)
+                    },
+                    onMergeCards: { sourceId, targetId in
+                        onMergeCards(sourceId, targetId)
+                    },
+                    onReorderCard: { cardId, targetCardId, above in
+                        store.dispatch(.reorderCard(cardId: cardId, targetCardId: targetCardId, above: above))
+                    },
+                    onRenameCard: { cardId, name in
+                        store.dispatch(.renameCard(cardId: cardId, name: name))
+                    },
+                    onArchiveCard: { cardId in
+                        onArchiveCard(cardId)
+                    },
+                    onStartCard: onStartCard,
+                    onResumeCard: onResumeCard,
+                    onForkCard: onForkCard,
+                    onCopyResumeCmd: onCopyResumeCmd,
+                    onCleanupWorktree: onCleanupWorktree,
+                    canCleanupWorktree: canCleanupWorktree,
+                    onDeleteCard: onDeleteCard,
+                    availableProjects: availableProjects,
+                    onMoveToProject: onMoveToProject,
+                    onMoveToFolder: onMoveToFolder,
+                    enabledAssistants: enabledAssistants,
+                    onMigrateAssistant: onMigrateAssistant,
+                    onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil,
+                    onCardClicked: onCardClicked,
+                    onColumnBackgroundClick: onColumnBackgroundClick
+                )
+                .frame(width: 150)
+                .id(column)
             }
-            .onChange(of: store.state.selectedCardId) {
-                // Scroll to the column containing the selected card
-                guard let selectedId = store.state.selectedCardId else { return }
-                for col in store.state.visibleColumns {
-                    if store.state.cards(in: col).contains(where: { $0.id == selectedId }) {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            proxy.scrollTo(col, anchor: .center)
-                        }
-                        break
-                    }
-                }
+
+            if let terminalContent {
+                terminalContent
+                    .frame(minWidth: 150, maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.top, 52)
+        .padding(.bottom, 16)
         // Error banner at bottom
         .overlay(alignment: .bottom) {
             if let error = store.state.error {
