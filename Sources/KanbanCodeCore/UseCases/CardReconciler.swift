@@ -182,6 +182,19 @@ public enum CardReconciler {
             }
         }
 
+        // 3. Match by promptBody (manual card with same prompt, no sessionLink yet)
+        if let firstPrompt = session.firstPrompt, !firstPrompt.isEmpty {
+            for (_, link) in linksById {
+                if link.sessionLink == nil,
+                   link.source == .manual,
+                   let prompt = link.promptBody,
+                   prompt == firstPrompt {
+                    KanbanCodeLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by promptBody → card=\(link.id.prefix(12))")
+                    return link.id
+                }
+            }
+        }
+
         KanbanCodeLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) projectPath=\(session.projectPath ?? "nil") → NO MATCH")
         return nil
     }
