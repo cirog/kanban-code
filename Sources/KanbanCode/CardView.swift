@@ -99,6 +99,20 @@ struct CardView: View {
                 .buttonStyle(.borderless)
                 .help("Start task")
                 .padding(8)
+            } else if card.column == .waiting {
+                Button(action: onArchive) {
+                    Image(systemName: "archivebox.fill")
+                        .font(.app(size: 10))
+                        .foregroundStyle(Color.secondary.opacity(0.7))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(Color.secondary.opacity(0.08), in: Capsule())
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                }
+                .buttonStyle(.borderless)
+                .help("Move to Done")
+                .padding(8)
             }
         }
         .background(
