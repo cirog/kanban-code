@@ -292,7 +292,8 @@ struct ContentView: View {
             },
             onColumnBackgroundClick: { column in
                 handleColumnBackgroundClick(column)
-            }
+            },
+            terminalContent: AnyView(terminalPanelContent)
         )
     }
 
@@ -467,22 +468,8 @@ struct ContentView: View {
     }
 
     private var boardWithOverlays: some View {
-        HSplitView {
-            Group {
-                if isExpandedDetail && !showBoardInExpanded && store.state.selectedCardId != nil {
-                    Spacer()
-                        .frame(width: 0)
-                        .clipped()
-                } else {
-                    activeBoardView
-                        .environment(\.projectColorMap, projectColorMap)
-                }
-            }
-            .frame(width: 820)
-
-            terminalPanelContent
-                .frame(minWidth: 300, maxWidth: .infinity)
-        }
+        activeBoardView
+            .environment(\.projectColorMap, projectColorMap)
             .ignoresSafeArea(edges: .top)
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .navigationTitle("")

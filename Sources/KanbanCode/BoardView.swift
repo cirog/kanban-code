@@ -25,12 +25,16 @@ struct BoardView: View {
     var onNewTask: () -> Void = {}
     var onCardClicked: (String) -> Void = { _ in }
     var onColumnBackgroundClick: (KanbanCodeColumn) -> Void = { _ in }
+    var terminalContent: AnyView? = nil
 
     var body: some View {
-        boardContent
+        GeometryReader { geometry in
+            let terminalWidth = max(500, geometry.size.width - 850)
+            boardContent(terminalWidth: terminalWidth)
+        }
     }
 
-    private var boardContent: some View {
+    private func boardContent(terminalWidth: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: true) {
                 HStack(alignment: .top, spacing: 6) {
@@ -77,6 +81,12 @@ struct BoardView: View {
                             onColumnBackgroundClick: onColumnBackgroundClick
                         )
                         .id(column)
+                    }
+
+                    if let terminalContent {
+                        terminalContent
+                            .frame(width: terminalWidth)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                 }
                 .padding(.horizontal, 16)
