@@ -181,7 +181,7 @@ struct DroppableColumnView: View {
         }
         .coordinateSpace(name: "column_\(column.rawValue)")
         .onPreferenceChange(CardFramePreference.self) { cardFrames = $0 }
-        .frame(minWidth: 240, maxWidth: 240)
+        .frame(minWidth: 264, maxWidth: 264)
         .glassColumn()
         .overlay(
             RoundedRectangle(cornerRadius: 12)
