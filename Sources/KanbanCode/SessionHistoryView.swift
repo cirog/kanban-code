@@ -77,7 +77,7 @@ struct SessionHistoryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ZStack(alignment: .top) {
-                Color(white: 0.08)
+                Color(red: 0x28/255.0, green: 0x2A/255.0, blue: 0x36/255.0)
                     .ignoresSafeArea()
 
                 ScrollViewReader { proxy in
@@ -281,7 +281,7 @@ struct SessionHistoryView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Color(white: 0.15))
+        .background(Color(red: 0x44/255.0, green: 0x47/255.0, blue: 0x5A/255.0))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .padding(.horizontal, 12)
         .padding(.top, 6)
@@ -500,7 +500,7 @@ struct TurnBlockView: View {
         if turn.role == "user" {
             let textBlocks = turn.contentBlocks.filter { if case .text = $0.kind { true } else { false } }
             if !textBlocks.isEmpty {
-                return Color(white: 0.15)
+                return Color(red: 0x44/255.0, green: 0x47/255.0, blue: 0x5A/255.0)
             }
         }
         return .clear
@@ -561,7 +561,7 @@ struct TurnBlockView: View {
                         Text("● ")
                             .font(.sessionDetail())
                             .foregroundStyle(.white)
-                        styledText(turn.textPreview, color: Color(white: 0.85), linksActive: linksActive, parseMarkdown: true, maxLines: 20)
+                        styledText(turn.textPreview, color: Color(red: 0xF8/255.0, green: 0xF8/255.0, blue: 0xF2/255.0), linksActive: linksActive, parseMarkdown: true, maxLines: 20)
                             .font(.sessionDetail())
                             .textSelection(.enabled)
                     }
@@ -626,7 +626,7 @@ struct TurnBlockView: View {
                 }
             }
             for range in codeRanges {
-                result[range].backgroundColor = Color(white: 0.15)
+                result[range].backgroundColor = Color(red: 0x44/255.0, green: 0x47/255.0, blue: 0x5A/255.0)
             }
         } else {
             result = AttributedString(text)
@@ -696,7 +696,7 @@ struct TurnBlockView: View {
                     Text("  ")
                         .font(.sessionDetail())
                 }
-                styledText(trimmed, color: Color(white: 0.85), linksActive: linksActive, parseMarkdown: true, maxLines: 30)
+                styledText(trimmed, color: Color(red: 0xF8/255.0, green: 0xF8/255.0, blue: 0xF2/255.0), linksActive: linksActive, parseMarkdown: true, maxLines: 30)
                     .font(.sessionDetail())
                     .textSelection(.enabled)
             }
@@ -715,7 +715,7 @@ struct TurnBlockView: View {
                     .font(.sessionDetail())
                 if displayText != name {
                     let args = displayText.hasPrefix(name) ? String(displayText.dropFirst(name.count)) : "(\(displayText))"
-                    styledText(args, color: Color(white: 0.5), linksActive: linksActive)
+                    styledText(args, color: Color(red: 0x62/255.0, green: 0x72/255.0, blue: 0xA4/255.0), linksActive: linksActive)
                         .font(.sessionDetail())
                         .lineLimit(2)
                 }
@@ -730,8 +730,8 @@ struct TurnBlockView: View {
             HStack(alignment: .top, spacing: 0) {
                 Text("  ⎿ ")
                     .font(.sessionDetail())
-                    .foregroundStyle(Color(white: 0.35))
-                styledText(block.text, color: Color(white: 0.35), linksActive: linksActive)
+                    .foregroundStyle(Color(red: 0x62/255.0, green: 0x72/255.0, blue: 0xA4/255.0).opacity(0.7))
+                styledText(block.text, color: Color(red: 0x62/255.0, green: 0x72/255.0, blue: 0xA4/255.0).opacity(0.7), linksActive: linksActive)
                     .font(.sessionDetail())
                     .lineLimit(3)
             }
@@ -744,10 +744,10 @@ struct TurnBlockView: View {
         HStack(alignment: .top, spacing: 0) {
             Text("  ∴ ")
                 .font(.sessionDetail())
-                .foregroundStyle(Color(white: 0.3))
+                .foregroundStyle(Color(red: 0x62/255.0, green: 0x72/255.0, blue: 0xA4/255.0).opacity(0.5))
             Text("Thinking...")
                 .font(.sessionDetail())
-                .foregroundStyle(Color(white: 0.3))
+                .foregroundStyle(Color(red: 0x62/255.0, green: 0x72/255.0, blue: 0xA4/255.0).opacity(0.5))
                 .italic()
         }
     }
