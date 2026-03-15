@@ -425,31 +425,31 @@ final class TerminalCache {
             return existing
         }
         let terminal = BatchedTerminalView(frame: frame)
-        // Dark terminal colors matching a real terminal
-        terminal.nativeBackgroundColor = NSColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1.0)
-        terminal.nativeForegroundColor = NSColor(red: 0.93, green: 0.93, blue: 0.93, alpha: 1.0)
-        terminal.caretColor = .systemGreen
+        // Dracula theme colors
+        terminal.nativeBackgroundColor = NSColor(red: 0x28/255.0, green: 0x2A/255.0, blue: 0x36/255.0, alpha: 1.0)
+        terminal.nativeForegroundColor = NSColor(red: 0xF8/255.0, green: 0xF8/255.0, blue: 0xF2/255.0, alpha: 1.0)
+        terminal.caretColor = NSColor(red: 0xF8/255.0, green: 0xF8/255.0, blue: 0xF2/255.0, alpha: 1.0)
 
-        // Brighter ANSI palette (SwiftTerm Color uses UInt16 0-65535, multiply 0-255 by 257)
+        // Dracula ANSI palette (SwiftTerm Color uses UInt16 0-65535, multiply 0-255 by 257)
         let c = { (r: UInt16, g: UInt16, b: UInt16) in SwiftTerm.Color(red: r * 257, green: g * 257, blue: b * 257) }
         terminal.installColors([
             // Standard colors (0-7)
-            c(0x33, 0x33, 0x33),  // black (slightly visible)
-            c(0xFF, 0x5F, 0x56),  // red
-            c(0x5A, 0xF7, 0x8E),  // green
-            c(0xFF, 0xD7, 0x5F),  // yellow
-            c(0x57, 0xAC, 0xFF),  // blue
-            c(0xFF, 0x6A, 0xC1),  // magenta
-            c(0x5A, 0xF7, 0xD4),  // cyan
-            c(0xE0, 0xE0, 0xE0),  // white
+            c(0x21, 0x22, 0x2C),  // black
+            c(0xFF, 0x55, 0x55),  // red
+            c(0x50, 0xFA, 0x7B),  // green
+            c(0xF1, 0xFA, 0x8C),  // yellow
+            c(0xBD, 0x93, 0xF9),  // blue (purple in Dracula)
+            c(0xFF, 0x79, 0xC6),  // magenta (pink)
+            c(0x8B, 0xE9, 0xFD),  // cyan
+            c(0xF8, 0xF8, 0xF2),  // white
             // Bright colors (8-15)
-            c(0x66, 0x66, 0x66),  // bright black
-            c(0xFF, 0x6E, 0x67),  // bright red
-            c(0x5A, 0xF7, 0x8E),  // bright green
-            c(0xFF, 0xFC, 0x67),  // bright yellow
-            c(0x6B, 0xC1, 0xFF),  // bright blue
-            c(0xFF, 0x77, 0xD0),  // bright magenta
-            c(0x5A, 0xF7, 0xD4),  // bright cyan
+            c(0x62, 0x72, 0xA4),  // bright black (comment)
+            c(0xFF, 0x6E, 0x6E),  // bright red
+            c(0x69, 0xFF, 0x94),  // bright green
+            c(0xFF, 0xFF, 0xA5),  // bright yellow
+            c(0xD6, 0xAC, 0xFF),  // bright blue (bright purple)
+            c(0xFF, 0x92, 0xDF),  // bright magenta (bright pink)
+            c(0xA4, 0xFF, 0xFF),  // bright cyan
             c(0xFF, 0xFF, 0xFF),  // bright white
         ])
 
@@ -580,13 +580,13 @@ final class TerminalContainerNSView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1.0).cgColor
+        layer?.backgroundColor = NSColor(red: 0x28/255.0, green: 0x2A/255.0, blue: 0x36/255.0, alpha: 1.0).cgColor
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         wantsLayer = true
-        layer?.backgroundColor = NSColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1.0).cgColor
+        layer?.backgroundColor = NSColor(red: 0x28/255.0, green: 0x2A/255.0, blue: 0x36/255.0, alpha: 1.0).cgColor
     }
 
     /// Ensure a terminal for `sessionName` is attached to this container.
