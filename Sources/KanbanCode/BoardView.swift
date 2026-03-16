@@ -93,6 +93,7 @@ struct BoardView: View {
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .layoutPriority(0)
+                    .id(store.state.selectedCardId ?? "none")
             }
         }
         .padding(.horizontal, 12)

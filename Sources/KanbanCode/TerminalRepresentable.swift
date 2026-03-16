@@ -257,6 +257,7 @@ final class TerminalCache {
     static let fontSizeKey = "sessionDetailFontSize"
 
     private var terminals: [String: BatchedTerminalView] = [:]
+    var cachedContainer: TerminalContainerNSView?
     private var shiftEnterMonitor: Any?
     private var scrollWheelMonitor: Any?
     private var fontSizeObserver: Any?
@@ -549,7 +550,11 @@ struct TerminalContainerView: NSViewRepresentable, Equatable {
 
     func makeNSView(context: Context) -> TerminalContainerNSView {
         KanbanCodeLog.info("terminal-view", "makeNSView: sessions=\(sessions) active=\(activeSession)")
+        if let cached = TerminalCache.shared.cachedContainer {
+            return cached
+        }
         let container = TerminalContainerNSView()
+        TerminalCache.shared.cachedContainer = container
         for session in sessions {
             container.ensureTerminal(for: session)
         }
@@ -575,10 +580,8 @@ struct TerminalContainerView: NSViewRepresentable, Equatable {
     }
 
     static func dismantleNSView(_ nsView: TerminalContainerNSView, coordinator: ()) {
-        KanbanCodeLog.info("terminal-view", "dismantleNSView — detaching all terminals")
-        // Detach terminals from this container but do NOT terminate them.
-        // They live on in TerminalCache and will be reparented when the drawer reopens.
-        nsView.detachAll()
+        // No-op: singleton container survives SwiftUI teardown.
+        // Terminals live on in TerminalCache and will be reparented when the drawer reopens.
     }
 }
 
@@ -631,8 +634,16 @@ final class TerminalContainerNSView: NSView {
         for name in managedSessions {
             let terminal = TerminalCache.shared.terminal(for: name, frame: bounds)
             let isActive = (name == sessionName)
-            if terminal.isHidden != !isActive {
-                terminal.isHidden = !isActive
+            if isActive {
+                // Delay unhide by 50ms to let layout settle before showing,
+                // preventing flash of mispositioned content during session switch.
+                if terminal.isHidden {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        terminal.isHidden = false
+                    }
+                }
+            } else if !terminal.isHidden {
+                terminal.isHidden = true
             }
             if isActive {
                 disableScrollbar(on: terminal)
