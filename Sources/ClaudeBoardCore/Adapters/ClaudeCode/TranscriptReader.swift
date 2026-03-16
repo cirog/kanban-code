@@ -317,7 +317,10 @@ public enum TranscriptReader {
             let pos = allLines.count
             allLines.append((index: turnIndex, type: type, line: line))
 
-            if type == "user" {
+            // Only treat user turns with actual text content as delimiters.
+            // Tool result turns (type:"user" with only tool_result blocks) are
+            // part of the assistant's tool call cycle, not real user input.
+            if type == "user" && Self.isRealUserMessage(obj) {
                 lastUserTurnPosition = pos
             }
             turnIndex += 1
@@ -350,6 +353,20 @@ public enum TranscriptReader {
 
         guard lastAssistantIndex >= 0 else { return nil }
         return LastReplyResult(turnIndex: lastAssistantIndex, texts: texts)
+    }
+
+    /// Check if a user turn contains actual user-typed text (not just tool_result blocks).
+    private static func isRealUserMessage(_ obj: [String: Any]) -> Bool {
+        guard let message = obj["message"] as? [String: Any],
+              let content = message["content"] as? [[String: Any]] else {
+            // String content (e.g., local command stdout) — treat as real user input
+            if let message = obj["message"] as? [String: Any],
+               message["content"] is String {
+                return true
+            }
+            return false
+        }
+        return content.contains { ($0["type"] as? String) == "text" }
     }
 
     // MARK: - User message parsing

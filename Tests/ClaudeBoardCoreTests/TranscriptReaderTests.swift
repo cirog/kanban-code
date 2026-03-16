@@ -417,6 +417,27 @@ struct TranscriptReaderTests {
         #expect(result!.turnIndex == 3)
     }
 
+    @Test("lastAssistantTextBlocks ignores tool_result user turns as delimiters")
+    func testLastAssistantTextBlocks_ignoresToolResults() async throws {
+        // Real protocol: tool results come as "user" type with tool_result content
+        // These should NOT reset the "last user message" boundary
+        let jsonl = [
+            #"{"type":"user","message":{"content":[{"type":"text","text":"run daily check"}]},"timestamp":"2026-03-16T10:00:00Z"}"#,
+            ###"{"type":"assistant","message":{"content":[{"type":"text","text":"Starting check..."},{"type":"tool_use","name":"Bash","id":"t1","input":{"command":"ls"}}]},"timestamp":"2026-03-16T10:00:01Z"}"###,
+            #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"file1.txt"}]},"timestamp":"2026-03-16T10:00:02Z"}"#,
+            ###"{"type":"assistant","message":{"content":[{"type":"text","text":"## Results\nFound files."}]},"timestamp":"2026-03-16T10:00:03Z"}"###,
+        ].joined(separator: "\n")
+        let path = writeTempFile(jsonl)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
+        #expect(result != nil)
+        // Should collect text from BOTH assistant turns — the tool_result user turn is not a delimiter
+        #expect(result!.texts.count == 2)
+        #expect(result!.texts[0] == "Starting check...")
+        #expect(result!.texts[1].contains("Results"))
+    }
+
     @Test("Shows command stdout as assistant-style turn in history")
     func showsStdoutAsAssistant() async throws {
         let dir = try makeTempDir()
