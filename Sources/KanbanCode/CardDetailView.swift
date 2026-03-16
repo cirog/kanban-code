@@ -9,7 +9,7 @@ final class ActionsMenuProvider {
 }
 
 enum DetailTab: String {
-    case terminal, history, prompt
+    case terminal, history, prompt, description
 
     static func initialTab(for card: KanbanCodeCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
@@ -206,6 +206,8 @@ struct CardDetailView: View {
                 )
             case .prompt:
                 promptTabView
+            case .description:
+                descriptionTabView
             }
         }
         .frame(maxWidth: .infinity)
@@ -852,6 +854,21 @@ struct CardDetailView: View {
 
     // Issue Tab, PR Tab, and PR helpers removed (GitHub integration stripped)
 
+    // MARK: - Description Tab
+
+    @ViewBuilder
+    private var descriptionTabView: some View {
+        if let desc = card.link.todoistDescription {
+            ScrollView {
+                Text(desc)
+                    .font(.app(.body))
+                    .textSelection(.enabled)
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
     // MARK: - Prompt Tab
 
     @ViewBuilder
@@ -1063,6 +1080,7 @@ struct CardDetailView: View {
                 Text("Terminal").tag(DetailTab.terminal)
                 Text("History").tag(DetailTab.history)
                 if card.link.promptBody != nil { Text("Prompt").tag(DetailTab.prompt) }
+                if card.link.todoistDescription != nil { Text("Description").tag(DetailTab.description) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()

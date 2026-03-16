@@ -176,13 +176,15 @@ struct ContentView: View {
         let pushover = Self.loadPushoverConfig()
         let notifier = CompositeNotifier(primary: pushover, fallback: MacOSNotificationClient())
 
+        let todoistSync = TodoistSyncService()
         let orch = BackgroundOrchestrator(
             discovery: discovery,
             coordinationStore: coordination,
             activityDetector: activityDetector,
             tmux: tmux,
             notifier: notifier,
-            registry: registry
+            registry: registry,
+            todoistSync: todoistSync
         )
 
         let launch = LaunchSession(tmux: tmux)

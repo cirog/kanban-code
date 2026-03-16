@@ -68,6 +68,12 @@ struct CardView: View {
                         CardLabelBadge(label: card.link.cardLabel)
                     }
 
+                    if card.link.todoistId != nil {
+                        Image(systemName: "checkmark.circle")
+                            .font(.app(.caption))
+                            .foregroundStyle(.secondary)
+                    }
+
                     Text(card.relativeTime)
                         .font(.app(.caption2))
                         .foregroundStyle(.tertiary)
