@@ -401,9 +401,6 @@ struct ContentView: View {
                 onUnlink: { linkType in
                     store.dispatch(.unlinkFromCard(cardId: card.id, linkType: linkType))
                 },
-                onAddBranch: { branch in
-                    store.dispatch(.addBranchToCard(cardId: card.id, branch: branch))
-                },
                 onCleanupWorktree: {
                     // worktree cleanup removed
                 },

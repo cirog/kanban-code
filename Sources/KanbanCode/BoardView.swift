@@ -122,6 +122,7 @@ struct BoardView: View {
         .padding(.horizontal, 12)
         .padding(.top, 52)
         .padding(.bottom, 16)
+        .clipped()
         // Error banner at bottom
         .overlay(alignment: .bottom) {
             if let error = store.state.error {
