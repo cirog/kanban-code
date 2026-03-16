@@ -74,6 +74,8 @@ Toolbar uses SwiftUI `.toolbar` with `ToolbarSpacer` (macOS 26+) for separate gl
 
 ## Commits
 
+**Always commit and push after every change.** Every implementation step, bug fix, or modification must be committed and pushed to GitHub immediately. Never leave work uncommitted — the repo at `/tmp/` was once lost because changes weren't pushed. This is non-negotiable.
+
 Use [Conventional Commits](https://www.conventionalcommits.org/) for all commit messages. Release-please uses these to generate changelogs automatically.
 
 - `feat: add dark mode` — new feature (minor version bump)
