@@ -66,6 +66,20 @@ final class BatchedTerminalView: LocalProcessTerminalView {
         flushScheduled = false
     }
 
+    /// Committed frame size — blocks sub-pixel resizes from reaching SwiftTerm's
+    /// SIGWINCH handler, preventing tmux full-screen repaints during state updates.
+    private var committedSize: NSSize = .zero
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let dw = abs(newSize.width - committedSize.width)
+        let dh = abs(newSize.height - committedSize.height)
+        if dw < 1.0 && dh < 1.0 && committedSize != .zero {
+            return  // swallow sub-pixel jitter
+        }
+        committedSize = newSize
+        super.setFrameSize(newSize)
+    }
+
     // MARK: - Cmd+hover URL detection
 
     private static let urlRegex: NSRegularExpression? = {
@@ -595,6 +609,13 @@ final class TerminalContainerNSView: NSView {
         let terminal = TerminalCache.shared.terminal(for: sessionName, frame: bounds)
         if terminal.superview !== self {
             terminal.removeFromSuperview()
+            // Pre-set the correct inset frame BEFORE adding to the view hierarchy.
+            // This prevents the initial layout pass from triggering a resize from
+            // (0,0,full_bounds) → (inset) which would cause SIGWINCH.
+            let inset = bounds.insetBy(dx: Self.terminalPadding, dy: Self.terminalPadding)
+            if inset.width > 0 && inset.height > 0 {
+                terminal.frame = inset
+            }
             addSubview(terminal)
         }
         // Show immediately with old content — no hiding/alpha tricks.
