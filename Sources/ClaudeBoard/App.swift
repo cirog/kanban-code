@@ -72,12 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             window.delegate = self
         }
 
-        // Set app icon from bundled resource (SPM uses Bundle.appResources)
-        if let iconURL = Bundle.appResources.url(forResource: "AppIcon", withExtension: "icns", subdirectory: "Resources"),
-           let icon = NSImage(contentsOf: iconURL) {
-            NSApp.applicationIconImage = icon
-        }
-
         // Set up notifications: delegate must be set BEFORE requesting authorization
         let center = UNUserNotificationCenter.current()
         center.delegate = self
