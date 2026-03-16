@@ -14,6 +14,7 @@ enum DetailTab: String {
     static func initialTab(for card: ClaudeBoardCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
         if card.link.sessionLink != nil { return .history }
+        if card.link.todoistId != nil { return .description }
         if card.link.promptBody != nil { return .prompt }
         return .history
     }
@@ -862,18 +863,71 @@ struct CardDetailView: View {
 
     // Issue Tab, PR Tab, and PR helpers removed (GitHub integration stripped)
 
-    // MARK: - Description Tab
+    // MARK: - Todoist Task Tab
 
     @ViewBuilder
     private var descriptionTabView: some View {
-        if let desc = card.link.todoistDescription {
-            ScrollView {
-                Text(desc)
-                    .font(.app(.body))
-                    .textSelection(.enabled)
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Priority + Labels row
+                HStack(spacing: 8) {
+                    if let priority = card.link.todoistPriority, priority > 1 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "flag.fill")
+                                .font(.app(size: 10))
+                            Text("P\(5 - priority)")
+                                .font(.app(.caption, weight: .semibold))
+                        }
+                        .foregroundStyle(priorityColor(priority))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(priorityColor(priority).opacity(0.15), in: Capsule())
+                    }
+                    if let labels = card.link.todoistLabels {
+                        ForEach(labels, id: \.self) { label in
+                            Text(label)
+                                .font(.app(.caption, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.draculaCurrentLine, in: Capsule())
+                        }
+                    }
+                    Spacer()
+                }
+
+                // Due date
+                if let due = card.link.todoistDue {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.app(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text("Due: \(due)")
+                            .font(.app(.callout))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // Description
+                if let desc = card.link.todoistDescription, !desc.isEmpty {
+                    Divider()
+                    Text(desc)
+                        .font(.app(.body))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func priorityColor(_ priority: Int) -> Color {
+        switch priority {
+        case 4: .red
+        case 3: .orange
+        case 2: .blue
+        default: .secondary
         }
     }
 
@@ -1282,7 +1336,7 @@ struct CardDetailView: View {
                 if card.link.promptBody != nil || card.link.sessionLink != nil {
                     Text("Prompts").tag(DetailTab.prompt)
                 }
-                if card.link.todoistDescription != nil { Text("Description").tag(DetailTab.description) }
+                if card.link.todoistId != nil { Text("Task").tag(DetailTab.description) }
                 if card.link.sessionLink != nil { Text("Summary").tag(DetailTab.summary) }
             }
             .pickerStyle(.segmented)

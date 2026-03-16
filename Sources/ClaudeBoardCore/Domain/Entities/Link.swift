@@ -62,6 +62,7 @@ public struct QueuedPrompt: Codable, Sendable, Equatable, Identifiable {
 public enum CardLabel: String, Sendable {
     case session = "SESSION"
     case task = "TASK"
+    case todoist = "TODOIST"
 }
 
 // MARK: - Link (Card Entity)
@@ -88,6 +89,10 @@ public struct Link: Identifiable, Codable, Sendable {
     // Todoist integration
     public var todoistId: String?
     public var todoistDescription: String?
+    public var todoistPriority: Int?
+    public var todoistDue: String?
+    public var todoistLabels: [String]?
+    public var todoistProjectId: String?
     public var notes: String?
     public var projectId: String?
 
@@ -134,6 +139,7 @@ public struct Link: Identifiable, Codable, Sendable {
     /// The primary label for this card based on which links are present.
     public var cardLabel: CardLabel {
         if sessionLink != nil { return .session }
+        if todoistId != nil { return .todoist }
         return .task
     }
 
@@ -169,6 +175,10 @@ public struct Link: Identifiable, Codable, Sendable {
         promptImagePaths: [String]? = nil,
         todoistId: String? = nil,
         todoistDescription: String? = nil,
+        todoistPriority: Int? = nil,
+        todoistDue: String? = nil,
+        todoistLabels: [String]? = nil,
+        todoistProjectId: String? = nil,
         notes: String? = nil,
         projectId: String? = nil,
         sessionLink: SessionLink? = nil,
@@ -193,6 +203,10 @@ public struct Link: Identifiable, Codable, Sendable {
         self.promptImagePaths = promptImagePaths
         self.todoistId = todoistId
         self.todoistDescription = todoistDescription
+        self.todoistPriority = todoistPriority
+        self.todoistDue = todoistDue
+        self.todoistLabels = todoistLabels
+        self.todoistProjectId = todoistProjectId
         self.notes = notes
         self.projectId = projectId
         self.sessionLink = sessionLink
@@ -211,7 +225,7 @@ public struct Link: Identifiable, Codable, Sendable {
         case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isLaunching, sortOrder
         case assistant
         // Todoist integration
-        case todoistId, todoistDescription, notes, projectId
+        case todoistId, todoistDescription, todoistPriority, todoistDue, todoistLabels, todoistProjectId, notes, projectId
         // Typed links (new nested format)
         case sessionLink, tmuxLink, queuedPrompts
         // Old format keys (for reading legacy format)
@@ -240,6 +254,10 @@ public struct Link: Identifiable, Codable, Sendable {
         assistant = try c.decodeIfPresent(CodingAssistant.self, forKey: .assistant)
         todoistId = try c.decodeIfPresent(String.self, forKey: .todoistId)
         todoistDescription = try c.decodeIfPresent(String.self, forKey: .todoistDescription)
+        todoistPriority = try c.decodeIfPresent(Int.self, forKey: .todoistPriority)
+        todoistDue = try c.decodeIfPresent(String.self, forKey: .todoistDue)
+        todoistLabels = try c.decodeIfPresent([String].self, forKey: .todoistLabels)
+        todoistProjectId = try c.decodeIfPresent(String.self, forKey: .todoistProjectId)
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
         projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
 
@@ -291,6 +309,10 @@ public struct Link: Identifiable, Codable, Sendable {
         try c.encodeIfPresent(assistant, forKey: .assistant)
         try c.encodeIfPresent(todoistId, forKey: .todoistId)
         try c.encodeIfPresent(todoistDescription, forKey: .todoistDescription)
+        try c.encodeIfPresent(todoistPriority, forKey: .todoistPriority)
+        try c.encodeIfPresent(todoistDue, forKey: .todoistDue)
+        try c.encodeIfPresent(todoistLabels, forKey: .todoistLabels)
+        try c.encodeIfPresent(todoistProjectId, forKey: .todoistProjectId)
         try c.encodeIfPresent(notes, forKey: .notes)
         try c.encodeIfPresent(projectId, forKey: .projectId)
 

@@ -56,6 +56,41 @@ struct EntityTests {
         #expect(p.effectiveRepoRoot == "/a/b/langwatch")
     }
 
+    // MARK: - CardLabel
+
+    @Test("Todoist card gets .todoist label")
+    func todoistCardLabel() {
+        let link = Link(
+            name: "Read article",
+            column: .backlog,
+            source: .todoist,
+            todoistId: "abc123"
+        )
+        #expect(link.cardLabel == .todoist)
+    }
+
+    @Test("Session card still gets .session label even with todoistId")
+    func sessionCardLabelOverridesTodoist() {
+        let link = Link(
+            name: "Session task",
+            column: .backlog,
+            source: .todoist,
+            todoistId: "abc123",
+            sessionLink: SessionLink(sessionId: "sess1", sessionPath: nil, sessionNumber: nil)
+        )
+        #expect(link.cardLabel == .session)
+    }
+
+    @Test("Card without todoistId or session gets .task label")
+    func plainTaskCardLabel() {
+        let link = Link(
+            name: "Manual task",
+            column: .backlog,
+            source: .manual
+        )
+        #expect(link.cardLabel == .task)
+    }
+
     // MARK: - TmuxLink
 
     @Test("TmuxLink defaults to Claude session (not shell-only)")

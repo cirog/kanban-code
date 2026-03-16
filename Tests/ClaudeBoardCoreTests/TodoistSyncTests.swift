@@ -45,4 +45,60 @@ struct TodoistSyncTests {
         let tasks = try TodoistSyncService.parseTasks(from: "{\"key\":\"value\"}")
         #expect(tasks.isEmpty)
     }
+
+    // MARK: - Extra Todoist Fields
+
+    @Test("Parse extracts priority field")
+    func parsePriority() throws {
+        let json = """
+        [{"id":"1","content":"Task","priority":3}]
+        """
+        let tasks = try TodoistSyncService.parseTasks(from: json)
+        #expect(tasks[0].priority == 3)
+    }
+
+    @Test("Parse extracts due date string")
+    func parseDueDate() throws {
+        let json = """
+        [{"id":"1","content":"Task","due":{"date":"2026-03-20","string":"Mar 20"}}]
+        """
+        let tasks = try TodoistSyncService.parseTasks(from: json)
+        #expect(tasks[0].due == "2026-03-20")
+    }
+
+    @Test("Parse extracts labels array")
+    func parseLabels() throws {
+        let json = """
+        [{"id":"1","content":"Task","labels":["claude","urgent"]}]
+        """
+        let tasks = try TodoistSyncService.parseTasks(from: json)
+        #expect(tasks[0].labels == ["claude", "urgent"])
+    }
+
+    @Test("Parse extracts project_id")
+    func parseProjectId() throws {
+        let json = """
+        [{"id":"1","content":"Task","project_id":"proj_abc"}]
+        """
+        let tasks = try TodoistSyncService.parseTasks(from: json)
+        #expect(tasks[0].projectId == "proj_abc")
+    }
+
+    @Test("Parse defaults priority to 1 when missing")
+    func parseDefaultPriority() throws {
+        let json = """
+        [{"id":"1","content":"Task"}]
+        """
+        let tasks = try TodoistSyncService.parseTasks(from: json)
+        #expect(tasks[0].priority == 1)
+    }
+
+    @Test("Parse handles null due gracefully")
+    func parseNullDue() throws {
+        let json = """
+        [{"id":"1","content":"Task","due":null}]
+        """
+        let tasks = try TodoistSyncService.parseTasks(from: json)
+        #expect(tasks[0].due == nil)
+    }
 }

@@ -1065,6 +1065,57 @@ struct ReducerTests {
         }))
     }
 
+    @Test("todoistSyncCompleted stores extra fields on new card")
+    func todoistSyncStoresExtraFields() {
+        var state = AppState()
+        let task = TodoistTask(
+            id: "todoist_extra",
+            content: "Read article",
+            description: "Some desc",
+            priority: 3,
+            due: "2026-03-20",
+            labels: ["claude", "urgent"],
+            projectId: "proj_abc"
+        )
+
+        let _ = Reducer.reduce(state: &state, action: .todoistSyncCompleted([task]))
+
+        let link = state.links.values.first { $0.todoistId == "todoist_extra" }!
+        #expect(link.todoistPriority == 3)
+        #expect(link.todoistDue == "2026-03-20")
+        #expect(link.todoistLabels == ["claude", "urgent"])
+        #expect(link.todoistProjectId == "proj_abc")
+    }
+
+    @Test("todoistSyncCompleted updates extra fields on existing card")
+    func todoistSyncUpdatesExtraFields() {
+        let existing = Link(
+            id: "card_update_extra",
+            name: "Old",
+            column: .backlog,
+            source: .todoist,
+            todoistId: "todoist_upd"
+        )
+        var state = stateWith([existing])
+
+        let task = TodoistTask(
+            id: "todoist_upd",
+            content: "Updated",
+            description: nil,
+            priority: 4,
+            due: "2026-04-01",
+            labels: ["claude"],
+            projectId: "proj_xyz"
+        )
+        let _ = Reducer.reduce(state: &state, action: .todoistSyncCompleted([task]))
+
+        let link = state.links["card_update_extra"]!
+        #expect(link.todoistPriority == 4)
+        #expect(link.todoistDue == "2026-04-01")
+        #expect(link.todoistLabels == ["claude"])
+        #expect(link.todoistProjectId == "proj_xyz")
+    }
+
     @Test("assignColumn keeps todoist card with no session in backlog")
     func assignColumnPreservesTodoist() {
         let link = Link(

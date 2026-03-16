@@ -306,6 +306,7 @@ struct CardLabelBadge: View {
         switch label {
         case .session: .orange
         case .task: .gray
+        case .todoist: .red
         }
     }
 }

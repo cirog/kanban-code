@@ -47,7 +47,20 @@ public actor TodoistSyncService {
             guard let id = item["id"] as? String,
                   let content = item["content"] as? String else { return nil }
             let description = item["description"] as? String
-            return TodoistTask(id: id, content: content, description: description)
+            let priority = item["priority"] as? Int ?? 1
+            let labels = item["labels"] as? [String]
+            let projectId = item["project_id"] as? String
+            // due is a nested object with a "date" field
+            let due: String? = (item["due"] as? [String: Any])?["date"] as? String
+            return TodoistTask(
+                id: id,
+                content: content,
+                description: description,
+                priority: priority,
+                due: due,
+                labels: labels,
+                projectId: projectId
+            )
         }
     }
 }

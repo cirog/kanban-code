@@ -1026,6 +1026,10 @@ public enum Reducer {
                 if var existing = existingByTodoistId[task.id] {
                     existing.name = task.content
                     existing.todoistDescription = task.description
+                    existing.todoistPriority = task.priority
+                    existing.todoistDue = task.due
+                    existing.todoistLabels = task.labels
+                    existing.todoistProjectId = task.projectId
                     existing.updatedAt = .now
                     state.links[existing.id] = existing
                 } else {
@@ -1034,7 +1038,11 @@ public enum Reducer {
                         column: .backlog,
                         source: .todoist,
                         todoistId: task.id,
-                        todoistDescription: task.description
+                        todoistDescription: task.description,
+                        todoistPriority: task.priority,
+                        todoistDue: task.due,
+                        todoistLabels: task.labels,
+                        todoistProjectId: task.projectId
                     )
                     state.links[newLink.id] = newLink
                 }
