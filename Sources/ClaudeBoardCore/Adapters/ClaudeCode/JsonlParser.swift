@@ -361,6 +361,41 @@ public enum JsonlParser {
         text.replacing(metadataTagRegex, with: "")
     }
 
+    /// System-generated user message prefixes that are not real user input.
+    private static let systemMessagePrefixes = [
+        "<task-notification>",
+        "<command-message>",
+        "<command-name>",
+        "<local-command-",
+    ]
+
+    /// True if this user turn contains actual user-typed text.
+    /// Returns false for tool_result-only turns, task-notifications, slash commands, and skill loading.
+    public static func isRealUserMessage(_ obj: [String: Any]) -> Bool {
+        guard let message = obj["message"] as? [String: Any] else { return false }
+
+        // String content — check for system-generated patterns
+        if let text = message["content"] as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            for prefix in systemMessagePrefixes {
+                if trimmed.hasPrefix(prefix) { return false }
+            }
+            return true
+        }
+
+        // Array content — must have a text block that isn't skill loading
+        if let content = message["content"] as? [[String: Any]] {
+            return content.contains { block in
+                guard (block["type"] as? String) == "text",
+                      let text = block["text"] as? String else { return false }
+                if text.hasPrefix("Base directory for this skill:") { return false }
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// Decode a Claude projects directory name to a filesystem path.
     /// e.g., "-Users-rchaves-Projects-remote-langwatch" → "/Users/rchaves/Projects/remote/langwatch"
     public static func decodeDirectoryName(_ name: String) -> String {

@@ -11,17 +11,22 @@ struct ReplyTabView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
-        loadReply(into: webView)
+        loadReply(into: webView, coordinator: context.coordinator)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        loadReply(into: webView)
+        let coord = context.coordinator
+        // Only reload if the session path changed
+        guard sessionPath != coord.lastLoadedPath else { return }
+        loadReply(into: webView, coordinator: coord)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    private func loadReply(into webView: WKWebView) {
+    private func loadReply(into webView: WKWebView, coordinator: Coordinator) {
+        coordinator.lastLoadedPath = sessionPath
+
         guard let path = sessionPath else {
             webView.loadHTMLString(Self.htmlPage(body: #"<p class="placeholder">No session</p>"#), baseURL: nil)
             return
@@ -36,6 +41,9 @@ struct ReplyTabView: NSViewRepresentable {
                     return
                 }
 
+                // Skip reload if same turn index as last render
+                guard result.turnIndex != coordinator.lastRenderedTurnIndex else { return }
+
                 guard !result.texts.isEmpty else {
                     await MainActor.run {
                         webView.loadHTMLString(Self.htmlPage(body: #"<p class="placeholder">No text output in last reply</p>"#), baseURL: nil)
@@ -44,9 +52,6 @@ struct ReplyTabView: NSViewRepresentable {
                 }
 
                 var markdown = result.texts.joined(separator: "\n\n---\n\n")
-
-                // Pre-process: convert Insight blocks to HTML before markdown parsing
-                // Pattern: `★ Insight ───...` \n content \n `───...`
                 markdown = Self.transformInsightBlocks(markdown)
 
                 let escapedMd = markdown
@@ -62,7 +67,9 @@ struct ReplyTabView: NSViewRepresentable {
                     </script>
                     """)
 
+                let turnIdx = result.turnIndex
                 await MainActor.run {
+                    coordinator.lastRenderedTurnIndex = turnIdx
                     webView.loadHTMLString(html, baseURL: nil)
                 }
             } catch {
@@ -74,6 +81,11 @@ struct ReplyTabView: NSViewRepresentable {
     }
 
     class Coordinator: NSObject, WKNavigationDelegate {
+        /// Last session path that was loaded — prevents re-reads on SwiftUI re-renders.
+        var lastLoadedPath: String?
+        /// Last turn index that was rendered — prevents re-parsing same content.
+        var lastRenderedTurnIndex: Int = -1
+
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             if navigationAction.navigationType == .other { return .allow }
             return .cancel
