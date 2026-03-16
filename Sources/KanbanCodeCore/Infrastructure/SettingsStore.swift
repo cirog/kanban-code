@@ -11,6 +11,7 @@ public struct Settings: Codable, Sendable {
     public var hasCompletedOnboarding: Bool
     public var defaultAssistant: CodingAssistant?
     public var enabledAssistants: [CodingAssistant]
+    public var projectLabels: [ProjectLabel]
 
     public init(
         projects: [Project] = [],
@@ -21,7 +22,8 @@ public struct Settings: Codable, Sendable {
         columnOrder: [KanbanCodeColumn] = KanbanCodeColumn.allCases,
         hasCompletedOnboarding: Bool = false,
         defaultAssistant: CodingAssistant? = nil,
-        enabledAssistants: [CodingAssistant] = CodingAssistant.allCases
+        enabledAssistants: [CodingAssistant] = CodingAssistant.allCases,
+        projectLabels: [ProjectLabel] = []
     ) {
         self.projects = projects
         self.globalView = globalView
@@ -32,12 +34,13 @@ public struct Settings: Codable, Sendable {
         self.hasCompletedOnboarding = hasCompletedOnboarding
         self.defaultAssistant = defaultAssistant
         self.enabledAssistants = enabledAssistants
+        self.projectLabels = projectLabels
     }
 
     private enum CodingKeys: String, CodingKey {
         case projects, globalView, notifications, sessionTimeout
         case promptTemplate, columnOrder, hasCompletedOnboarding, defaultAssistant
-        case enabledAssistants
+        case enabledAssistants, projectLabels
         case skill // backward-compat: old name for promptTemplate
         // Ignored on decode (backward-compat): github, remote, githubIssuePromptTemplate
         case github, remote, githubIssuePromptTemplate
@@ -59,6 +62,7 @@ public struct Settings: Codable, Sendable {
         defaultAssistant = try container.decodeIfPresent(CodingAssistant.self, forKey: .defaultAssistant)
         enabledAssistants = try container.decodeIfPresent([CodingAssistant].self, forKey: .enabledAssistants)
             ?? CodingAssistant.allCases
+        projectLabels = try container.decodeIfPresent([ProjectLabel].self, forKey: .projectLabels) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -72,6 +76,7 @@ public struct Settings: Codable, Sendable {
         try container.encode(hasCompletedOnboarding, forKey: .hasCompletedOnboarding)
         try container.encodeIfPresent(defaultAssistant, forKey: .defaultAssistant)
         try container.encode(enabledAssistants, forKey: .enabledAssistants)
+        try container.encode(projectLabels, forKey: .projectLabels)
         // Note: "skill", "github", "remote", "githubIssuePromptTemplate" are NOT encoded
     }
 }

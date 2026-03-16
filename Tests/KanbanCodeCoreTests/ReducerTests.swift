@@ -1055,6 +1055,28 @@ struct ReducerTests {
         #expect(column == .backlog)
     }
 
+    // MARK: - Project Labels
+
+    @Test("setProject assigns projectId to card")
+    func setProjectOnCard() {
+        var state = AppState()
+        let link = Link(id: "card_proj", name: "Task")
+        state.links[link.id] = link
+        let effects = Reducer.reduce(state: &state, action: .setProject(cardId: "card_proj", projectId: "proj_123"))
+        #expect(state.links["card_proj"]!.projectId == "proj_123")
+        #expect(!effects.isEmpty)
+    }
+
+    @Test("setProject clears projectId with nil")
+    func clearProjectOnCard() {
+        var state = AppState()
+        var link = Link(id: "card_clear", name: "Task")
+        link.projectId = "proj_old"
+        state.links[link.id] = link
+        let _ = Reducer.reduce(state: &state, action: .setProject(cardId: "card_clear", projectId: nil))
+        #expect(state.links["card_clear"]!.projectId == nil)
+    }
+
     @Test("launchCard on shell-only card moves shell to extras")
     func launchOnShellOnlyMovesShellToExtras() {
         let link = makeLink(

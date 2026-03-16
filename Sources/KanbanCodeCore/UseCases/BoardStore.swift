@@ -24,6 +24,9 @@ public struct AppState: Sendable {
     /// Project paths discovered from sessions but not yet configured.
     public var discoveredProjectPaths: [String] = []
 
+    /// Lightweight project labels for card categorization.
+    public var projectLabels: [ProjectLabel] = []
+
     /// Last time GitHub issues were fetched.
     public var lastGitHubRefresh: Date?
     /// Whether a GitHub issue refresh is currently running.
@@ -184,12 +187,15 @@ public enum Action: Sendable {
     case setBusy(cardId: String, busy: Bool)
 
     // Settings / misc
-    case settingsLoaded(projects: [Project], excludedPaths: [String])
+    case settingsLoaded(projects: [Project], excludedPaths: [String], projectLabels: [ProjectLabel])
     case setError(String?)
     case setRateLimitedRepos(Set<String>)
     case setSelectedProject(String?)
     case setLoading(Bool)
     case setIsRefreshingBacklog(Bool)
+
+    // Project labels
+    case setProject(cardId: String, projectId: String?)
 
     // Todoist sync
     case todoistSyncCompleted([TodoistTask])
@@ -953,11 +959,21 @@ public enum Reducer {
             }
             return []
 
+        // MARK: Project Labels
+
+        case .setProject(let cardId, let projectId):
+            guard var link = state.links[cardId] else { return [] }
+            link.projectId = projectId
+            link.updatedAt = .now
+            state.links[cardId] = link
+            return [.upsertLink(link)]
+
         // MARK: Settings / Misc
 
-        case .settingsLoaded(let projects, let excludedPaths):
+        case .settingsLoaded(let projects, let excludedPaths, let projectLabels):
             state.configuredProjects = projects
             state.excludedPaths = excludedPaths
+            state.projectLabels = projectLabels
             return []
 
         case .setError(let message):
@@ -1146,7 +1162,8 @@ public final class BoardStore: @unchecked Sendable {
             if let settings = try? await store.read() {
                 dispatch(.settingsLoaded(
                     projects: settings.projects,
-                    excludedPaths: settings.globalView.excludedPaths
+                    excludedPaths: settings.globalView.excludedPaths,
+                    projectLabels: settings.projectLabels
                 ))
             }
         }
@@ -1186,7 +1203,7 @@ public final class BoardStore: @unchecked Sendable {
                 if let settings = try? await store.read() {
                     configuredProjects = settings.projects
                     excludedPaths = settings.globalView.excludedPaths
-                    dispatch(.settingsLoaded(projects: configuredProjects, excludedPaths: excludedPaths))
+                    dispatch(.settingsLoaded(projects: configuredProjects, excludedPaths: excludedPaths, projectLabels: settings.projectLabels))
                 }
             }
 
