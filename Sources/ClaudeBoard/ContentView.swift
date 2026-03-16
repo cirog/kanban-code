@@ -259,7 +259,7 @@ struct ContentView: View {
             onQuickLaunch: { prompt in
                 let link = Link(name: String(prompt.prefix(80)), column: .backlog, source: .manual, promptBody: prompt)
                 store.dispatch(.createManualTask(link))
-                store.dispatch(.launchCard(cardId: link.id, prompt: prompt, projectPath: NSHomeDirectory(), worktreeName: nil, runRemotely: false, commandOverride: nil))
+                executeLaunch(cardId: link.id, prompt: prompt, projectPath: NSHomeDirectory())
             }
         )
     }
