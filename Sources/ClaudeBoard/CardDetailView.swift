@@ -9,7 +9,7 @@ final class ActionsMenuProvider {
 }
 
 enum DetailTab: String {
-    case terminal, history, prompt, description, summary
+    case terminal, reply, history, prompt, description, summary
 
     static func initialTab(for card: ClaudeBoardCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
@@ -194,6 +194,10 @@ struct CardDetailView: View {
             switch selectedTab {
             case .terminal:
                 terminalView
+            case .reply:
+                ReplyTabView(
+                    sessionPath: card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath
+                )
             case .history:
                 SessionHistoryView(
                     turns: turns,
@@ -1336,6 +1340,7 @@ struct CardDetailView: View {
         HStack {
             Picker("", selection: $selectedTab) {
                 Text("Terminal").tag(DetailTab.terminal)
+                if card.link.sessionLink != nil { Text("Reply").tag(DetailTab.reply) }
                 Text("History").tag(DetailTab.history)
                 if card.link.promptBody != nil || card.link.sessionLink != nil {
                     Text("Prompts").tag(DetailTab.prompt)
