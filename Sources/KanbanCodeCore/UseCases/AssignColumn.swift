@@ -44,6 +44,11 @@ public enum AssignColumn {
             }
         }
 
+        // Summary sessions → done
+        if let prompt = link.promptBody, prompt.hasPrefix("[CB-SUMMARY]") {
+            return .done
+        }
+
         // Manual task without a session yet → backlog
         // BUT if tmuxLink is set and NOT shell-only, it's being actively launched → stay in progress
         if link.source == .manual && link.sessionLink == nil {

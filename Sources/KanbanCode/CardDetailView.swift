@@ -1047,11 +1047,19 @@ struct CardDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let summary = summaryText, summaryCardId == card.id {
                 ScrollView {
-                    Text(summary)
-                        .font(.app(.body))
-                        .textSelection(.enabled)
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let attributed = try? AttributedString(markdown: summary) {
+                        Text(attributed)
+                            .font(.app(.body))
+                            .textSelection(.enabled)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text(summary)
+                            .font(.app(.body))
+                            .textSelection(.enabled)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             } else {
                 VStack(spacing: 12) {
@@ -1095,7 +1103,19 @@ struct CardDetailView: View {
             }
 
             let prompt = """
-            Summarize this Claude Code session in 3-5 bullet points. Focus on what was accomplished, key decisions, and current state. Be concise.
+            [CB-SUMMARY] Analyze this Claude Code session. The user's original goal was the first message. Provide:
+
+            ## Goal
+            What the user wanted to accomplish (1 sentence)
+
+            ## Journey
+            Key steps taken, decisions made, problems encountered (3-5 bullets)
+
+            ## Current State
+            What's been accomplished so far
+
+            ## Next Steps
+            What remains to be done (if anything)
 
             Conversation:
             \(transcript)

@@ -8,12 +8,12 @@ public enum AutoCleanup {
     ) -> [Link] {
         let cutoff = Date.now.addingTimeInterval(-Double(maxAgeHours) * 3600)
 
-        // Move scheduled tasks from waiting to done
+        // Move scheduled tasks and summary sessions from waiting/inProgress to done
         var cleaned = links.map { link -> Link in
-            if link.column == .waiting {
+            if link.column == .waiting || link.column == .inProgress {
                 let text = [link.name, link.promptBody]
                     .compactMap { $0 }
-                    .first { !$0.isEmpty && $0.hasPrefix("<scheduled-task name=") }
+                    .first { !$0.isEmpty && ($0.hasPrefix("<scheduled-task name=") || $0.hasPrefix("[CB-SUMMARY]")) }
                 if text != nil {
                     var updated = link
                     updated.column = .done
