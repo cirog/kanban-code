@@ -19,6 +19,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     private let notificationDedup: NotificationDeduplicator
     private var notifier: NotifierPort?
     private let registry: CodingAssistantRegistry?
+    private let todoistSync: TodoistSyncService?
 
     private var backgroundTask: Task<Void, Never>?
     private var didInitialLoad = false
@@ -35,7 +36,8 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         tmux: TmuxManagerPort? = nil,
         notificationDedup: NotificationDeduplicator = .init(),
         notifier: NotifierPort? = nil,
-        registry: CodingAssistantRegistry? = nil
+        registry: CodingAssistantRegistry? = nil,
+        todoistSync: TodoistSyncService? = nil
     ) {
         self.discovery = discovery
         self.coordinationStore = coordinationStore
@@ -45,6 +47,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         self.notificationDedup = notificationDedup
         self.notifier = notifier
         self.registry = registry
+        self.todoistSync = todoistSync
     }
 
     /// Start the slow background loop (columns, PRs, activity polling).
@@ -58,6 +61,10 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                 await self?.backgroundTick()
                 try? await Task.sleep(for: .seconds(5))
             }
+        }
+
+        if let todoistSync {
+            Task { await todoistSync.start() }
         }
     }
 
@@ -79,6 +86,9 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     /// Set the dispatch callback for sending actions to the BoardStore.
     public func setDispatch(_ dispatch: @MainActor @Sendable @escaping (Action) -> Void) {
         self.dispatch = dispatch
+        if let todoistSync {
+            Task { await todoistSync.setDispatch(dispatch) }
+        }
     }
 
     /// Stop the background loop.
@@ -86,6 +96,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         backgroundTask?.cancel()
         backgroundTask = nil
         isRunning = false
+        Task { await todoistSync?.stop() }
     }
 
     // MARK: - Event-driven notification path (called from file watcher)

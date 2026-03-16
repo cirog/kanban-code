@@ -107,9 +107,13 @@ public actor EffectHandler {
                 try? FileManager.default.removeItem(atPath: path)
             }
 
-        case .completeTodoistTask:
-            // Handled by TodoistSyncService (Task 2) — no-op here for now
-            break
+        case .completeTodoistTask(let todoistId):
+            do {
+                let _ = try await ShellCommand.run("todoist", arguments: ["task", "complete", "--ids", todoistId])
+                KanbanCodeLog.info("todoist", "Completed task \(todoistId)")
+            } catch {
+                KanbanCodeLog.warn("todoist", "Failed to complete task \(todoistId): \(error)")
+            }
         }
     }
 }
