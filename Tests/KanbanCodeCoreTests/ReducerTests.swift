@@ -746,6 +746,28 @@ struct ReducerTests {
 
     // mergeCards isRemote test removed (remote feature stripped)
 
+    // MARK: - Update Notes
+
+    @Test("updateNotes sets notes on card")
+    func updateNotes() {
+        var state = AppState()
+        let link = Link(id: "card_notes", name: "Task")
+        state.links[link.id] = link
+        let effects = Reducer.reduce(state: &state, action: .updateNotes(cardId: "card_notes", notes: "My notes"))
+        #expect(state.links["card_notes"]!.notes == "My notes")
+        #expect(!effects.isEmpty)
+    }
+
+    @Test("updateNotes clears notes with nil")
+    func clearNotes() {
+        var state = AppState()
+        var link = Link(id: "card_clear_notes", name: "Task")
+        link.notes = "Old notes"
+        state.links[link.id] = link
+        let _ = Reducer.reduce(state: &state, action: .updateNotes(cardId: "card_clear_notes", notes: nil))
+        #expect(state.links["card_clear_notes"]!.notes == nil)
+    }
+
     // MARK: - Link.mergeBlocked validation
 
     @Test("mergeBlocked returns nil for compatible cards")

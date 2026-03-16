@@ -479,7 +479,64 @@ struct ContentView: View {
     }
 
     private var boardWithOverlays: some View {
-        activeBoardView
+        VStack(spacing: 0) {
+            activeBoardView
+
+            // Note pad — below board, visible when a card is selected
+            if let selectedId = store.state.selectedCardId,
+               let link = store.state.links[selectedId] {
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("Notes")
+                            .font(.app(.caption, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(link.notes ?? "", forType: .string)
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(.plain)
+                        .font(.app(.caption))
+                        .foregroundStyle(.secondary)
+
+                        Button {
+                            if let tmux = link.tmuxLink?.sessionName,
+                               let notes = link.notes, !notes.isEmpty {
+                                Task {
+                                    let tmuxPath = ShellCommand.findExecutable("tmux") ?? "tmux"
+                                    let _ = try? await ShellCommand.run(tmuxPath, arguments: ["send-keys", "-t", tmux, notes, "Enter"])
+                                    await MainActor.run {
+                                        store.dispatch(.updateNotes(cardId: selectedId, notes: nil))
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Push to Terminal", systemImage: "terminal")
+                        }
+                        .buttonStyle(.plain)
+                        .font(.app(.caption))
+                        .foregroundStyle(.secondary)
+                        .disabled(link.tmuxLink == nil || (link.notes ?? "").isEmpty)
+                    }
+                    .padding(.horizontal, 8)
+
+                    TextEditor(text: Binding(
+                        get: { store.state.links[selectedId]?.notes ?? "" },
+                        set: { store.dispatch(.updateNotes(cardId: selectedId, notes: $0.isEmpty ? nil : $0)) }
+                    ))
+                    .font(.system(.body, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(4)
+                    .background(.background.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .frame(maxHeight: 200)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+        }
             .environment(\.projectColorMap, projectColorMap)
             .environment(\.projectLabels, store.state.projectLabels)
             .ignoresSafeArea(edges: .top)

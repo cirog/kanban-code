@@ -197,6 +197,9 @@ public enum Action: Sendable {
     // Project labels
     case setProject(cardId: String, projectId: String?)
 
+    // Notes
+    case updateNotes(cardId: String, notes: String?)
+
     // Todoist sync
     case todoistSyncCompleted([TodoistTask])
 
@@ -964,6 +967,15 @@ public enum Reducer {
         case .setProject(let cardId, let projectId):
             guard var link = state.links[cardId] else { return [] }
             link.projectId = projectId
+            link.updatedAt = .now
+            state.links[cardId] = link
+            return [.upsertLink(link)]
+
+        // MARK: Notes
+
+        case .updateNotes(let cardId, let notes):
+            guard var link = state.links[cardId] else { return [] }
+            link.notes = notes
             link.updatedAt = .now
             state.links[cardId] = link
             return [.upsertLink(link)]
