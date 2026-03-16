@@ -43,7 +43,7 @@ struct ReplyTabView: NSViewRepresentable {
                     return
                 }
 
-                let markdown = result.texts.joined(separator: "\n\n")
+                let markdown = result.texts.joined(separator: "\n\n---\n\n")
                 let escapedMd = markdown
                     .replacingOccurrences(of: "\\", with: "\\\\")
                     .replacingOccurrences(of: "`", with: "\\`")
@@ -54,6 +54,40 @@ struct ReplyTabView: NSViewRepresentable {
                     <script>\(Self.markedJs)</script>
                     <script>
                         document.getElementById('content').innerHTML = marked.parse(`\(escapedMd)`);
+                        // Post-process: detect Insight blocks and wrap them in styled divs
+                        (function() {
+                            var codes = document.querySelectorAll('code');
+                            for (var i = 0; i < codes.length; i++) {
+                                var code = codes[i];
+                                var text = code.textContent;
+                                if (text.indexOf('\u{2605}') !== -1 && text.indexOf('Insight') !== -1) {
+                                    // Found insight header — collect content until closing bar
+                                    var box = document.createElement('div');
+                                    box.className = 'insight-box';
+                                    var header = document.createElement('div');
+                                    header.className = 'insight-header';
+                                    header.textContent = text;
+                                    box.appendChild(header);
+                                    var parent = code.parentNode;
+                                    var container = parent.parentNode;
+                                    var sibling = parent.nextElementSibling;
+                                    container.replaceChild(box, parent);
+                                    // Collect siblings until we find the closing ─── bar
+                                    while (sibling) {
+                                        var next = sibling.nextElementSibling;
+                                        var sCode = sibling.querySelector('code');
+                                        if (sCode && /^[\\u2500\\-]{10,}$/.test(sCode.textContent.trim())) {
+                                            sibling.remove();
+                                            break;
+                                        }
+                                        var content = sibling;
+                                        sibling = next;
+                                        content.className = 'insight-content';
+                                        box.appendChild(content);
+                                    }
+                                }
+                            }
+                        })();
                     </script>
                     """)
 
@@ -175,6 +209,33 @@ struct ReplyTabView: NSViewRepresentable {
             border: none;
             border-top: 1px solid #44475a;
             margin: 1em 0;
+        }
+        .insight-box {
+            border: 1px solid #bd93f9;
+            border-radius: 8px;
+            margin: 1em 0;
+            padding: 0;
+            background: rgba(189, 147, 249, 0.06);
+            overflow: hidden;
+        }
+        .insight-header {
+            background: rgba(189, 147, 249, 0.15);
+            color: #bd93f9;
+            padding: 8px 16px;
+            font-family: "SF Mono", Menlo, monospace;
+            font-size: 0.9em;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(189, 147, 249, 0.2);
+        }
+        .insight-content {
+            padding: 4px 16px;
+            margin: 0 !important;
+        }
+        .insight-content:first-of-type {
+            padding-top: 12px;
+        }
+        .insight-content:last-child {
+            padding-bottom: 12px;
         }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #282a36; }
