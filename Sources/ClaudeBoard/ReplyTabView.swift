@@ -47,12 +47,11 @@ struct ReplyTabView: NSViewRepresentable {
                             webView.loadHTMLString(Self.htmlPage(body: "<p class=\"placeholder\">Waiting for reply\u{2026}</p>"), baseURL: nil)
                         }
                     }
-                    // Otherwise keep showing the previous reply
                     return
                 }
 
-                // Skip reload if same turn index as last render (unless forced)
-                guard forceReload || result.turnIndex != coordinator.lastRenderedTurnIndex else { return }
+                // Skip if same content (unless forced)
+                if !forceReload && result.turnIndex == coordinator.lastRenderedTurnIndex { return }
 
                 guard !result.texts.isEmpty else {
                     if coordinator.lastRenderedTurnIndex < 0 {
@@ -85,8 +84,10 @@ struct ReplyTabView: NSViewRepresentable {
                     webView.loadHTMLString(html, baseURL: nil)
                 }
             } catch {
-                await MainActor.run {
-                    webView.loadHTMLString(Self.htmlPage(body: #"<p class="placeholder">Error loading reply</p>"#), baseURL: nil)
+                if coordinator.lastRenderedTurnIndex < 0 {
+                    await MainActor.run {
+                        webView.loadHTMLString(Self.htmlPage(body: #"<p class="placeholder">Error loading reply</p>"#), baseURL: nil)
+                    }
                 }
             }
         }
