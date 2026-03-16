@@ -357,6 +357,9 @@ struct ContentView: View {
                 onMigrateAssistant: { target in
                     pendingMigration = (cardId: card.id, targetAssistant: target)
                 },
+                onSetLastTab: { tab in
+                    store.dispatch(.setLastTab(cardId: card.id, tab: tab))
+                },
                 actionsMenuProvider: actionsMenuProvider,
                 focusTerminal: $shouldFocusTerminal,
                 isExpanded: Binding(
@@ -390,7 +393,17 @@ struct ContentView: View {
             .onChange(of: store.state.selectedCardId) {
                 if let cardId = store.state.selectedCardId,
                    let card = store.state.cards.first(where: { $0.id == cardId }) {
-                    detailTab = DetailTab.initialTab(for: card)
+                    // Restore persisted tab if valid for this card
+                    if let saved = card.link.lastTab, let tab = DetailTab(rawValue: saved) {
+                        switch tab {
+                        case .terminal where card.link.tmuxLink != nil: detailTab = tab
+                        case .reply where card.link.sessionLink != nil: detailTab = tab
+                        case .history: detailTab = tab
+                        default: detailTab = DetailTab.initialTab(for: card)
+                        }
+                    } else {
+                        detailTab = DetailTab.initialTab(for: card)
+                    }
                 }
             }
             .onChange(of: store.state.detailExpanded) {

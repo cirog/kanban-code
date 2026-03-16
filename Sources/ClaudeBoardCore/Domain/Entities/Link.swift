@@ -108,6 +108,9 @@ public struct Link: Identifiable, Codable, Sendable {
     /// Which coding assistant this card uses. nil defaults to .claude for backward compat.
     public var assistant: CodingAssistant?
 
+    /// Persisted tab selection — restored when the card is re-selected.
+    public var lastTab: String?
+
     /// The effective assistant (never nil).
     public var effectiveAssistant: CodingAssistant { assistant ?? .claude }
 
@@ -185,6 +188,7 @@ public struct Link: Identifiable, Codable, Sendable {
         tmuxLink: TmuxLink? = nil,
         queuedPrompts: [QueuedPrompt]? = nil,
         assistant: CodingAssistant? = nil,
+        lastTab: String? = nil,
         isLaunching: Bool? = nil,
         sortOrder: Int? = nil
     ) {
@@ -213,6 +217,7 @@ public struct Link: Identifiable, Codable, Sendable {
         self.tmuxLink = tmuxLink
         self.queuedPrompts = queuedPrompts
         self.assistant = assistant
+        self.lastTab = lastTab
         self.isLaunching = isLaunching
         self.sortOrder = sortOrder
     }
@@ -223,7 +228,7 @@ public struct Link: Identifiable, Codable, Sendable {
         // Card-level
         case id, name, projectPath, column, createdAt, updatedAt, lastActivity, lastOpenedAt
         case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isLaunching, sortOrder
-        case assistant
+        case assistant, lastTab
         // Todoist integration
         case todoistId, todoistDescription, todoistPriority, todoistDue, todoistLabels, todoistProjectId, notes, projectId
         // Typed links (new nested format)
@@ -252,6 +257,7 @@ public struct Link: Identifiable, Codable, Sendable {
         isLaunching = try c.decodeIfPresent(Bool.self, forKey: .isLaunching)
         sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
         assistant = try c.decodeIfPresent(CodingAssistant.self, forKey: .assistant)
+        lastTab = try c.decodeIfPresent(String.self, forKey: .lastTab)
         todoistId = try c.decodeIfPresent(String.self, forKey: .todoistId)
         todoistDescription = try c.decodeIfPresent(String.self, forKey: .todoistDescription)
         todoistPriority = try c.decodeIfPresent(Int.self, forKey: .todoistPriority)
@@ -307,6 +313,7 @@ public struct Link: Identifiable, Codable, Sendable {
         try c.encodeIfPresent(isLaunching, forKey: .isLaunching)
         try c.encodeIfPresent(sortOrder, forKey: .sortOrder)
         try c.encodeIfPresent(assistant, forKey: .assistant)
+        try c.encodeIfPresent(lastTab, forKey: .lastTab)
         try c.encodeIfPresent(todoistId, forKey: .todoistId)
         try c.encodeIfPresent(todoistDescription, forKey: .todoistDescription)
         try c.encodeIfPresent(todoistPriority, forKey: .todoistPriority)

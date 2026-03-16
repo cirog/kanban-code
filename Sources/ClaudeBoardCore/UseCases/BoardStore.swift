@@ -200,6 +200,9 @@ public enum Action: Sendable {
     // Notes
     case updateNotes(cardId: String, notes: String?)
 
+    // Tab memory
+    case setLastTab(cardId: String, tab: String)
+
     // Todoist sync
     case todoistSyncCompleted([TodoistTask])
 
@@ -976,6 +979,15 @@ public enum Reducer {
         case .updateNotes(let cardId, let notes):
             guard var link = state.links[cardId] else { return [] }
             link.notes = notes
+            link.updatedAt = .now
+            state.links[cardId] = link
+            return [.upsertLink(link)]
+
+        // MARK: Tab Memory
+
+        case .setLastTab(let cardId, let tab):
+            guard var link = state.links[cardId] else { return [] }
+            link.lastTab = tab
             link.updatedAt = .now
             state.links[cardId] = link
             return [.upsertLink(link)]

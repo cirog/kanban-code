@@ -82,6 +82,7 @@ struct CardDetailView: View {
     var onMoveToFolder: () -> Void = {}
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
+    var onSetLastTab: (String) -> Void = { _ in }
     var actionsMenuProvider: ActionsMenuProvider?
     @Binding var focusTerminal: Bool
     @Binding var isExpanded: Bool
@@ -154,7 +155,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: ClaudeBoardCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, onSendReplyText: @escaping (String) -> Void = { _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isExpanded: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
+    init(card: ClaudeBoardCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, onSendReplyText: @escaping (String) -> Void = { _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, onSetLastTab: @escaping (String) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isExpanded: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -182,6 +183,7 @@ struct CardDetailView: View {
         self.onMoveToFolder = onMoveToFolder
         self.enabledAssistants = enabledAssistants
         self.onMigrateAssistant = onMigrateAssistant
+        self.onSetLastTab = onSetLastTab
         self.actionsMenuProvider = actionsMenuProvider
         self._focusTerminal = focusTerminal
         self._isExpanded = isExpanded
@@ -876,7 +878,16 @@ struct CardDetailView: View {
     }
 
     private func defaultTab(for card: ClaudeBoardCard) -> DetailTab {
-        DetailTab.initialTab(for: card)
+        // Restore persisted tab if valid for this card
+        if let saved = card.link.lastTab, let tab = DetailTab(rawValue: saved) {
+            switch tab {
+            case .terminal where card.link.tmuxLink != nil: return tab
+            case .reply where card.link.sessionLink != nil: return tab
+            case .history: return tab
+            default: break
+            }
+        }
+        return DetailTab.initialTab(for: card)
     }
 
 
@@ -1602,6 +1613,9 @@ struct CardDetailView: View {
     // MARK: - Tab change handler
 
     private func handleTabChange() {
+        // Persist tab selection
+        onSetLastTab(selectedTab.rawValue)
+
         if selectedTab == .terminal {
             if suppressTerminalFocus {
                 suppressTerminalFocus = false

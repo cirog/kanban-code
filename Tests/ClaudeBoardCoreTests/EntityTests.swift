@@ -118,4 +118,30 @@ struct EntityTests {
         #expect(decoded.sessionName == "old-session")
         #expect(decoded.isShellOnly == nil)
     }
+
+    // MARK: - Link lastTab
+
+    @Test("Link round-trips lastTab through JSON")
+    func linkLastTabCodable() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        var link = Link(id: "card_lt1", column: .inProgress)
+        link.lastTab = "reply"
+
+        let data = try encoder.encode(link)
+        let decoded = try decoder.decode(Link.self, from: data)
+        #expect(decoded.lastTab == "reply")
+    }
+
+    @Test("Link decodes without lastTab (backward compat)")
+    func linkLastTabBackwardCompat() throws {
+        let json = #"{"id":"card_lt2","column":"in_progress","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","manualOverrides":{},"manuallyArchived":false,"source":"manual"}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(Link.self, from: json.data(using: .utf8)!)
+        #expect(decoded.lastTab == nil)
+    }
 }

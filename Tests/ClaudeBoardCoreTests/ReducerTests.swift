@@ -1169,4 +1169,37 @@ struct ReducerTests {
         // New Claude session is now primary
         #expect(state.links["card_ti10"]?.tmuxLink?.isShellOnly != true)
     }
+
+    // MARK: - Tab Memory
+
+    @Test("setLastTab persists tab on link")
+    func setLastTabPersists() {
+        let link = makeLink(id: "card_tab1")
+        var state = stateWith([link])
+
+        let effects = Reducer.reduce(state: &state, action: .setLastTab(cardId: "card_tab1", tab: "reply"))
+
+        #expect(state.links["card_tab1"]?.lastTab == "reply")
+        #expect(effects.count == 1) // upsertLink
+    }
+
+    @Test("setLastTab updates existing tab value")
+    func setLastTabUpdates() {
+        var link = makeLink(id: "card_tab2")
+        link.lastTab = "terminal"
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .setLastTab(cardId: "card_tab2", tab: "history"))
+
+        #expect(state.links["card_tab2"]?.lastTab == "history")
+    }
+
+    @Test("setLastTab ignores unknown card")
+    func setLastTabUnknownCard() {
+        var state = AppState()
+
+        let effects = Reducer.reduce(state: &state, action: .setLastTab(cardId: "card_unknown", tab: "reply"))
+
+        #expect(effects.isEmpty)
+    }
 }
