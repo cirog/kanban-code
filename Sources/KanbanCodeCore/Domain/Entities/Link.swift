@@ -85,6 +85,12 @@ public struct Link: Identifiable, Codable, Sendable {
     public var promptBody: String?
     public var promptImagePaths: [String]?
 
+    // Todoist integration
+    public var todoistId: String?
+    public var todoistDescription: String?
+    public var notes: String?
+    public var projectId: String?
+
     // Typed links — each independently optional
     public var sessionLink: SessionLink?
     public var tmuxLink: TmuxLink?
@@ -161,6 +167,10 @@ public struct Link: Identifiable, Codable, Sendable {
         source: LinkSource = .discovered,
         promptBody: String? = nil,
         promptImagePaths: [String]? = nil,
+        todoistId: String? = nil,
+        todoistDescription: String? = nil,
+        notes: String? = nil,
+        projectId: String? = nil,
         sessionLink: SessionLink? = nil,
         tmuxLink: TmuxLink? = nil,
         queuedPrompts: [QueuedPrompt]? = nil,
@@ -181,6 +191,10 @@ public struct Link: Identifiable, Codable, Sendable {
         self.source = source
         self.promptBody = promptBody
         self.promptImagePaths = promptImagePaths
+        self.todoistId = todoistId
+        self.todoistDescription = todoistDescription
+        self.notes = notes
+        self.projectId = projectId
         self.sessionLink = sessionLink
         self.tmuxLink = tmuxLink
         self.queuedPrompts = queuedPrompts
@@ -196,6 +210,8 @@ public struct Link: Identifiable, Codable, Sendable {
         case id, name, projectPath, column, createdAt, updatedAt, lastActivity, lastOpenedAt
         case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isLaunching, sortOrder
         case assistant
+        // Todoist integration
+        case todoistId, todoistDescription, notes, projectId
         // Typed links (new nested format)
         case sessionLink, tmuxLink, queuedPrompts
         // Old format keys (for reading legacy format)
@@ -222,6 +238,10 @@ public struct Link: Identifiable, Codable, Sendable {
         isLaunching = try c.decodeIfPresent(Bool.self, forKey: .isLaunching)
         sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
         assistant = try c.decodeIfPresent(CodingAssistant.self, forKey: .assistant)
+        todoistId = try c.decodeIfPresent(String.self, forKey: .todoistId)
+        todoistDescription = try c.decodeIfPresent(String.self, forKey: .todoistDescription)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
 
         // Session link: try nested first, fallback to flat
         if let sl = try c.decodeIfPresent(SessionLink.self, forKey: .sessionLink) {
@@ -269,6 +289,10 @@ public struct Link: Identifiable, Codable, Sendable {
         try c.encodeIfPresent(isLaunching, forKey: .isLaunching)
         try c.encodeIfPresent(sortOrder, forKey: .sortOrder)
         try c.encodeIfPresent(assistant, forKey: .assistant)
+        try c.encodeIfPresent(todoistId, forKey: .todoistId)
+        try c.encodeIfPresent(todoistDescription, forKey: .todoistDescription)
+        try c.encodeIfPresent(notes, forKey: .notes)
+        try c.encodeIfPresent(projectId, forKey: .projectId)
 
         // Always write new nested format
         try c.encodeIfPresent(sessionLink, forKey: .sessionLink)
@@ -306,6 +330,7 @@ public enum LinkSource: String, Codable, Sendable {
     case discovered // Found via session scanning
     case hook // Created via Claude hook event
     case manual // User-created task
+    case todoist // Synced from Todoist
 }
 
 /// A single content block within a conversation turn.

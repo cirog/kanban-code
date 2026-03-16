@@ -106,6 +106,10 @@ public actor EffectHandler {
             for path in paths {
                 try? FileManager.default.removeItem(atPath: path)
             }
+
+        case .completeTodoistTask:
+            // Handled by TodoistSyncService (Task 2) — no-op here for now
+            break
         }
     }
 }

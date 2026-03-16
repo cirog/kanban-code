@@ -54,6 +54,11 @@ public enum AssignColumn {
             return .backlog
         }
 
+        // Todoist task without a session → backlog
+        if link.source == .todoist && link.sessionLink == nil {
+            return .backlog
+        }
+
         // Recently active (within 24h) → waiting
         if let lastActivity = link.lastActivity {
             let hoursSinceActivity = Date.now.timeIntervalSince(lastActivity) / 3600

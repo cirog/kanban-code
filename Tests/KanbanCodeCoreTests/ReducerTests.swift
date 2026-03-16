@@ -946,6 +946,115 @@ struct ReducerTests {
         #expect(state.links["card_ti9"]?.tmuxLink?.sessionName.hasPrefix("claude-") == true)
     }
 
+    // MARK: - Todoist Integration
+
+    @Test("todoistSyncCompleted creates new cards")
+    func todoistSyncCreatesNewCards() {
+        var state = AppState()
+        let task = TodoistTask(id: "todoist_123", content: "Buy groceries", description: "Milk, eggs")
+
+        let effects = Reducer.reduce(state: &state, action: .todoistSyncCompleted([task]))
+
+        let todoistLinks = state.links.values.filter { $0.todoistId == "todoist_123" }
+        #expect(todoistLinks.count == 1)
+        let link = todoistLinks.first!
+        #expect(link.name == "Buy groceries")
+        #expect(link.todoistDescription == "Milk, eggs")
+        #expect(link.source == .todoist)
+        #expect(link.column == .backlog)
+        #expect(effects.contains(where: { if case .persistLinks = $0 { return true }; return false }))
+    }
+
+    @Test("todoistSyncCompleted matches existing by todoistId")
+    func todoistSyncMatchesExistingByTodoistId() {
+        let existing = Link(
+            id: "card_existing",
+            name: "Old name",
+            column: .backlog,
+            source: .todoist,
+            todoistId: "todoist_456",
+            todoistDescription: "Old desc"
+        )
+        var state = stateWith([existing])
+
+        let task = TodoistTask(id: "todoist_456", content: "Updated name", description: "New desc")
+        let _ = Reducer.reduce(state: &state, action: .todoistSyncCompleted([task]))
+
+        #expect(state.links["card_existing"]?.name == "Updated name")
+        #expect(state.links["card_existing"]?.todoistDescription == "New desc")
+        // Should not create a duplicate
+        let todoistLinks = state.links.values.filter { $0.todoistId == "todoist_456" }
+        #expect(todoistLinks.count == 1)
+    }
+
+    @Test("todoistSyncCompleted archives missing tasks in backlog")
+    func todoistSyncArchivesMissingTasks() {
+        let existing = Link(
+            id: "card_gone",
+            name: "Completed task",
+            column: .backlog,
+            source: .todoist,
+            todoistId: "todoist_789"
+        )
+        var state = stateWith([existing])
+
+        // Sync with empty task list — the task was completed in Todoist
+        let _ = Reducer.reduce(state: &state, action: .todoistSyncCompleted([]))
+
+        #expect(state.links["card_gone"]?.column == .done)
+        #expect(state.links["card_gone"]?.manuallyArchived == true)
+    }
+
+    @Test("todoistSyncCompleted does not archive non-backlog tasks")
+    func todoistSyncDoesNotArchiveNonBacklog() {
+        let existing = Link(
+            id: "card_active",
+            name: "In progress task",
+            column: .inProgress,
+            source: .todoist,
+            todoistId: "todoist_active"
+        )
+        var state = stateWith([existing])
+
+        // Sync with empty task list — but card is in progress, so don't archive
+        let _ = Reducer.reduce(state: &state, action: .todoistSyncCompleted([]))
+
+        #expect(state.links["card_active"]?.column == .inProgress)
+        #expect(state.links["card_active"]?.manuallyArchived == false)
+    }
+
+    @Test("archiving a todoist card emits completeTodoistTask effect")
+    func completeTodoistTaskOnArchive() {
+        let link = Link(
+            id: "card_todoist_archive",
+            name: "Todoist task",
+            column: .backlog,
+            source: .todoist,
+            todoistId: "todoist_complete"
+        )
+        var state = stateWith([link])
+
+        let effects = Reducer.reduce(state: &state, action: .archiveCard(cardId: "card_todoist_archive"))
+
+        #expect(state.links["card_todoist_archive"]?.column == .done)
+        #expect(effects.contains(where: {
+            if case .completeTodoistTask(todoistId: "todoist_complete") = $0 { return true }
+            return false
+        }))
+    }
+
+    @Test("assignColumn keeps todoist card with no session in backlog")
+    func assignColumnPreservesTodoist() {
+        let link = Link(
+            id: "card_todoist_backlog",
+            column: .backlog,
+            source: .todoist,
+            todoistId: "todoist_stay"
+        )
+        let column = AssignColumn.assign(link: link)
+        #expect(column == .backlog)
+    }
+
     @Test("launchCard on shell-only card moves shell to extras")
     func launchOnShellOnlyMovesShellToExtras() {
         let link = makeLink(

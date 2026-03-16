@@ -191,6 +191,9 @@ public enum Action: Sendable {
     case setLoading(Bool)
     case setIsRefreshingBacklog(Bool)
 
+    // Todoist sync
+    case todoistSyncCompleted([TodoistTask])
+
     public enum LinkType: Sendable {
         case tmux
     }
@@ -242,6 +245,7 @@ public enum Effect: Sendable {
     case sendPromptToTmux(sessionName: String, promptBody: String, assistant: CodingAssistant)
     case sendPromptWithImagesToTmux(sessionName: String, promptBody: String, imagePaths: [String], assistant: CodingAssistant)
     case deleteFiles([String])
+    case completeTodoistTask(todoistId: String)
 }
 
 // MARK: - Reducer
@@ -403,6 +407,10 @@ public enum Reducer {
             }
             state.links[cardId] = link
             effects.insert(.upsertLink(link), at: 0)
+            // Complete the Todoist task when archiving a todoist card
+            if let todoistId = link.todoistId {
+                effects.append(.completeTodoistTask(todoistId: todoistId))
+            }
             return effects
 
         case .deleteCard(let cardId):
@@ -971,6 +979,51 @@ public enum Reducer {
         case .setIsRefreshingBacklog(let refreshing):
             state.isRefreshingBacklog = refreshing
             return []
+
+        // MARK: Todoist Sync
+
+        case .todoistSyncCompleted(let tasks):
+            // Build lookup of existing links by todoistId
+            var existingByTodoistId: [String: Link] = [:]
+            for link in state.links.values {
+                if let tid = link.todoistId {
+                    existingByTodoistId[tid] = link
+                }
+            }
+
+            let incomingIds = Set(tasks.map(\.id))
+
+            // Upsert: update existing or create new
+            for task in tasks {
+                if var existing = existingByTodoistId[task.id] {
+                    existing.name = task.content
+                    existing.todoistDescription = task.description
+                    existing.updatedAt = .now
+                    state.links[existing.id] = existing
+                } else {
+                    let newLink = Link(
+                        name: task.content,
+                        column: .backlog,
+                        source: .todoist,
+                        todoistId: task.id,
+                        todoistDescription: task.description
+                    )
+                    state.links[newLink.id] = newLink
+                }
+            }
+
+            // Archive todoist links in backlog whose todoistId is no longer in incoming tasks
+            for (tid, existing) in existingByTodoistId {
+                if !incomingIds.contains(tid) && existing.column == .backlog {
+                    var link = existing
+                    link.column = .done
+                    link.manuallyArchived = true
+                    link.updatedAt = .now
+                    state.links[link.id] = link
+                }
+            }
+
+            return [.persistLinks(Array(state.links.values))]
         }
     }
 }
