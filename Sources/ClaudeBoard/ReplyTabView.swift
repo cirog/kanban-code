@@ -43,7 +43,12 @@ struct ReplyTabView: NSViewRepresentable {
                     return
                 }
 
-                let markdown = result.texts.joined(separator: "\n\n---\n\n")
+                var markdown = result.texts.joined(separator: "\n\n---\n\n")
+
+                // Pre-process: convert Insight blocks to HTML before markdown parsing
+                // Pattern: `★ Insight ───...` \n content \n `───...`
+                markdown = Self.transformInsightBlocks(markdown)
+
                 let escapedMd = markdown
                     .replacingOccurrences(of: "\\", with: "\\\\")
                     .replacingOccurrences(of: "`", with: "\\`")
@@ -54,42 +59,6 @@ struct ReplyTabView: NSViewRepresentable {
                     <script>\(Self.markedJs)</script>
                     <script>
                         document.getElementById('content').innerHTML = marked.parse(`\(escapedMd)`);
-                        // Post-process: detect Insight blocks and wrap them in styled divs
-                        (function() {
-                            var codes = document.querySelectorAll('code');
-                            for (var i = 0; i < codes.length; i++) {
-                                var code = codes[i];
-                                var text = code.textContent;
-                                if (text.indexOf('\u{2605}') !== -1 && text.indexOf('Insight') !== -1) {
-                                    var box = document.createElement('div');
-                                    box.className = 'insight-box';
-                                    var header = document.createElement('div');
-                                    header.className = 'insight-header';
-                                    header.textContent = text;
-                                    box.appendChild(header);
-                                    var parent = code.parentNode;
-                                    var container = parent.parentNode;
-                                    var sibling = parent.nextElementSibling;
-                                    container.replaceChild(box, parent);
-                                    while (sibling) {
-                                        var next = sibling.nextElementSibling;
-                                        var sCode = sibling.querySelector('code');
-                                        if (sCode) {
-                                            var ct = sCode.textContent.trim();
-                                            // Match closing bar: all ─ (U+2500) or - chars, 10+
-                                            if (ct.length >= 10 && /^[─\\-]+$/.test(ct)) {
-                                                sibling.remove();
-                                                break;
-                                            }
-                                        }
-                                        var content = sibling;
-                                        sibling = next;
-                                        content.className = 'insight-content';
-                                        box.appendChild(content);
-                                    }
-                                }
-                            }
-                        })();
                     </script>
                     """)
 
@@ -125,6 +94,56 @@ struct ReplyTabView: NSViewRepresentable {
         </html>
         """
     }
+
+    // MARK: - Insight Block Transformation
+
+    /// Transform markdown Insight blocks into raw HTML before markdown parsing.
+    static func transformInsightBlocks(_ markdown: String) -> String {
+        let lines = markdown.components(separatedBy: "\n")
+        var result: [String] = []
+        var i = 0
+
+        while i < lines.count {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+
+            // Detect insight header: backtick-wrapped line containing ★ and Insight
+            if trimmed.hasPrefix("`") && trimmed.hasSuffix("`") &&
+               trimmed.contains("\u{2605}") && trimmed.contains("Insight") {
+                let headerText = String(trimmed.dropFirst().dropLast())
+
+                var contentLines: [String] = []
+                i += 1
+                while i < lines.count {
+                    let cl = lines[i].trimmingCharacters(in: .whitespaces)
+                    if cl.hasPrefix("`") && cl.hasSuffix("`") {
+                        let inner = String(cl.dropFirst().dropLast())
+                        if inner.count >= 10 && inner.allSatisfy({ $0 == "\u{2500}" || $0 == "-" }) {
+                            i += 1
+                            break
+                        }
+                    }
+                    contentLines.append(lines[i])
+                    i += 1
+                }
+
+                // Emit raw HTML block — marked.js passes through HTML blocks
+                result.append("")
+                result.append("<div class=\"insight-box\"><div class=\"insight-header\">\(headerText)</div><div class=\"insight-content\">")
+                result.append("")
+                result.append(contentsOf: contentLines)
+                result.append("")
+                result.append("</div></div>")
+                result.append("")
+            } else {
+                result.append(lines[i])
+                i += 1
+            }
+        }
+
+        return result.joined(separator: "\n")
+    }
+
+    // MARK: - Dracula CSS
 
     static let css = """
         * { margin: 0; padding: 0; box-sizing: border-box; }
