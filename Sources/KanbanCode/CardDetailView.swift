@@ -945,7 +945,7 @@ struct CardDetailView: View {
                             }
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                            .background(Color.draculaCurrentLine)
 
                             Divider()
                         }
