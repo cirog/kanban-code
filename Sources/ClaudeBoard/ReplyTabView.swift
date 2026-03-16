@@ -40,9 +40,13 @@ struct ReplyTabView: NSViewRepresentable {
         Task {
             do {
                 guard let result = try await TranscriptReader.lastAssistantTextBlocks(from: path) else {
-                    await MainActor.run {
-                        webView.loadHTMLString(Self.htmlPage(body: "<p class=\"placeholder\">Waiting for reply\u{2026}</p>"), baseURL: nil)
+                    // Only show placeholder if we haven't rendered anything yet
+                    if coordinator.lastRenderedTurnIndex < 0 {
+                        await MainActor.run {
+                            webView.loadHTMLString(Self.htmlPage(body: "<p class=\"placeholder\">Waiting for reply\u{2026}</p>"), baseURL: nil)
+                        }
                     }
+                    // Otherwise keep showing the previous reply
                     return
                 }
 
@@ -50,8 +54,10 @@ struct ReplyTabView: NSViewRepresentable {
                 guard result.turnIndex != coordinator.lastRenderedTurnIndex else { return }
 
                 guard !result.texts.isEmpty else {
-                    await MainActor.run {
-                        webView.loadHTMLString(Self.htmlPage(body: #"<p class="placeholder">No text output in last reply</p>"#), baseURL: nil)
+                    if coordinator.lastRenderedTurnIndex < 0 {
+                        await MainActor.run {
+                            webView.loadHTMLString(Self.htmlPage(body: #"<p class="placeholder">No text output in last reply</p>"#), baseURL: nil)
+                        }
                     }
                     return
                 }
