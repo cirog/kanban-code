@@ -866,6 +866,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
         boardWithHandlers
+            .background(Color.draculaBg)
             .toolbar {
                 ToolbarItemGroup(placement: .navigation) {
                     Button { presentNewTask() } label: {
@@ -1902,6 +1903,12 @@ struct ContentView: View {
 
     private func applyAppearance() {
         NSApp.appearance = NSAppearance(named: .darkAqua)
+        // Set Dracula blue window background
+        if let window = NSApp.windows.first {
+            window.backgroundColor = NSColor(
+                red: 0x2B / 255.0, green: 0x2D / 255.0, blue: 0x42 / 255.0, alpha: 1.0
+            )
+        }
     }
 
     private func presentNewTask() {
