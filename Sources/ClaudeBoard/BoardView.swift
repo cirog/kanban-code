@@ -91,11 +91,10 @@ struct BoardView<TerminalContent: View>: View {
                         .id(column)
                     }
                 }
+                .frame(maxHeight: 500)
                 .clipped()
 
-                if let card = selectedCard {
-                    notePadView(for: card)
-                }
+                notePadView()
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -189,55 +188,63 @@ struct BoardView<TerminalContent: View>: View {
     }
 
     @ViewBuilder
-    private func notePadView(for card: ClaudeBoardCard) -> some View {
+    private func notePadView() -> some View {
+        let cardId = store.state.selectedCardId
+        let link = cardId.flatMap { store.state.links[$0] }
+
         VStack(spacing: 4) {
             HStack {
                 Text("Notes")
                     .font(.app(.caption, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(card.link.notes ?? "", forType: .string)
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.plain)
-                .font(.app(.caption))
-                .foregroundStyle(.secondary)
+                if let cardId, let link {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(link.notes ?? "", forType: .string)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.plain)
+                    .font(.app(.caption))
+                    .foregroundStyle(.secondary)
 
-                Button {
-                    if let tmux = card.link.tmuxLink?.sessionName,
-                       let notes = card.link.notes, !notes.isEmpty {
-                        store.dispatch(.updateNotes(cardId: card.id, notes: notes))
-                        Task {
-                            let tmuxPath = ShellCommand.findExecutable("tmux") ?? "tmux"
-                            let _ = try? await ShellCommand.run(tmuxPath, arguments: ["send-keys", "-t", tmux, notes, "Enter"])
-                            await MainActor.run {
-                                store.dispatch(.updateNotes(cardId: card.id, notes: nil))
+                    Button {
+                        if let tmux = link.tmuxLink?.sessionName,
+                           let notes = link.notes, !notes.isEmpty {
+                            store.dispatch(.updateNotes(cardId: cardId, notes: notes))
+                            Task {
+                                let tmuxPath = ShellCommand.findExecutable("tmux") ?? "tmux"
+                                let _ = try? await ShellCommand.run(tmuxPath, arguments: ["send-keys", "-t", tmux, notes, "Enter"])
+                                await MainActor.run {
+                                    store.dispatch(.updateNotes(cardId: cardId, notes: nil))
+                                }
                             }
                         }
+                    } label: {
+                        Label("Push to Terminal", systemImage: "terminal")
                     }
-                } label: {
-                    Label("Push to Terminal", systemImage: "terminal")
+                    .buttonStyle(.plain)
+                    .font(.app(.caption))
+                    .foregroundStyle(.secondary)
+                    .disabled(link.tmuxLink == nil || (link.notes ?? "").isEmpty)
                 }
-                .buttonStyle(.plain)
-                .font(.app(.caption))
-                .foregroundStyle(.secondary)
-                .disabled(card.link.tmuxLink == nil || (card.link.notes ?? "").isEmpty)
             }
             .padding(.horizontal, 8)
 
             TextEditor(text: Binding(
-                get: { store.state.links[card.id]?.notes ?? "" },
-                set: { store.dispatch(.updateNotes(cardId: card.id, notes: $0.isEmpty ? nil : $0)) }
+                get: { cardId.flatMap { store.state.links[$0]?.notes } ?? "" },
+                set: {
+                    if let cardId {
+                        store.dispatch(.updateNotes(cardId: cardId, notes: $0.isEmpty ? nil : $0))
+                    }
+                }
             ))
             .font(.system(.body, design: .monospaced))
             .scrollContentBackground(.hidden)
             .padding(4)
             .background(Color.draculaSurface)
             .clipShape(RoundedRectangle(cornerRadius: 6))
-            .frame(maxHeight: 500)
         }
         .padding(.horizontal)
         .padding(.bottom, 8)
