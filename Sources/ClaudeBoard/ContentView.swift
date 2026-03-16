@@ -44,7 +44,6 @@ struct ContentView: View {
     @AppStorage("showBoardInExpanded") private var showBoardInExpanded = false
     @State private var showNewTask = false
     @State private var showOnboarding = false
-@AppStorage("boardViewMode") private var boardViewModeRaw = BoardViewMode.kanban.rawValue
     @State private var showDonePopover = false
     @State private var showProcessManager = false
     @State private var showQuitConfirmation = false
@@ -91,53 +90,6 @@ struct ContentView: View {
 
     private var doneCards: [ClaudeBoardCard] {
         store.state.cards(in: .done)
-    }
-
-    private var boardViewMode: BoardViewMode {
-        BoardViewMode(rawValue: boardViewModeRaw) ?? .kanban
-    }
-
-    private var boardViewModeBinding: Binding<BoardViewMode> {
-        Binding(
-            get: { boardViewMode },
-            set: { boardViewModeRaw = $0.rawValue }
-        )
-    }
-
-    private var viewModePicker: some View {
-        Picker("View", selection: viewModePickerBinding) {
-            ForEach(BoardViewMode.allCases, id: \.self) { mode in
-                Image(systemName: mode.icon)
-                    .tag(Optional(mode))
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-    }
-
-    /// Binding that returns nil (nothing highlighted) when expanded with board hidden.
-    private var viewModePickerBinding: Binding<BoardViewMode?> {
-        Binding(
-            get: {
-                if isExpandedDetail && !showBoardInExpanded && store.state.selectedCardId != nil {
-                    return nil // no segment highlighted
-                }
-                return boardViewMode
-            },
-            set: { newMode in
-                guard let newMode else { return }
-                if isExpandedDetail {
-                    if showBoardInExpanded && newMode == boardViewMode {
-                        showBoardInExpanded = false
-                    } else {
-                        boardViewModeRaw = newMode.rawValue
-                        showBoardInExpanded = true
-                    }
-                } else {
-                    boardViewModeRaw = newMode.rawValue
-                }
-            }
-        )
     }
 
     init() {
@@ -312,71 +264,12 @@ struct ContentView: View {
         )
     }
 
-    private var listBoardView: some View {
-        ListBoardView(
-            store: store,
-            onStartCard: { cardId in startCard(cardId: cardId) },
-            onResumeCard: { cardId in resumeCard(cardId: cardId) },
-            onForkCard: { cardId in pendingForkCardId = cardId },
-            onCopyResumeCmd: { cardId in
-                guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
-                var cmd = ""
-                if let projectPath = card.link.projectPath {
-                    cmd += "cd \(projectPath) && "
-                }
-                if let sessionId = card.link.sessionLink?.sessionId {
-                    cmd += "claude --resume \(sessionId)"
-                }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(cmd, forType: .string)
-            },
-            onCleanupWorktree: { _ in },
-            canCleanupWorktree: { cardId in
-                guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return false }
-                return false
-            },
-            onArchiveCard: { cardId in archiveCard(cardId: cardId) },
-            onDeleteCard: { cardId in pendingDeleteCardId = cardId },
-            availableProjects: projectList,
-            onMoveToProject: { cardId, projectPath in
-                let name = projectList.first(where: { $0.path == projectPath })?.name ?? (projectPath as NSString).lastPathComponent
-                pendingMoveToProject = (cardId: cardId, projectPath: projectPath, projectName: name)
-            },
-            onMoveToFolder: { cardId in selectFolderForMove(cardId: cardId) },
-            enabledAssistants: assistantRegistry.available,
-            onMigrateAssistant: { cardId, target in
-                pendingMigration = (cardId: cardId, targetAssistant: target)
-            },
-            onRefreshBacklog: { },
-            onDropCard: { cardId, column in handleDrop(cardId: cardId, to: column) },
-            canDropCard: { card, column in
-                CardDropIntent.resolve(card, to: column).isAllowed
-            },
-            onNewTask: { showNewTask = true },
-            onCardClicked: { cardId in
-                if store.state.cards.first(where: { $0.id == cardId })?.link.tmuxLink != nil {
-                    shouldFocusTerminal = true
-                }
-            }
-        )
-    }
-
     /// Build project path → color map from configured projects.
     private var projectColorMap: [String: String] {
         Dictionary(
             store.state.configuredProjects.map { ($0.path, $0.color) },
             uniquingKeysWith: { first, _ in first }
         )
-    }
-
-    @ViewBuilder
-    private var activeBoardView: some View {
-        switch boardViewMode {
-        case .kanban:
-            boardView
-        case .list:
-            listBoardView
-        }
     }
 
     @ViewBuilder
@@ -481,7 +374,7 @@ struct ContentView: View {
 
     private var boardWithOverlays: some View {
         VStack(spacing: 0) {
-            activeBoardView
+            boardView
         }
             .environment(\.projectColorMap, projectColorMap)
             .environment(\.projectLabels, store.state.projectLabels)
@@ -887,10 +780,6 @@ struct ContentView: View {
 
                 ToolbarItem(placement: .navigation) {
                     projectLabelsMenu
-                }
-
-                ToolbarItem(placement: .navigation) {
-                    viewModePicker
                 }
 
                 ToolbarItem(placement: .navigation) {
