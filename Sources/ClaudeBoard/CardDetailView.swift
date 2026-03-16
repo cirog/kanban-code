@@ -253,7 +253,7 @@ struct CardDetailView: View {
             suppressTerminalFocus = true
             selectedTab = defaultTab(for: card)
             await loadHistory()
-            if selectedTab == .history {
+            if selectedTab == .history || selectedTab == .reply {
                 startHistoryWatcher()
             }
             // After setup, focus terminal if this card has one and landed on terminal tab
@@ -269,8 +269,10 @@ struct CardDetailView: View {
                     terminalGrabFocus = true
                 }
             }
-            if selectedTab == .history {
-                Task { await loadHistory() }
+            if selectedTab == .history || selectedTab == .reply {
+                if selectedTab == .history {
+                    Task { await loadHistory() }
+                }
                 startHistoryWatcher()
             } else {
                 stopHistoryWatcher()
@@ -279,18 +281,25 @@ struct CardDetailView: View {
         .onChange(of: card.link.sessionLink?.sessionPath) {
             // When a session path appears (e.g., after launch discovers the session),
             // restart the watcher so history starts updating live.
-            guard selectedTab == .history else { return }
+            guard selectedTab == .history || selectedTab == .reply else { return }
             guard card.link.sessionLink?.sessionPath != nil else { return }
             startHistoryWatcher()
-            Task { await loadHistory() }
+            if selectedTab == .history {
+                Task { await loadHistory() }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeBoardHistoryChanged)) { _ in
-            guard selectedTab == .history else { return }
+            guard selectedTab == .history || selectedTab == .reply else { return }
             // Debounce: only reload if >0.5s since last reload
             let now = Date()
             guard now.timeIntervalSince(lastReloadTime) > 0.5 else { return }
             lastReloadTime = now
-            Task { await loadHistory() }
+            if selectedTab == .history {
+                Task { await loadHistory() }
+            }
+            if selectedTab == .reply {
+                replyRefreshId += 1
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeBoardSelectTerminalTab)) { notif in
             guard let index = notif.userInfo?["index"] as? Int else { return }
