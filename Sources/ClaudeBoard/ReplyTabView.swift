@@ -22,14 +22,15 @@ struct ReplyTabView: NSViewRepresentable {
         let needsReload = sessionPath != coord.lastLoadedPath || refreshTrigger != coord.lastRefreshTrigger
         guard needsReload else { return }
         coord.lastRefreshTrigger = refreshTrigger
-        // Reset turn index so the reload actually fetches new content
-        coord.lastRenderedTurnIndex = -1
-        loadReply(into: webView, coordinator: coord)
+        // Don't reset lastRenderedTurnIndex here — loadReply will update it
+        // only when new content is found. This prevents the placeholder from
+        // replacing existing content during the async fetch.
+        loadReply(into: webView, coordinator: coord, forceReload: true)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    private func loadReply(into webView: WKWebView, coordinator: Coordinator) {
+    private func loadReply(into webView: WKWebView, coordinator: Coordinator, forceReload: Bool = false) {
         coordinator.lastLoadedPath = sessionPath
 
         guard let path = sessionPath else {
@@ -50,8 +51,8 @@ struct ReplyTabView: NSViewRepresentable {
                     return
                 }
 
-                // Skip reload if same turn index as last render
-                guard result.turnIndex != coordinator.lastRenderedTurnIndex else { return }
+                // Skip reload if same turn index as last render (unless forced)
+                guard forceReload || result.turnIndex != coordinator.lastRenderedTurnIndex else { return }
 
                 guard !result.texts.isEmpty else {
                     if coordinator.lastRenderedTurnIndex < 0 {
