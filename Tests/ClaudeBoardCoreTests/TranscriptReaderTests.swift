@@ -327,6 +327,70 @@ struct TranscriptReaderTests {
         #expect(blocks[0].text == "/brainstorming plan a widget")
     }
 
+    // MARK: - lastAssistantTextBlocks
+
+    private func writeTempFile(_ content: String) -> String {
+        let path = NSTemporaryDirectory() + "test-\(UUID().uuidString).jsonl"
+        try! content.write(toFile: path, atomically: true, encoding: .utf8)
+        return path
+    }
+
+    @Test("lastAssistantTextBlocks returns only text blocks")
+    func testLastAssistantTextBlocks_returnsOnlyTextBlocks() async throws {
+        let jsonl = [
+            #"{"type":"user","message":{"content":[{"type":"text","text":"hello"}]},"timestamp":"2026-03-16T10:00:00Z"}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"reply"},{"type":"tool_use","name":"Bash","id":"t1","input":{"command":"ls"}}]},"timestamp":"2026-03-16T10:00:01Z"}"#,
+        ].joined(separator: "\n")
+        let path = writeTempFile(jsonl)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
+        #expect(result != nil)
+        #expect(result!.texts == ["reply"])
+        #expect(result!.turnIndex == 1)
+    }
+
+    @Test("lastAssistantTextBlocks returns nil for empty file")
+    func testLastAssistantTextBlocks_emptyFile() async throws {
+        let path = writeTempFile("")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
+        #expect(result == nil)
+    }
+
+    @Test("lastAssistantTextBlocks returns empty texts when no text blocks")
+    func testLastAssistantTextBlocks_noTextBlocks() async throws {
+        let jsonl = [
+            #"{"type":"user","message":{"content":[{"type":"text","text":"hello"}]},"timestamp":"2026-03-16T10:00:00Z"}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"t1","input":{"command":"ls"}}]},"timestamp":"2026-03-16T10:00:01Z"}"#,
+        ].joined(separator: "\n")
+        let path = writeTempFile(jsonl)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
+        #expect(result != nil)
+        #expect(result!.texts.isEmpty)
+        #expect(result!.turnIndex == 1)
+    }
+
+    @Test("lastAssistantTextBlocks picks the last assistant turn")
+    func testLastAssistantTextBlocks_picksLastAssistant() async throws {
+        let jsonl = [
+            #"{"type":"user","message":{"content":[{"type":"text","text":"hello"}]},"timestamp":"2026-03-16T10:00:00Z"}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"first reply"}]},"timestamp":"2026-03-16T10:00:01Z"}"#,
+            #"{"type":"user","message":{"content":[{"type":"text","text":"followup"}]},"timestamp":"2026-03-16T10:00:02Z"}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"second reply"},{"type":"text","text":"more text"}]},"timestamp":"2026-03-16T10:00:03Z"}"#,
+        ].joined(separator: "\n")
+        let path = writeTempFile(jsonl)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
+        #expect(result != nil)
+        #expect(result!.texts == ["second reply", "more text"])
+        #expect(result!.turnIndex == 3)
+    }
+
     @Test("Shows command stdout as assistant-style turn in history")
     func showsStdoutAsAssistant() async throws {
         let dir = try makeTempDir()

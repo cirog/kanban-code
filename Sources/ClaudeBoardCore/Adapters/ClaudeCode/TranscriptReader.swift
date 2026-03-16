@@ -281,6 +281,66 @@ public enum TranscriptReader {
         return turns
     }
 
+    // MARK: - Last assistant text blocks
+
+    /// Result of extracting text blocks from the last assistant turn.
+    public struct LastReplyResult: Sendable {
+        public let turnIndex: Int
+        public let texts: [String]
+    }
+
+    /// Extract only the `.text` content blocks from the last assistant turn.
+    /// Returns nil if no assistant turns exist.
+    public static func lastAssistantTextBlocks(from filePath: String) async throws -> LastReplyResult? {
+        guard FileManager.default.fileExists(atPath: filePath) else { return nil }
+
+        let url = URL(fileURLWithPath: filePath)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        var lastAssistantLine: String?
+        var lastAssistantTurnIndex: Int?
+        var turnIndex = 0
+
+        for try await line in handle.bytes.lines {
+            guard !line.isEmpty, line.contains("\"type\"") else { continue }
+
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = obj["type"] as? String,
+                  type == "user" || type == "assistant" else { continue }
+
+            // Skip caveat wrapper messages entirely
+            if type == "user" && JsonlParser.isCaveatMessage(obj) { continue }
+
+            if type == "assistant" {
+                lastAssistantLine = line
+                lastAssistantTurnIndex = turnIndex
+            }
+            turnIndex += 1
+        }
+
+        guard let assistantLine = lastAssistantLine,
+              let assistantTurnIndex = lastAssistantTurnIndex,
+              let data = assistantLine.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = obj["message"] as? [String: Any],
+              let content = message["content"] as? [[String: Any]] else {
+            if lastAssistantLine != nil, let idx = lastAssistantTurnIndex {
+                return LastReplyResult(turnIndex: idx, texts: [])
+            }
+            return nil
+        }
+
+        let texts = content.compactMap { block -> String? in
+            guard let blockType = block["type"] as? String, blockType == "text",
+                  let text = block["text"] as? String, !text.isEmpty else { return nil }
+            return text
+        }
+
+        return LastReplyResult(turnIndex: assistantTurnIndex, texts: texts)
+    }
+
     // MARK: - User message parsing
 
     static func extractUserBlocks(from obj: [String: Any]) -> [ContentBlock] {
