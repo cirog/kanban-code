@@ -20,11 +20,19 @@ struct CardView: View {
     var onMoveToFolder: () -> Void = {}
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
+    var onSetProject: (String?) -> Void = { _ in }
 
     @Environment(\.projectColorMap) private var projectColorMap
+    @Environment(\.projectLabels) private var projectLabels
 
     /// Resolve the project color hex for this card.
     private var projectColorHex: String {
+        // First: check projectId against labels
+        if let pid = card.link.projectId,
+           let label = projectLabels.first(where: { $0.id == pid }) {
+            return label.color
+        }
+        // Fallback: existing path-based color
         if let path = card.link.projectPath ?? card.session?.projectPath,
            let color = projectColorMap[path] {
             return color
@@ -171,6 +179,25 @@ struct CardView: View {
                     }
                 } label: {
                     Label("Move to Project", systemImage: "folder.badge.arrow.forward")
+                }
+            }
+            if !projectLabels.isEmpty {
+                Divider()
+                Menu("Set Project") {
+                    Button("None") { onSetProject(nil) }
+                    Divider()
+                    ForEach(projectLabels) { label in
+                        Button {
+                            onSetProject(label.id)
+                        } label: {
+                            Label {
+                                Text(label.name)
+                            } icon: {
+                                Image(systemName: "circle.fill")
+                                    .foregroundStyle(Color(hex: label.color))
+                            }
+                        }
+                    }
                 }
             }
             if card.link.sessionLink != nil {

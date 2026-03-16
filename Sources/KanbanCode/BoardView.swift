@@ -17,6 +17,7 @@ struct BoardView: View {
     var onMoveToFolder: (String) -> Void = { _ in }
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (String, CodingAssistant) -> Void = { _, _ in }
+    var onSetProject: (String, String?) -> Void = { _, _ in }  // (cardId, projectId)
     var onRefreshBacklog: () -> Void = {}
 
     var canDropCard: (KanbanCodeCard, KanbanCodeColumn) -> Bool = { _, _ in true }
@@ -71,6 +72,7 @@ struct BoardView: View {
                     onMoveToFolder: onMoveToFolder,
                     enabledAssistants: enabledAssistants,
                     onMigrateAssistant: onMigrateAssistant,
+                    onSetProject: onSetProject,
                     onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil,
                     onCardClicked: onCardClicked,
                     onColumnBackgroundClick: onColumnBackgroundClick

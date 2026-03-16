@@ -413,11 +413,80 @@ struct ProjectsSettingsView: View {
     @State private var error: String?
     @State private var editingProject: Project?
     @State private var isEditingNew = false
+    @State private var projectLabels: [ProjectLabel] = []
+    @State private var showNewLabel = false
+    @State private var newLabelName = ""
+    @State private var newLabelColor = presetLabelColors[0]
 
     private let settingsStore = SettingsStore()
 
     var body: some View {
         Form {
+            Section("Project Labels") {
+                if projectLabels.isEmpty {
+                    Text("No project labels configured")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                } else {
+                    ForEach(projectLabels) { label in
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(Color(hex: label.color))
+                                .frame(width: 12, height: 12)
+                            Text(label.name)
+                            Spacer()
+                            Button {
+                                deleteLabel(label)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red.opacity(0.7))
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Remove label")
+                        }
+                    }
+                }
+
+                if showNewLabel {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("Label name", text: $newLabelName)
+                            .textFieldStyle(.roundedBorder)
+
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(22), spacing: 6), count: 6), spacing: 6) {
+                            ForEach(presetLabelColors, id: \.self) { hex in
+                                Circle()
+                                    .fill(Color(hex: hex))
+                                    .frame(width: 22, height: 22)
+                                    .overlay(
+                                        Circle()
+                                            .strokeBorder(Color.primary, lineWidth: newLabelColor == hex ? 2 : 0)
+                                    )
+                                    .onTapGesture { newLabelColor = hex }
+                            }
+                        }
+
+                        HStack {
+                            Button("Cancel") {
+                                showNewLabel = false
+                                newLabelName = ""
+                                newLabelColor = presetLabelColors[0]
+                            }
+                            .controlSize(.small)
+                            Button("Add") {
+                                addLabel()
+                            }
+                            .controlSize(.small)
+                            .disabled(newLabelName.isEmpty)
+                        }
+                    }
+                } else {
+                    Button("Add Project Label...") {
+                        showNewLabel = true
+                    }
+                    .controlSize(.small)
+                }
+            }
+
             Section("Projects") {
                 if projects.isEmpty {
                     Text("No projects configured")
@@ -597,8 +666,34 @@ struct ProjectsSettingsView: View {
             let settings = try await settingsStore.read()
             projects = settings.projects
             excludedPaths = settings.globalView.excludedPaths
+            projectLabels = settings.projectLabels
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    private func addLabel() {
+        guard !newLabelName.isEmpty else { return }
+        let label = ProjectLabel(name: newLabelName, color: newLabelColor)
+        Task {
+            var settings = try await settingsStore.read()
+            settings.projectLabels.append(label)
+            try await settingsStore.write(settings)
+            NotificationCenter.default.post(name: .kanbanCodeSettingsChanged, object: nil)
+            await loadSettings()
+        }
+        showNewLabel = false
+        newLabelName = ""
+        newLabelColor = presetLabelColors[0]
+    }
+
+    private func deleteLabel(_ label: ProjectLabel) {
+        Task {
+            var settings = try await settingsStore.read()
+            settings.projectLabels.removeAll { $0.id == label.id }
+            try await settingsStore.write(settings)
+            NotificationCenter.default.post(name: .kanbanCodeSettingsChanged, object: nil)
+            await loadSettings()
         }
     }
 }

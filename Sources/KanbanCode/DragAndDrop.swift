@@ -47,6 +47,7 @@ struct DroppableColumnView: View {
     var onMoveToFolder: (String) -> Void = { _ in }
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (String, CodingAssistant) -> Void = { _, _ in }
+    var onSetProject: (String, String?) -> Void = { _, _ in }  // (cardId, projectId)
     var onRefreshBacklog: (() -> Void)?
     var onCardClicked: (String) -> Void = { _ in }
     var onColumnBackgroundClick: (KanbanCodeColumn) -> Void = { _ in }
@@ -101,7 +102,8 @@ struct DroppableColumnView: View {
                         onMoveToProject: { projectPath in onMoveToProject(card.id, projectPath) },
                         onMoveToFolder: { onMoveToFolder(card.id) },
                         enabledAssistants: enabledAssistants,
-                        onMigrateAssistant: { target in onMigrateAssistant(card.id, target) }
+                        onMigrateAssistant: { target in onMigrateAssistant(card.id, target) },
+                        onSetProject: { projectId in onSetProject(card.id, projectId) }
                     )
                     // Merge highlight
                     .overlay(

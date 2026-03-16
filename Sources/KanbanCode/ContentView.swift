@@ -54,6 +54,7 @@ struct ContentView: View {
     @AppStorage("uiTextSize") private var uiTextSize: Int = 1
     @AppStorage("detailExpanded") private var detailExpandedPersisted = false
     @State private var showAddFromPath = false
+    @State private var showNewProjectLabel = false
     @State private var isDroppingFolder = false
     @State private var isDroppingImage = false
     @State private var addFromPathText = ""
@@ -283,6 +284,9 @@ struct ContentView: View {
             onMigrateAssistant: { cardId, target in
                 pendingMigration = (cardId: cardId, targetAssistant: target)
             },
+            onSetProject: { cardId, projectId in
+                store.dispatch(.setProject(cardId: cardId, projectId: projectId))
+            },
             onRefreshBacklog: { },
             canDropCard: { card, column in
                 CardDropIntent.resolve(card, to: column).isAllowed
@@ -477,6 +481,7 @@ struct ContentView: View {
     private var boardWithOverlays: some View {
         activeBoardView
             .environment(\.projectColorMap, projectColorMap)
+            .environment(\.projectLabels, store.state.projectLabels)
             .ignoresSafeArea(edges: .top)
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .navigationTitle("")
@@ -553,6 +558,17 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showAddFromPath) {
                 addFromPathSheet
+            }
+            .sheet(isPresented: $showNewProjectLabel) {
+                NewProjectLabelSheet(onSave: { name, color in
+                    let label = ProjectLabel(name: name, color: color)
+                    Task {
+                        var settings = try await settingsStore.read()
+                        settings.projectLabels.append(label)
+                        try await settingsStore.write(settings)
+                        NotificationCenter.default.post(name: .kanbanCodeSettingsChanged, object: nil)
+                    }
+                })
             }
             .sheet(item: $launchConfig) { config in
                 LaunchConfirmationDialog(
@@ -874,6 +890,10 @@ struct ContentView: View {
                 }
 
                 ToolbarItem(placement: .navigation) {
+                    projectLabelsMenu
+                }
+
+                ToolbarItem(placement: .navigation) {
                     viewModePicker
                 }
 
@@ -1117,6 +1137,35 @@ struct ContentView: View {
         } label: {
             Text(currentProjectName)
                 .font(.app(.headline))
+        }
+    }
+
+    // MARK: - Project Labels Menu
+
+    private var projectLabelsMenu: some View {
+        Menu {
+            Button("All Projects") {
+                // Visual list only — no filtering
+            }
+            Divider()
+            ForEach(store.state.projectLabels) { label in
+                Button {
+                    // Visual list only — no filtering
+                } label: {
+                    Label {
+                        Text(label.name)
+                    } icon: {
+                        Image(systemName: "circle.fill")
+                            .foregroundStyle(Color(hex: label.color))
+                    }
+                }
+            }
+            Divider()
+            Button("New Project...") {
+                showNewProjectLabel = true
+            }
+        } label: {
+            Image(systemName: "tag")
         }
     }
 

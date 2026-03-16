@@ -1,4 +1,5 @@
 import SwiftUI
+import KanbanCodeCore
 
 extension Color {
     init(hex: String) {
@@ -21,9 +22,19 @@ struct ProjectColorMapKey: EnvironmentKey {
     static let defaultValue: [String: String] = [:]
 }
 
+/// Project labels for card categorization. Set at top level, read by CardView.
+struct ProjectLabelsKey: EnvironmentKey {
+    static let defaultValue: [ProjectLabel] = []
+}
+
 extension EnvironmentValues {
     var projectColorMap: [String: String] {
         get { self[ProjectColorMapKey.self] }
         set { self[ProjectColorMapKey.self] = newValue }
+    }
+
+    var projectLabels: [ProjectLabel] {
+        get { self[ProjectLabelsKey.self] }
+        set { self[ProjectLabelsKey.self] = newValue }
     }
 }
