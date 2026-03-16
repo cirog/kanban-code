@@ -5,7 +5,7 @@ import Foundation
 /// Claude Code uses hook configuration format:
 /// `settings.json` → `hooks` → `{ EventName: [{ matcher, hooks: [{ type, command }] }] }`
 ///
-/// The hook script (`~/.kanban-code/hook.sh`) receives
+/// The hook script (`~/.claude-board/hook.sh`) receives
 /// `session_id`, `hook_event_name`, and `transcript_path` via stdin JSON.
 public enum HookManager {
 
@@ -41,7 +41,7 @@ public enum HookManager {
             return groups.contains { group in
                 guard let hookEntries = group["hooks"] as? [[String: Any]] else { return false }
                 return hookEntries.contains { entry in
-                    (entry["command"] as? String)?.contains(".kanban-code/hook.sh") == true
+                    (entry["command"] as? String)?.contains(".claude-board/hook.sh") == true
                 }
             }
         }
@@ -85,10 +85,10 @@ public enum HookManager {
         for eventName in requiredHooks(for: assistant) {
             var groups = hooks[eventName] as? [[String: Any]] ?? []
 
-            // Check if .kanban-code/hook.sh already exists in any group
+            // Check if .claude-board/hook.sh already exists in any group
             let alreadyInstalled = groups.contains { group in
                 guard let entries = group["hooks"] as? [[String: Any]] else { return false }
-                return entries.contains { ($0["command"] as? String)?.contains(".kanban-code/hook.sh") == true }
+                return entries.contains { ($0["command"] as? String)?.contains(".claude-board/hook.sh") == true }
             }
 
             if !alreadyInstalled {
@@ -141,7 +141,7 @@ public enum HookManager {
             if var groups = hooks[eventName] as? [[String: Any]] {
                 for i in groups.indices {
                     if var entries = groups[i]["hooks"] as? [[String: Any]] {
-                        entries.removeAll { ($0["command"] as? String)?.contains(".kanban-code/hook.sh") == true }
+                        entries.removeAll { ($0["command"] as? String)?.contains(".claude-board/hook.sh") == true }
                         groups[i]["hooks"] = entries
                     }
                 }
@@ -185,13 +185,13 @@ public enum HookManager {
 
     private static let hookScriptContent = """
     #!/usr/bin/env bash
-    # Kanban hook handler for Claude Code.
+    # ClaudeBoard hook handler for Claude Code.
     # Receives JSON on stdin from hooks, appends a timestamped
-    # event line to ~/.kanban-code/hook-events.jsonl.
+    # event line to ~/.claude-board/hook-events.jsonl.
 
     set -euo pipefail
 
-    EVENTS_DIR="${HOME}/.kanban-code"
+    EVENTS_DIR="${HOME}/.claude-board"
     EVENTS_FILE="${EVENTS_DIR}/hook-events.jsonl"
 
     # Ensure directory exists
@@ -231,6 +231,6 @@ public enum HookManager {
     }
 
     private static func defaultHookScriptPath() -> String {
-        (NSHomeDirectory() as NSString).appendingPathComponent(".kanban-code/hook.sh")
+        (NSHomeDirectory() as NSString).appendingPathComponent(".claude-board/hook.sh")
     }
 }

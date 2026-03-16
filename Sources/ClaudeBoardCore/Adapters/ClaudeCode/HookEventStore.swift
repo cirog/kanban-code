@@ -1,12 +1,12 @@
 import Foundation
 
-/// Reads and manages hook events from ~/.kanban-code/hook-events.jsonl.
+/// Reads and manages hook events from ~/.claude-board/hook-events.jsonl.
 public actor HookEventStore {
     private let filePath: String
     private var lastReadOffset: UInt64 = 0
 
     public init(basePath: String? = nil) {
-        let base = basePath ?? (NSHomeDirectory() as NSString).appendingPathComponent(".kanban-code")
+        let base = basePath ?? (NSHomeDirectory() as NSString).appendingPathComponent(".claude-board")
         self.filePath = (base as NSString).appendingPathComponent("hook-events.jsonl")
     }
 

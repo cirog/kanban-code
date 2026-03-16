@@ -20,7 +20,7 @@ struct HookManagerTests {
         defer { cleanup(dir) }
 
         let settingsPath = (dir as NSString).appendingPathComponent("settings.json")
-        let scriptPath = (dir as NSString).appendingPathComponent(".kanban-code/hook.sh")
+        let scriptPath = (dir as NSString).appendingPathComponent(".claude-board/hook.sh")
         try "{}".write(toFile: settingsPath, atomically: true, encoding: .utf8)
 
         try HookManager.install(claudeSettingsPath: settingsPath, hookScriptPath: scriptPath)
@@ -43,7 +43,7 @@ struct HookManagerTests {
         #expect(stopGroups.count == 1)
         let entries = stopGroups[0]["hooks"] as! [[String: Any]]
         #expect(entries.count == 1)
-        #expect((entries[0]["command"] as! String).contains(".kanban-code/hook.sh"))
+        #expect((entries[0]["command"] as! String).contains(".claude-board/hook.sh"))
 
         // Verify hook script was deployed
         #expect(FileManager.default.fileExists(atPath: scriptPath))
@@ -56,7 +56,7 @@ struct HookManagerTests {
         defer { cleanup(dir) }
 
         let settingsPath = (dir as NSString).appendingPathComponent("settings.json")
-        let scriptPath = (dir as NSString).appendingPathComponent(".kanban-code/hook.sh")
+        let scriptPath = (dir as NSString).appendingPathComponent(".claude-board/hook.sh")
         let existing = """
         {
             "hooks": {
@@ -92,7 +92,7 @@ struct HookManagerTests {
         defer { cleanup(dir) }
 
         let settingsPath = (dir as NSString).appendingPathComponent("settings.json")
-        let scriptPath = (dir as NSString).appendingPathComponent(".kanban-code/hook.sh")
+        let scriptPath = (dir as NSString).appendingPathComponent(".claude-board/hook.sh")
         try "{}".write(toFile: settingsPath, atomically: true, encoding: .utf8)
 
         try HookManager.install(claudeSettingsPath: settingsPath, hookScriptPath: scriptPath)
@@ -122,7 +122,7 @@ struct HookManagerTests {
                         "matcher": "",
                         "hooks": [
                             {"type": "command", "command": "/usr/local/bin/other-hook.sh"},
-                            {"type": "command", "command": "/home/user/.kanban-code/hook.sh"}
+                            {"type": "command", "command": "/home/user/.claude-board/hook.sh"}
                         ]
                     }
                 ]
@@ -155,7 +155,7 @@ struct HookManagerTests {
         defer { cleanup(dir) }
 
         let settingsPath = (dir as NSString).appendingPathComponent("subdir/settings.json")
-        let scriptPath = (dir as NSString).appendingPathComponent(".kanban-code/hook.sh")
+        let scriptPath = (dir as NSString).appendingPathComponent(".claude-board/hook.sh")
         try HookManager.install(claudeSettingsPath: settingsPath, hookScriptPath: scriptPath)
 
         #expect(FileManager.default.fileExists(atPath: settingsPath))
@@ -169,7 +169,7 @@ struct HookManagerTests {
         defer { cleanup(dir) }
 
         let settingsPath = (dir as NSString).appendingPathComponent("settings.json")
-        let scriptPath = (dir as NSString).appendingPathComponent(".kanban-code/hook.sh")
+        let scriptPath = (dir as NSString).appendingPathComponent(".claude-board/hook.sh")
         try "{}".write(toFile: settingsPath, atomically: true, encoding: .utf8)
 
         try HookManager.install(claudeSettingsPath: settingsPath, hookScriptPath: scriptPath)

@@ -200,7 +200,7 @@ struct ContentView: View {
         self.launcher = launch
         self.tmuxAdapter = tmux
         self.hookEventsPath = (NSHomeDirectory() as NSString)
-            .appendingPathComponent(".kanban-code/hook-events.jsonl")
+            .appendingPathComponent(".claude-board/hook-events.jsonl")
         self.settingsFilePath = (NSHomeDirectory() as NSString)
             .appendingPathComponent(".kanban-code/settings.json")
     }
@@ -976,7 +976,7 @@ struct ContentView: View {
         .id(uiTextSize) // Force full re-render when UI scale changes
     }
 
-    /// Watch ~/.kanban-code/hook-events.jsonl for writes → post notification.
+    /// Watch ~/.claude-board/hook-events.jsonl for writes → post notification.
     private nonisolated func watchHookEvents(path: String) async {
         let dir = (path as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
