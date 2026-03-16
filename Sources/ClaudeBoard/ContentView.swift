@@ -347,6 +347,10 @@ struct ContentView: View {
                         try? await tmuxAdapter.sendPrompt(to: tmuxName, text: text)
                     }
                 },
+                onCapturePane: { [tmuxAdapter] in
+                    guard let tmuxName = card.link.tmuxLink?.sessionName else { return nil }
+                    return try? await tmuxAdapter.capturePane(sessionName: tmuxName)
+                },
                 availableProjects: projectList,
                 onMoveToProject: { projectPath in
                     let name = projectList.first(where: { $0.path == projectPath })?.name ?? (projectPath as NSString).lastPathComponent
