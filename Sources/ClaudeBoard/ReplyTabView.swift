@@ -61,7 +61,6 @@ struct ReplyTabView: NSViewRepresentable {
                                 var code = codes[i];
                                 var text = code.textContent;
                                 if (text.indexOf('\u{2605}') !== -1 && text.indexOf('Insight') !== -1) {
-                                    // Found insight header — collect content until closing bar
                                     var box = document.createElement('div');
                                     box.className = 'insight-box';
                                     var header = document.createElement('div');
@@ -72,13 +71,16 @@ struct ReplyTabView: NSViewRepresentable {
                                     var container = parent.parentNode;
                                     var sibling = parent.nextElementSibling;
                                     container.replaceChild(box, parent);
-                                    // Collect siblings until we find the closing ─── bar
                                     while (sibling) {
                                         var next = sibling.nextElementSibling;
                                         var sCode = sibling.querySelector('code');
-                                        if (sCode && /^[\\u2500\\-]{10,}$/.test(sCode.textContent.trim())) {
-                                            sibling.remove();
-                                            break;
+                                        if (sCode) {
+                                            var ct = sCode.textContent.trim();
+                                            // Match closing bar: all ─ (U+2500) or - chars, 10+
+                                            if (ct.length >= 10 && /^[─\\-]+$/.test(ct)) {
+                                                sibling.remove();
+                                                break;
+                                            }
                                         }
                                         var content = sibling;
                                         sibling = next;
