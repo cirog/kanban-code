@@ -374,8 +374,9 @@ struct TranscriptReaderTests {
         #expect(result!.turnIndex == 1)
     }
 
-    @Test("lastAssistantTextBlocks picks the last assistant turn")
+    @Test("lastAssistantTextBlocks collects only from after last user message")
     func testLastAssistantTextBlocks_picksLastAssistant() async throws {
+        // Two user/assistant exchanges — should only return text from after the second user message
         let jsonl = [
             #"{"type":"user","message":{"content":[{"type":"text","text":"hello"}]},"timestamp":"2026-03-16T10:00:00Z"}"#,
             #"{"type":"assistant","message":{"content":[{"type":"text","text":"first reply"}]},"timestamp":"2026-03-16T10:00:01Z"}"#,
@@ -387,7 +388,32 @@ struct TranscriptReaderTests {
 
         let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
         #expect(result != nil)
+        // Should NOT include "first reply" — that was before the second user message
         #expect(result!.texts == ["second reply", "more text"])
+        #expect(result!.turnIndex == 3)
+    }
+
+    @Test("lastAssistantTextBlocks collects text from multiple assistant turns since last user message")
+    func testLastAssistantTextBlocks_multiTurnReply() async throws {
+        // Simulates a multi-step skill: user sends one message, then multiple assistant turns
+        // (tool call cycles produce separate assistant turns)
+        let jsonl = [
+            #"{"type":"user","message":{"content":[{"type":"text","text":"run daily check"}]},"timestamp":"2026-03-16T10:00:00Z"}"#,
+            ###"{"type":"assistant","message":{"content":[{"type":"text","text":"Starting daily check..."},{"type":"tool_use","name":"Bash","id":"t1","input":{"command":"todoist task list"}}]},"timestamp":"2026-03-16T10:00:01Z"}"###,
+            ###"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","id":"t2","input":{"file_path":"/tmp/x"}}]},"timestamp":"2026-03-16T10:00:02Z"}"###,
+            ###"{"type":"assistant","message":{"content":[{"type":"text","text":"## Inbox\n| Task | Priority |\n|------|----------|\n| Fix bug | P1 |"},{"type":"text","text":"## Fires\nNo fires detected."}]},"timestamp":"2026-03-16T10:00:03Z"}"###,
+        ].joined(separator: "\n")
+        let path = writeTempFile(jsonl)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
+        #expect(result != nil)
+        // Should collect text from ALL assistant turns since the user message
+        #expect(result!.texts.count == 3)
+        #expect(result!.texts[0] == "Starting daily check...")
+        #expect(result!.texts[1].contains("Inbox"))
+        #expect(result!.texts[2].contains("Fires"))
+        // turnIndex should be the last assistant turn
         #expect(result!.turnIndex == 3)
     }
 
