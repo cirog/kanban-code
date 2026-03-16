@@ -1,4 +1,5 @@
 import SwiftUI
+import KanbanCodeCore
 
 enum UsageResetDisplay {
     case countdown   // "3h 22m"
@@ -11,10 +12,22 @@ struct UsageBarView: View {
     let resetsAt: Date?
     var resetDisplay: UsageResetDisplay = .countdown
 
+    /// Total duration of the usage window in seconds.
+    var windowDuration: TimeInterval = 5 * 3600
+
+    private var elapsedFraction: Double {
+        guard let resets = resetsAt else { return 0 }
+        let remaining = resets.timeIntervalSinceNow
+        return max(0, min(1, 1.0 - remaining / windowDuration))
+    }
+
     private var fillColor: Color {
-        if utilization >= 80 { return .red }
-        if utilization >= 50 { return .yellow }
-        return .green
+        let pace = UsagePaceColor.calculate(utilization: utilization, elapsedFraction: elapsedFraction)
+        switch pace {
+        case .green: return .green
+        case .orange: return .orange
+        case .red: return .red
+        }
     }
 
     private var resetLabel: String {
