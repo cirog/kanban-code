@@ -8,6 +8,10 @@ swift test           # run all tests
 make run-app         # build + launch the app
 ```
 
+## Test-Driven Development (mandatory)
+
+**Every code change** — features, bug fixes, refactors — must use the `superpowers:test-driven-development` skill. Write the failing test first, watch it fail, then write the minimal code to pass. No exceptions unless the change is pure deletion with no new behavior.
+
 ## Architecture
 
 - **KanbanCodeCore** (`Sources/KanbanCodeCore/`) — pure Swift library, no UI. Domain entities, use cases, adapters.

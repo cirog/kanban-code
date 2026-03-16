@@ -236,6 +236,10 @@ struct CardDetailView: View {
             if selectedTab == .history {
                 startHistoryWatcher()
             }
+            // After setup, focus terminal if this card has one and landed on terminal tab
+            if selectedTab == .terminal && card.link.tmuxLink != nil {
+                terminalGrabFocus = true
+            }
         }
         .onChange(of: selectedTab) {
             if selectedTab == .terminal {
