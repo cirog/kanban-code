@@ -259,6 +259,7 @@ final class TerminalCache {
     private var terminals: [String: BatchedTerminalView] = [:]
     var cachedContainer: TerminalContainerNSView?
     private var shiftEnterMonitor: Any?
+    private var scrollWheelMonitor: Any?
     private var fontSizeObserver: Any?
 
     private var currentFontSize: CGFloat = {
@@ -266,22 +267,130 @@ final class TerminalCache {
         return stored > 0 ? CGFloat(stored) : TerminalCache.defaultFontSize
     }()
 
+    /// Find the active (visible) session name for the terminal under the given window point.
+    /// Bypasses hitTest which can be intercepted by SwiftUI overlay views.
+    func sessionUnderPoint(_ windowPoint: NSPoint, in window: NSWindow) -> String? {
+        for (sessionName, terminal) in terminals {
+            guard !terminal.isHidden,
+                  terminal.window == window else { continue }
+            let localPoint = terminal.convert(windowPoint, from: nil)
+            if terminal.bounds.contains(localPoint) {
+                return sessionName
+            }
+        }
+        return nil
+    }
+
+    /// Tracks tmux copy-mode state per session for scroll interception.
+    fileprivate var copyModeSessions: Set<String> = []
+
+    /// Cooldown: after exiting copy-mode, ignore scroll events briefly
+    /// to prevent residual trackpad momentum from re-entering copy-mode.
+    fileprivate var copyModeExitTime: [String: ContinuousClock.Instant] = [:]
+
     private init() {
-        // Intercept Shift+Enter in terminal views: send \n instead of \r
-        // (Claude Code uses Enter to submit, Shift+Enter for newline)
-        shiftEnterMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        let tmux = Self.tmuxPath
+
+        // Intercept keyDown events in terminal views for:
+        // 1. Shift+Enter → send \n instead of \r (Claude Code newline vs submit)
+        // 2. Any key while in copy-mode → exit copy-mode, let key through to shell
+        shiftEnterMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let terminal = event.window?.firstResponder as? TerminalView else { return event }
 
+            // Shift+Enter: send newline instead of carriage return
             if event.keyCode == 36, event.modifierFlags.contains(.shift) {
                 terminal.send([0x0a])
                 return nil
             }
 
+            guard let self else { return event }
+
+            // Find the session for this terminal
+            var view: NSView? = terminal
+            while let v = view, !(v is TerminalContainerNSView) {
+                view = v.superview
+            }
+            guard let container = view as? TerminalContainerNSView,
+                  let session = container.activeSession else { return event }
+
+            // If in copy-mode, exit it on any non-modifier keypress and let the
+            // key flow through to the terminal normally (no consumption).
+            if self.copyModeSessions.contains(session) {
+                let modifiers = event.modifierFlags.intersection([.command, .option, .control])
+                guard modifiers.isEmpty else { return event }
+
+                self.copyModeSessions.remove(session)
+                self.copyModeExitTime[session] = .now
+
+                // Fire-and-forget: exit copy-mode in tmux
+                Task.detached {
+                    _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session, "-X", "cancel"])
+                }
+
+                // Let the key through to SwiftTerm — it will reach the shell
+                // directly via the PTY, so the user's typing is never lost.
+                return event
+            }
+
             return event
         }
 
-        // Scrolling is handled natively by SwiftTerm's scrollback buffer.
-        // No tmux copy-mode interception — input focus stays active while scrolled.
+        // Intercept scroll wheel events over terminal views and translate to tmux
+        // copy-mode scrolling. Tmux owns the scrollback buffer, so SwiftTerm's
+        // native scroll has nothing to scroll through.
+        scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard event.deltaY != 0 else { return event }
+
+            guard let window = event.window else { return event }
+            guard let session = self?.sessionUnderPoint(event.locationInWindow, in: window) else { return event }
+
+            let inCopyMode = self?.copyModeSessions.contains(session) ?? false
+
+            // After exiting copy-mode, ignore scroll events for 500ms
+            // to prevent residual trackpad momentum from re-entering.
+            if let exitTime = self?.copyModeExitTime[session],
+               exitTime.duration(to: .now) < .milliseconds(500) {
+                return nil
+            }
+
+            if event.deltaY > 0 {
+                // Scroll UP — enter copy-mode if needed, then scroll.
+                let lines = max(1, Int(abs(event.deltaY)))
+                if !inCopyMode {
+                    self?.copyModeSessions.insert(session)
+                    Task.detached {
+                        _ = try? await ShellCommand.run(tmux, arguments: ["copy-mode", "-t", session])
+                        _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session, "-X", "-N", "\(lines)", "cursor-up"])
+                    }
+                } else {
+                    Task.detached {
+                        _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session, "-X", "-N", "\(lines)", "cursor-up"])
+                    }
+                }
+            } else if inCopyMode {
+                // Scroll DOWN in copy-mode. Auto-exit when reaching bottom.
+                let lines = max(1, Int(abs(event.deltaY)))
+                Task.detached {
+                    _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session, "-X", "-N", "\(lines)", "cursor-down"])
+                    try? await Task.sleep(for: .milliseconds(50))
+                    let result = try? await ShellCommand.run(
+                        tmux, arguments: ["display-message", "-p", "-t", session, "#{scroll_position}"]
+                    )
+                    if result?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "0" {
+                        let shouldExit = await MainActor.run {
+                            guard TerminalCache.shared.copyModeSessions.remove(session) != nil else { return false }
+                            TerminalCache.shared.copyModeExitTime[session] = .now
+                            return true
+                        }
+                        if shouldExit {
+                            _ = try? await ShellCommand.run(tmux, arguments: ["send-keys", "-t", session, "-X", "cancel"])
+                        }
+                    }
+                }
+            }
+
+            return nil // consume — don't let SwiftTerm handle it
+        }
 
         // Observe font size changes from Settings / Cmd+Plus/Minus
         fontSizeObserver = NotificationCenter.default.addObserver(
