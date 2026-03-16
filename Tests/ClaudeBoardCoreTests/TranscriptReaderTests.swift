@@ -438,6 +438,52 @@ struct TranscriptReaderTests {
         #expect(result!.texts[1].contains("Results"))
     }
 
+    @Test("lastAssistantTextBlocks ignores task-notification and command-message user strings")
+    func testLastAssistantTextBlocks_ignoresSystemUserStrings() async throws {
+        // Real session: user types "1", then many assistant turns with subagent work,
+        // then task-notification strings arrive as "user" type, then more assistant text.
+        // The task-notifications should NOT reset the boundary — "1" is the real user input.
+        let jsonl = [
+            #"{"type":"user","message":{"content":"1"},"timestamp":"2026-03-16T10:00:00Z"}"#,
+            ###"{"type":"assistant","message":{"content":[{"type":"text","text":"Dispatching subagent..."}]},"timestamp":"2026-03-16T10:00:01Z"}"###,
+            ###"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","id":"t1","input":{}}]},"timestamp":"2026-03-16T10:00:02Z"}"###,
+            #"{"type":"user","message":{"content":"<task-notification>\n<task-id>abc123</task-id>\n<output-file>/tmp/out</output-file>\n</task-notification>"},"timestamp":"2026-03-16T10:00:03Z"}"#,
+            ###"{"type":"assistant","message":{"content":[{"type":"text","text":"Subagent done. Here are the results:"},{"type":"text","text":"| Task | Status |\n|------|--------|\n| Build | Pass |"}]},"timestamp":"2026-03-16T10:00:04Z"}"###,
+        ].joined(separator: "\n")
+        let path = writeTempFile(jsonl)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
+        #expect(result != nil)
+        // Should include ALL assistant text since "1" — task-notification is not a delimiter
+        #expect(result!.texts.count == 3)
+        #expect(result!.texts[0] == "Dispatching subagent...")
+        #expect(result!.texts[1].contains("results"))
+        #expect(result!.texts[2].contains("Task"))
+    }
+
+    @Test("lastAssistantTextBlocks ignores skill-loading and command user messages")
+    func testLastAssistantTextBlocks_ignoresSkillAndCommandMsgs() async throws {
+        // Skill loading ("Base directory for this skill:") and slash commands
+        // ("<command-message>") are system-generated, not real user input.
+        let jsonl = [
+            #"{"type":"user","message":{"content":"run my daily check"},"timestamp":"2026-03-16T10:00:00Z"}"#,
+            ###"{"type":"assistant","message":{"content":[{"type":"text","text":"Starting daily check..."}]},"timestamp":"2026-03-16T10:00:01Z"}"###,
+            #"{"type":"user","message":{"content":"<command-message>superpowers:brainstorming</command-message>\n<command-name>/superpowers:brainstorming</command-name>\n<command-args>look at stuff</command-args>"},"timestamp":"2026-03-16T10:00:02Z"}"#,
+            #"{"type":"user","message":{"content":[{"type":"text","text":"Base directory for this skill: /Users/ciro/.claude/plugins/cache/superpowers/skills/brainstorming\n\n# Brainstorming\n\nSome skill content here."}]},"timestamp":"2026-03-16T10:00:03Z"}"#,
+            ###"{"type":"assistant","message":{"content":[{"type":"text","text":"## Daily Results\nAll clear."}]},"timestamp":"2026-03-16T10:00:04Z"}"###,
+        ].joined(separator: "\n")
+        let path = writeTempFile(jsonl)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let result = try await TranscriptReader.lastAssistantTextBlocks(from: path)
+        #expect(result != nil)
+        // Should include text from both assistant turns — skill/command msgs are not delimiters
+        #expect(result!.texts.count == 2)
+        #expect(result!.texts[0] == "Starting daily check...")
+        #expect(result!.texts[1].contains("Daily Results"))
+    }
+
     @Test("Shows command stdout as assistant-style turn in history")
     func showsStdoutAsAssistant() async throws {
         let dir = try makeTempDir()

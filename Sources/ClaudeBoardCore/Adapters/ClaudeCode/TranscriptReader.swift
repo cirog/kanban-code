@@ -355,18 +355,40 @@ public enum TranscriptReader {
         return LastReplyResult(turnIndex: lastAssistantIndex, texts: texts)
     }
 
-    /// Check if a user turn contains actual user-typed text (not just tool_result blocks).
+    /// System-generated user message prefixes that are not real user input.
+    private static let systemMessagePrefixes = [
+        "<task-notification>",
+        "<command-message>",
+        "<command-name>",
+        "<local-command-",
+    ]
+
+    /// Check if a user turn contains actual user-typed text.
+    /// Excludes: tool_result blocks, task-notifications, slash commands, skill loading.
     private static func isRealUserMessage(_ obj: [String: Any]) -> Bool {
-        guard let message = obj["message"] as? [String: Any],
-              let content = message["content"] as? [[String: Any]] else {
-            // String content (e.g., local command stdout) — treat as real user input
-            if let message = obj["message"] as? [String: Any],
-               message["content"] is String {
+        guard let message = obj["message"] as? [String: Any] else { return false }
+
+        // String content — check for system-generated patterns
+        if let text = message["content"] as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            for prefix in systemMessagePrefixes {
+                if trimmed.hasPrefix(prefix) { return false }
+            }
+            return true
+        }
+
+        // Array content — must have a text block that isn't skill loading
+        if let content = message["content"] as? [[String: Any]] {
+            return content.contains { block in
+                guard (block["type"] as? String) == "text",
+                      let text = block["text"] as? String else { return false }
+                // Skill loading messages start with "Base directory for this skill:"
+                if text.hasPrefix("Base directory for this skill:") { return false }
                 return true
             }
-            return false
         }
-        return content.contains { ($0["type"] as? String) == "text" }
+
+        return false
     }
 
     // MARK: - User message parsing
