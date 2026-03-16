@@ -1183,6 +1183,14 @@ struct CardDetailView: View {
                     .lineLimit(2)
                     .layoutPriority(0)
 
+                Button(action: { showRenameSheet = true }) {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Rename")
+
                 if card.link.cardLabel == .session {
                     Text(card.relativeTime)
                         .font(.app(.caption))
