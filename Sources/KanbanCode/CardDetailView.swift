@@ -316,7 +316,7 @@ struct CardDetailView: View {
                     .font(.app(.caption, weight: .medium))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color.draculaSurface, in: RoundedRectangle(cornerRadius: 8))
                     .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                     .padding(.bottom, 8)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -1182,7 +1182,7 @@ struct CardDetailView: View {
                                 .padding(.horizontal, 12)
                                 .frame(height: 36)
                                 .background((isStart ? Color.green : Color.blue).opacity(0.08), in: Capsule())
-                                .background(.ultraThinMaterial, in: Capsule())
+                                .background(Color.draculaSurface, in: Capsule())
                         }
                         .buttonStyle(HoverFeedbackStyle())
                         .shadow(color: .black.opacity(0.25), radius: 4, y: 2)

@@ -58,6 +58,6 @@ struct QueuedPromptsBar: View {
             }
         }
         .padding(.vertical, 4)
-        .background(.ultraThinMaterial.opacity(0.5))
+        .background(Color.draculaSurface.opacity(0.5))
     }
 }

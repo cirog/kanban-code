@@ -136,7 +136,7 @@ struct ListBoardView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.draculaSurface, in: RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
@@ -348,7 +348,7 @@ private struct ListBoardSectionView: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color.draculaCurrentLine, in: RoundedRectangle(cornerRadius: 8))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(Color.accentColor.opacity(0.3), style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
@@ -434,7 +434,7 @@ private struct ListSectionHeader: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.draculaSurface, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -614,7 +614,7 @@ private struct ListCardRowView: View {
                         .padding(.horizontal, 9)
                         .padding(.vertical, 6)
                         .background(Color.green.opacity(0.08), in: Capsule())
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(Color.draculaSurface, in: Capsule())
                 }
                 .buttonStyle(.borderless)
                 .help("Start task")
@@ -623,7 +623,7 @@ private struct ListCardRowView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04),
+            isSelected ? Color.draculaCurrentLine : Color.draculaSurface,
             in: RoundedRectangle(cornerRadius: 10)
         )
         .overlay(

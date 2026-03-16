@@ -54,7 +54,7 @@ struct ColumnView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .background(Color.draculaSurface, in: RoundedRectangle(cornerRadius: 10))
             .padding(4)
         }
     }

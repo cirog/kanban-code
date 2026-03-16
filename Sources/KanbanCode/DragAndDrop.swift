@@ -236,7 +236,7 @@ struct DroppableColumnView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .background(Color.draculaSurface, in: RoundedRectangle(cornerRadius: 10))
             .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
             .padding(4)
         }
