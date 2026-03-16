@@ -28,6 +28,8 @@ struct BoardView: View {
     var onCardClicked: (String) -> Void = { _ in }
     var onColumnBackgroundClick: (KanbanCodeColumn) -> Void = { _ in }
     var terminalContent: AnyView? = nil
+    @State private var quickLaunchText: String = ""
+    var onQuickLaunch: (String) -> Void = { _ in }
 
     private var selectedCard: KanbanCodeCard? {
         guard let id = store.state.selectedCardId else { return nil }
@@ -89,11 +91,32 @@ struct BoardView: View {
             }
 
             if let terminalContent {
-                terminalContent
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .layoutPriority(0)
-                    .id(store.state.selectedCardId ?? "none")
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        TextField("Quick launch...", text: $quickLaunchText)
+                            .textFieldStyle(.plain)
+                            .font(.system(.body, design: .monospaced))
+                            .padding(6)
+                            .background(Color.draculaSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .onSubmit { submitQuickLaunch() }
+
+                        Button(action: submitQuickLaunch) {
+                            Image(systemName: "play.fill")
+                                .foregroundStyle(.green)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(quickLaunchText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 4)
+
+                    terminalContent
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .id(store.state.selectedCardId ?? "none")
+                }
+                .layoutPriority(0)
             }
         }
         .padding(.horizontal, 12)
@@ -213,5 +236,12 @@ struct BoardView: View {
         }
         .padding(.horizontal)
         .padding(.bottom, 8)
+    }
+
+    private func submitQuickLaunch() {
+        let text = quickLaunchText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        onQuickLaunch(text)
+        quickLaunchText = ""
     }
 }
