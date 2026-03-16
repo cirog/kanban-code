@@ -1,0 +1,61 @@
+import SwiftUI
+import ClaudeBoardCore
+
+struct ColumnView: View {
+    let column: ClaudeBoardColumn
+    let cards: [ClaudeBoardCard]
+    @Binding var selectedCardId: String?
+
+    var body: some View {
+        // Card list with header pill overlaid on top
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(cards) { card in
+                    CardView(
+                        card: card,
+                        isSelected: card.id == selectedCardId,
+                        onSelect: {
+                            if selectedCardId == card.id {
+                                selectedCardId = nil
+                            } else {
+                                selectedCardId = card.id
+                            }
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 44) // space for the floating header
+            .padding(.bottom, 8)
+        }
+        .frame(minWidth: 264, maxWidth: 264)
+        .background(Color(.windowBackgroundColor).opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
+        // Header pill floating on top of the column
+        .overlay(alignment: .top) {
+            HStack {
+                Text(column.displayName)
+                    .font(.app(.headline))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Text("\(cards.count)")
+                    .font(.app(.caption))
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.secondary.opacity(0.2)))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.draculaSurface, in: RoundedRectangle(cornerRadius: 10))
+            .padding(4)
+        }
+    }
+}

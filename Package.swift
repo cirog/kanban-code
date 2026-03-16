@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "KanbanCode",
+    name: "ClaudeBoard",
     platforms: [
         .macOS(.v26),
     ],
     products: [
-        .executable(name: "KanbanCode", targets: ["KanbanCode"]),
+        .executable(name: "ClaudeBoard", targets: ["ClaudeBoard"]),
         .executable(name: "kanban-code-active-session", targets: ["KanbanCodeActiveSession"]),
-        .library(name: "KanbanCodeCore", targets: ["KanbanCodeCore"]),
+        .library(name: "ClaudeBoardCore", targets: ["ClaudeBoardCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.0.0"),
@@ -17,9 +17,9 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "KanbanCode",
-            dependencies: ["KanbanCodeCore", "SwiftTerm", .product(name: "MarkdownUI", package: "swift-markdown-ui")],
-            path: "Sources/KanbanCode",
+            name: "ClaudeBoard",
+            dependencies: ["ClaudeBoardCore", "SwiftTerm", .product(name: "MarkdownUI", package: "swift-markdown-ui")],
+            path: "Sources/ClaudeBoard",
             resources: [.copy("Resources")]
         ),
         .executableTarget(
@@ -27,18 +27,18 @@ let package = Package(
             path: "Sources/KanbanCodeActiveSession"
         ),
         .target(
-            name: "KanbanCodeCore",
-            path: "Sources/KanbanCodeCore"
+            name: "ClaudeBoardCore",
+            path: "Sources/ClaudeBoardCore"
         ),
         .testTarget(
-            name: "KanbanCodeCoreTests",
-            dependencies: ["KanbanCodeCore"],
-            path: "Tests/KanbanCodeCoreTests"
+            name: "ClaudeBoardCoreTests",
+            dependencies: ["ClaudeBoardCore"],
+            path: "Tests/ClaudeBoardCoreTests"
         ),
         .testTarget(
-            name: "KanbanCodeTests",
-            dependencies: ["KanbanCode", "KanbanCodeCore"],
-            path: "Tests/KanbanCodeTests"
+            name: "ClaudeBoardTests",
+            dependencies: ["ClaudeBoard", "ClaudeBoardCore"],
+            path: "Tests/ClaudeBoardTests"
         ),
     ]
 )
