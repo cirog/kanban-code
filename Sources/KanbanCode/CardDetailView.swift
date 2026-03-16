@@ -9,7 +9,7 @@ final class ActionsMenuProvider {
 }
 
 enum DetailTab: String {
-    case terminal, history, prompt, description
+    case terminal, history, prompt, description, summary
 
     static func initialTab(for card: KanbanCodeCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
@@ -118,6 +118,11 @@ struct CardDetailView: View {
     // Edit prompt
     @State private var showEditPromptSheet = false
 
+    // Summary tab
+    @State private var summaryText: String?
+    @State private var isLoadingSummary = false
+    @State private var summaryCardId: String?
+
     // File watcher for real-time history
     @State private var historyWatcherFD: Int32 = -1
     @State private var historyWatcherSource: DispatchSourceFileSystemObject?
@@ -208,6 +213,8 @@ struct CardDetailView: View {
                 promptTabView
             case .description:
                 descriptionTabView
+            case .summary:
+                summaryTabView
             }
         }
         .frame(maxWidth: .infinity)
@@ -933,6 +940,96 @@ struct CardDetailView: View {
         }
     }
 
+    // MARK: - Summary Tab
+
+    @ViewBuilder
+    private var summaryTabView: some View {
+        VStack {
+            if isLoadingSummary {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Generating summary...")
+                        .font(.app(.caption))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let summary = summaryText, summaryCardId == card.id {
+                ScrollView {
+                    Text(summary)
+                        .font(.app(.body))
+                        .textSelection(.enabled)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "sparkles")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("Generate a summary of this session")
+                        .font(.app(.body))
+                        .foregroundStyle(.secondary)
+                    Button("Generate Summary") {
+                        loadSummary()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private func loadSummary() {
+        guard let sessionPath = card.link.sessionLink?.sessionPath else { return }
+        isLoadingSummary = true
+        summaryCardId = card.id
+
+        Task.detached { [cardId = card.id] in
+            // Read last 10 turns
+            let result = try? await TranscriptReader.readTail(from: sessionPath, maxTurns: 10)
+            let turns = result?.turns ?? []
+
+            let transcript = turns.map { turn in
+                let role = turn.role == "user" ? "User" : "Assistant"
+                return "[\(role)] \(turn.textPreview)"
+            }.joined(separator: "\n\n")
+
+            guard !transcript.isEmpty else {
+                await MainActor.run {
+                    summaryText = "No conversation turns found."
+                    isLoadingSummary = false
+                }
+                return
+            }
+
+            let prompt = """
+            Summarize this Claude Code session in 3-5 bullet points. Focus on what was accomplished, key decisions, and current state. Be concise.
+
+            Conversation:
+            \(transcript)
+            """
+
+            // Run claude CLI for summary
+            do {
+                let claudePath = ShellCommand.findExecutable("claude") ?? "/usr/local/bin/claude"
+                let output = try await ShellCommand.run(claudePath, arguments: ["-p", "--model", "sonnet", prompt])
+                await MainActor.run {
+                    if summaryCardId == cardId {
+                        summaryText = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    isLoadingSummary = false
+                }
+            } catch {
+                await MainActor.run {
+                    if summaryCardId == cardId {
+                        summaryText = "Summary failed: \(error.localizedDescription)"
+                    }
+                    isLoadingSummary = false
+                }
+            }
+        }
+    }
+
     /// Convert HTML img tags to Markdown image syntax so MarkdownUI can render them.
     private func htmlToMarkdownImages(_ text: String) -> String {
         guard let regex = try? NSRegularExpression(
@@ -1081,6 +1178,7 @@ struct CardDetailView: View {
                 Text("History").tag(DetailTab.history)
                 if card.link.promptBody != nil { Text("Prompt").tag(DetailTab.prompt) }
                 if card.link.todoistDescription != nil { Text("Description").tag(DetailTab.description) }
+                if card.link.sessionLink != nil { Text("Summary").tag(DetailTab.summary) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
