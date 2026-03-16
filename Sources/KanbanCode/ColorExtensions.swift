@@ -15,6 +15,17 @@ extension Color {
     }
 }
 
+// MARK: - Dracula Theme
+
+extension Color {
+    /// Dracula background — app chrome, window background
+    static let draculaBg = Color(hex: "#2B2D42")
+    /// Cards, note pad, elevated surfaces
+    static let draculaSurface = Color(hex: "#333654")
+    /// Selected/highlighted items, code blocks
+    static let draculaCurrentLine = Color(hex: "#44475A")
+}
+
 // MARK: - Project Color Environment
 
 /// Maps project path → hex color string. Set at top level, read by CardView.
