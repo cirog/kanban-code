@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import KanbanCodeCore
 
 struct BoardView: View {
@@ -28,11 +29,17 @@ struct BoardView: View {
     var onColumnBackgroundClick: (KanbanCodeColumn) -> Void = { _ in }
     var terminalContent: AnyView? = nil
 
+    private var selectedCard: KanbanCodeCard? {
+        guard let id = store.state.selectedCardId else { return nil }
+        return store.state.cards.first { $0.id == id }
+    }
+
     var body: some View {
         boardContent
     }
 
     private var boardContent: some View {
+        VStack(spacing: 0) {
         HStack(alignment: .top, spacing: 6) {
             ForEach(store.state.visibleColumns, id: \.self) { column in
                 DroppableColumnView(
@@ -145,5 +152,65 @@ struct BoardView: View {
                 }
             }
         }
+
+            if let card = selectedCard {
+                notePadView(for: card)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func notePadView(for card: KanbanCodeCard) -> some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text("Notes")
+                    .font(.app(.caption, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(card.link.notes ?? "", forType: .string)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.plain)
+                .font(.app(.caption))
+                .foregroundStyle(.secondary)
+
+                Button {
+                    if let tmux = card.link.tmuxLink?.sessionName,
+                       let notes = card.link.notes, !notes.isEmpty {
+                        store.dispatch(.updateNotes(cardId: card.id, notes: notes))
+                        Task {
+                            let tmuxPath = ShellCommand.findExecutable("tmux") ?? "tmux"
+                            let _ = try? await ShellCommand.run(tmuxPath, arguments: ["send-keys", "-t", tmux, notes, "Enter"])
+                            await MainActor.run {
+                                store.dispatch(.updateNotes(cardId: card.id, notes: nil))
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Push to Terminal", systemImage: "terminal")
+                }
+                .buttonStyle(.plain)
+                .font(.app(.caption))
+                .foregroundStyle(.secondary)
+                .disabled(card.link.tmuxLink == nil || (card.link.notes ?? "").isEmpty)
+            }
+            .padding(.horizontal, 8)
+
+            TextEditor(text: Binding(
+                get: { store.state.links[card.id]?.notes ?? "" },
+                set: { store.dispatch(.updateNotes(cardId: card.id, notes: $0.isEmpty ? nil : $0)) }
+            ))
+            .font(.system(.body, design: .monospaced))
+            .scrollContentBackground(.hidden)
+            .padding(4)
+            .background(Color.draculaSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .frame(maxHeight: 500)
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 8)
     }
 }
