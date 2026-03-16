@@ -27,7 +27,8 @@ public actor TodoistSyncService {
 
     private func fetchAndSync() async {
         do {
-            let output = try await ShellCommand.run("todoist", arguments: ["task", "list", "--label", "claude", "--format", "json"])
+            let todoistPath = ShellCommand.findExecutable("todoist") ?? "todoist"
+            let output = try await ShellCommand.run(todoistPath, arguments: ["task", "list", "--label", "claude", "--raw"])
             let tasks = try Self.parseTasks(from: output.stdout)
             ClaudeBoardLog.info("todoist", "Synced \(tasks.count) tasks")
             if let dispatch {

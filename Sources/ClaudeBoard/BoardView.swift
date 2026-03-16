@@ -41,54 +41,64 @@ struct BoardView<TerminalContent: View>: View {
     }
 
     private var boardContent: some View {
-        VStack(spacing: 0) {
         HStack(alignment: .top, spacing: 6) {
-            ForEach(store.state.visibleColumns, id: \.self) { column in
-                DroppableColumnView(
-                    column: column,
-                    cards: store.state.cards(in: column),
-                    selectedCardId: Binding(
-                        get: { store.state.selectedCardId },
-                        set: { store.dispatch(.selectCard(cardId: $0)) }
-                    ),
-                    dragState: dragState,
-                    canDropCard: canDropCard,
-                    isRefreshingBacklog: store.state.isRefreshingBacklog,
-                    onMoveCard: { cardId, targetColumn in
-                        onDropCard(cardId, targetColumn)
-                    },
-                    onMergeCards: { sourceId, targetId in
-                        onMergeCards(sourceId, targetId)
-                    },
-                    onReorderCard: { cardId, targetCardId, above in
-                        store.dispatch(.reorderCard(cardId: cardId, targetCardId: targetCardId, above: above))
-                    },
-                    onRenameCard: { cardId, name in
-                        store.dispatch(.renameCard(cardId: cardId, name: name))
-                    },
-                    onArchiveCard: { cardId in
-                        onArchiveCard(cardId)
-                    },
-                    onStartCard: onStartCard,
-                    onResumeCard: onResumeCard,
-                    onForkCard: onForkCard,
-                    onCopyResumeCmd: onCopyResumeCmd,
-                    onCleanupWorktree: onCleanupWorktree,
-                    canCleanupWorktree: canCleanupWorktree,
-                    onDeleteCard: onDeleteCard,
-                    availableProjects: availableProjects,
-                    onMoveToProject: onMoveToProject,
-                    onMoveToFolder: onMoveToFolder,
-                    enabledAssistants: enabledAssistants,
-                    onMigrateAssistant: onMigrateAssistant,
-                    onSetProject: onSetProject,
-                    onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil,
-                    onCardClicked: onCardClicked,
-                    onColumnBackgroundClick: onColumnBackgroundClick
-                )
-                .layoutPriority(1)
-                .id(column)
+            // Columns + note pad in a VStack (fixed width, note pad underneath)
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 6) {
+                    ForEach(store.state.visibleColumns, id: \.self) { column in
+                        DroppableColumnView(
+                            column: column,
+                            cards: store.state.cards(in: column),
+                            selectedCardId: Binding(
+                                get: { store.state.selectedCardId },
+                                set: { store.dispatch(.selectCard(cardId: $0)) }
+                            ),
+                            dragState: dragState,
+                            canDropCard: canDropCard,
+                            isRefreshingBacklog: store.state.isRefreshingBacklog,
+                            onMoveCard: { cardId, targetColumn in
+                                onDropCard(cardId, targetColumn)
+                            },
+                            onMergeCards: { sourceId, targetId in
+                                onMergeCards(sourceId, targetId)
+                            },
+                            onReorderCard: { cardId, targetCardId, above in
+                                store.dispatch(.reorderCard(cardId: cardId, targetCardId: targetCardId, above: above))
+                            },
+                            onRenameCard: { cardId, name in
+                                store.dispatch(.renameCard(cardId: cardId, name: name))
+                            },
+                            onArchiveCard: { cardId in
+                                onArchiveCard(cardId)
+                            },
+                            onStartCard: onStartCard,
+                            onResumeCard: onResumeCard,
+                            onForkCard: onForkCard,
+                            onCopyResumeCmd: onCopyResumeCmd,
+                            onCleanupWorktree: onCleanupWorktree,
+                            canCleanupWorktree: canCleanupWorktree,
+                            onDeleteCard: onDeleteCard,
+                            availableProjects: availableProjects,
+                            onMoveToProject: onMoveToProject,
+                            onMoveToFolder: onMoveToFolder,
+                            enabledAssistants: enabledAssistants,
+                            onMigrateAssistant: onMigrateAssistant,
+                            onSetProject: onSetProject,
+                            onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil,
+                            onCardClicked: onCardClicked,
+                            onColumnBackgroundClick: onColumnBackgroundClick
+                        )
+                        .id(column)
+                    }
+                }
+                .clipped()
+
+                if let card = selectedCard {
+                    notePadView(for: card)
+                }
             }
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
 
             if let terminalContent {
                 VStack(spacing: 0) {
@@ -122,7 +132,6 @@ struct BoardView<TerminalContent: View>: View {
         .padding(.horizontal, 12)
         .padding(.top, 52)
         .padding(.bottom, 16)
-        .clipped()
         // Error banner at bottom
         .overlay(alignment: .bottom) {
             if let error = store.state.error {
@@ -175,11 +184,6 @@ struct BoardView<TerminalContent: View>: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                 }
-            }
-        }
-
-            if let card = selectedCard {
-                notePadView(for: card)
             }
         }
     }
