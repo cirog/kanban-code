@@ -56,17 +56,7 @@ struct CardView: View {
                     .lineLimit(2)
                     .foregroundStyle(.primary)
 
-                // Project + branch + link icons
-                HStack(spacing: 4) {
-                    if let projectName = card.projectName {
-                        Label(projectName, systemImage: "folder")
-                            .font(.app(.caption))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .lineLimit(1)
-
-                // Bottom row: badge + time + link indicators
+                // Bottom row: activity icon + todoist + relative time
                 HStack(spacing: 6) {
                     if card.link.cardLabel == .session {
                         AssistantIcon(assistant: card.link.effectiveAssistant)
@@ -87,8 +77,6 @@ struct CardView: View {
                         .foregroundStyle(.tertiary)
 
                     Spacer()
-
-                    CardBadgesRow(card: card)
                 }
             }
             .padding(10)
