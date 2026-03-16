@@ -3,6 +3,7 @@ import SwiftUI
 struct ReplyInputBar: View {
     @State private var inputText = ""
     @State private var sentFlash = false
+    @FocusState private var isInputFocused: Bool
     var isWorking: Bool = false
     var onSend: (String) -> Void = { _ in }
 
@@ -39,6 +40,7 @@ struct ReplyInputBar: View {
                         .padding(.vertical, 4)
                         .frame(minHeight: 60, maxHeight: 120)
                         .fixedSize(horizontal: false, vertical: true)
+                        .focused($isInputFocused)
                         .onKeyPress(.return, phases: .down) { keyPress in
                             if keyPress.modifiers.contains(.shift) {
                                 return .ignored
@@ -68,6 +70,7 @@ struct ReplyInputBar: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
+        .onAppear { isInputFocused = true }
     }
 
     private func send() {

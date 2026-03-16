@@ -4,6 +4,7 @@ import ClaudeBoardCore
 
 struct ReplyTabView: NSViewRepresentable {
     let sessionPath: String?
+    var refreshTrigger: Int = 0
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -17,8 +18,12 @@ struct ReplyTabView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let coord = context.coordinator
-        // Only reload if the session path changed
-        guard sessionPath != coord.lastLoadedPath else { return }
+        // Reload if session path changed OR refresh was triggered (new transcript data)
+        let needsReload = sessionPath != coord.lastLoadedPath || refreshTrigger != coord.lastRefreshTrigger
+        guard needsReload else { return }
+        coord.lastRefreshTrigger = refreshTrigger
+        // Reset turn index so the reload actually fetches new content
+        coord.lastRenderedTurnIndex = -1
         loadReply(into: webView, coordinator: coord)
     }
 
@@ -85,6 +90,8 @@ struct ReplyTabView: NSViewRepresentable {
         var lastLoadedPath: String?
         /// Last turn index that was rendered — prevents re-parsing same content.
         var lastRenderedTurnIndex: Int = -1
+        /// Last refresh trigger value — detects when parent requests a reload.
+        var lastRefreshTrigger: Int = 0
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             if navigationAction.navigationType == .other { return .allow }
