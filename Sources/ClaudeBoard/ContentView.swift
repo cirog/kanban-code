@@ -341,6 +341,12 @@ struct ContentView: View {
                 onUpdatePrompt: { body, imagePaths in
                     store.dispatch(.updatePrompt(cardId: card.id, body: body, imagePaths: imagePaths))
                 },
+                onSendReplyText: { text in
+                    guard let tmuxName = card.link.tmuxLink?.sessionName else { return }
+                    Task {
+                        try? await tmuxAdapter.sendPrompt(to: tmuxName, text: text)
+                    }
+                },
                 availableProjects: projectList,
                 onMoveToProject: { projectPath in
                     let name = projectList.first(where: { $0.path == projectPath })?.name ?? (projectPath as NSString).lastPathComponent
