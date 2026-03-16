@@ -95,7 +95,7 @@ struct CardView: View {
                         .padding(.horizontal, 9)
                         .padding(.vertical, 6)
                         .background(Color.green.opacity(0.08), in: Capsule())
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(Color.draculaCurrentLine, in: Capsule())
                         .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
                 }
                 .buttonStyle(.borderless)
@@ -109,7 +109,7 @@ struct CardView: View {
                         .padding(.horizontal, 9)
                         .padding(.vertical, 6)
                         .background(Color.secondary.opacity(0.08), in: Capsule())
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(Color.draculaCurrentLine, in: Capsule())
                         .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
                 }
                 .buttonStyle(.borderless)
@@ -118,7 +118,7 @@ struct CardView: View {
             }
         }
         .background(
-            isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04),
+            isSelected ? Color.draculaCurrentLine : Color.draculaSurface,
             in: RoundedRectangle(cornerRadius: 8)
         )
         .contentShape(Rectangle())

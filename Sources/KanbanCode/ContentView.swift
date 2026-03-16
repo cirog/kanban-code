@@ -44,8 +44,7 @@ struct ContentView: View {
     @AppStorage("showBoardInExpanded") private var showBoardInExpanded = false
     @State private var showNewTask = false
     @State private var showOnboarding = false
-    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .auto
-    @AppStorage("boardViewMode") private var boardViewModeRaw = BoardViewMode.kanban.rawValue
+@AppStorage("boardViewMode") private var boardViewModeRaw = BoardViewMode.kanban.rawValue
     @State private var showDonePopover = false
     @State private var showProcessManager = false
     @State private var showQuitConfirmation = false
@@ -932,14 +931,6 @@ struct ContentView: View {
                     }
                     .disabled(store.state.isLoading)
                     .help("Refresh sessions")
-
-                    Button {
-                        appearanceMode = appearanceMode.next
-                        applyAppearance()
-                    } label: {
-                        Image(systemName: appearanceMode.icon)
-                    }
-                    .help(appearanceMode.helpText)
                 }
 
                 ToolbarItem(placement: .navigation) {
@@ -1963,11 +1954,7 @@ struct ContentView: View {
     }
 
     private func applyAppearance() {
-        switch appearanceMode {
-        case .auto: NSApp.appearance = nil
-        case .light: NSApp.appearance = NSAppearance(named: .aqua)
-        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
-        }
+        NSApp.appearance = NSAppearance(named: .darkAqua)
     }
 
     private func presentNewTask() {
