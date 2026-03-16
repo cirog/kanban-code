@@ -316,6 +316,17 @@ struct TranscriptReaderTests {
         #expect(turns[1].textPreview == "Next prompt")
     }
 
+    @Test("Slash command includes args in text preview")
+    func slashCommandIncludesArgs() {
+        let obj: [String: Any] = [
+            "type": "user",
+            "message": ["content": "<command-name>/brainstorming</command-name><command-args>plan a widget</command-args>"]
+        ]
+        let blocks = TranscriptReader.extractUserBlocks(from: obj)
+        #expect(blocks.count == 1)
+        #expect(blocks[0].text == "/brainstorming plan a widget")
+    }
+
     @Test("Shows command stdout as assistant-style turn in history")
     func showsStdoutAsAssistant() async throws {
         let dir = try makeTempDir()

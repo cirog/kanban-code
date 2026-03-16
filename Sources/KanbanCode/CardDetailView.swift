@@ -118,6 +118,11 @@ struct CardDetailView: View {
     // Edit prompt
     @State private var showEditPromptSheet = false
 
+    // Prompt timeline
+    @State private var promptTurns: [ConversationTurn] = []
+    @State private var isLoadingPrompts = false
+    @State private var promptsCardId: String?
+
     // Summary tab
     @State private var summaryText: String?
     @State private var isLoadingSummary = false
@@ -880,64 +885,151 @@ struct CardDetailView: View {
 
     @ViewBuilder
     private var promptTabView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Prompt")
-                        .font(.app(.subheadline, weight: .bold))
+        promptTimelineView
+    }
+
+    @ViewBuilder
+    private var promptTimelineView: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                if !promptTurns.isEmpty {
+                    Text("\(promptTurns.count) prompts")
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
-
-                    Spacer()
-
+                }
+                Spacer()
+                if !promptTurns.isEmpty {
                     Button {
-                        if let body = card.link.promptBody {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(body, forType: .string)
-                            showCopyToast("Copied prompt")
-                        }
+                        let text = promptTurns.map { turn in
+                            let ts = turn.timestamp ?? ""
+                            return "[\(ts)] \(turn.textPreview)"
+                        }.joined(separator: "\n\n")
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
                     } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.app(.caption))
+                        Label("Copy All", systemImage: "doc.on.doc")
                     }
-                    .buttonStyle(.borderless)
-                    .help("Copy prompt")
-
-                    Button { showEditPromptSheet = true } label: {
-                        Image(systemName: "pencil")
-                            .font(.app(.caption))
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Edit prompt")
+                    .buttonStyle(.plain)
+                    .font(.app(.caption))
+                    .foregroundStyle(.secondary)
                 }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
 
-                if let body = card.link.promptBody {
-                    Text(body)
-                        .font(.sessionDetail())
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            Divider()
 
-                // Attached images
-                if let imagePaths = card.link.promptImagePaths, !imagePaths.isEmpty {
-                    Text("Images")
-                        .font(.app(.subheadline, weight: .bold))
+            if isLoadingPrompts {
+                VStack {
+                    ProgressView()
+                    Text("Loading prompts...")
+                        .font(.app(.caption))
                         .foregroundStyle(.secondary)
-                        .padding(.top, 4)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if promptTurns.isEmpty {
+                Text("No prompts found")
+                    .font(.app(.body))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        // Original prompt (from card.link.promptBody) if present
+                        if let original = card.link.promptBody, !original.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Original Prompt")
+                                    .font(.app(.caption, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                Text(original)
+                                    .font(.app(.body))
+                                    .textSelection(.enabled)
+                                    .lineLimit(5)
+                            }
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
 
-                    ForEach(imagePaths, id: \.self) { path in
-                        if let nsImage = NSImage(contentsOfFile: path) {
-                            Image(nsImage: nsImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxWidth: 400, maxHeight: 300)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                            Divider()
+                        }
+
+                        // Chronological prompts
+                        ForEach(Array(promptTurns.enumerated()), id: \.offset) { _, turn in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(formatPromptTimestamp(turn.timestamp))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 80, alignment: .trailing)
+
+                                Text(turn.textPreview)
+                                    .font(.app(.body))
+                                    .textSelection(.enabled)
+                                    .lineLimit(3)
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 6)
+
+                            if turn.index != promptTurns.last?.index {
+                                Divider().padding(.leading, 96)
+                            }
                         }
                     }
                 }
             }
-            .padding(16)
         }
+        .task(id: card.id) {
+            await loadPrompts()
+        }
+    }
+
+    private func loadPrompts() async {
+        guard let sessionPath = card.link.sessionLink?.sessionPath else {
+            promptTurns = []
+            return
+        }
+        guard promptsCardId != card.id else { return } // already loaded
+        isLoadingPrompts = true
+        promptsCardId = card.id
+
+        let allTurns = await {
+            var turns: [ConversationTurn] = []
+            for await turn in TranscriptReader.streamAllTurns(from: sessionPath) {
+                turns.append(turn)
+            }
+            return turns
+        }()
+
+        let userPrompts = allTurns.filter { turn in
+            turn.role == "user" && !turn.textPreview.hasPrefix("[tool result")
+        }
+
+        promptTurns = userPrompts
+        isLoadingPrompts = false
+    }
+
+    private func formatPromptTimestamp(_ timestamp: String?) -> String {
+        guard let timestamp, !timestamp.isEmpty else { return "" }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = iso.date(from: timestamp) else {
+            // Try without fractional seconds
+            iso.formatOptions = [.withInternetDateTime]
+            guard let date = iso.date(from: timestamp) else { return "" }
+            return formatDate(date)
+        }
+        return formatDate(date)
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        if Calendar.current.isDateInToday(date) {
+            formatter.dateFormat = "HH:mm"
+        } else {
+            formatter.dateFormat = "MMM dd, HH:mm"
+        }
+        return formatter.string(from: date)
     }
 
     // MARK: - Summary Tab
@@ -1176,7 +1268,9 @@ struct CardDetailView: View {
             Picker("", selection: $selectedTab) {
                 Text("Terminal").tag(DetailTab.terminal)
                 Text("History").tag(DetailTab.history)
-                if card.link.promptBody != nil { Text("Prompt").tag(DetailTab.prompt) }
+                if card.link.promptBody != nil || card.link.sessionLink != nil {
+                    Text("Prompts").tag(DetailTab.prompt)
+                }
                 if card.link.todoistDescription != nil { Text("Description").tag(DetailTab.description) }
                 if card.link.sessionLink != nil { Text("Summary").tag(DetailTab.summary) }
             }

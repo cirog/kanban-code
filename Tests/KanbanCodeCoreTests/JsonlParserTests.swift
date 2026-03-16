@@ -176,6 +176,20 @@ struct JsonlParserTests {
         #expect(stdout == "hello world")
     }
 
+    @Test("parseLocalCommandArgs extracts args")
+    func parseCommandArgs() {
+        let text = "<command-name>/brainstorming</command-name><command-args>build a feature</command-args>"
+        let args = JsonlParser.parseLocalCommandArgs(text)
+        #expect(args == "build a feature")
+    }
+
+    @Test("parseLocalCommandArgs returns nil when no args")
+    func parseCommandArgsNone() {
+        let text = "<command-name>/clear</command-name>"
+        let args = JsonlParser.parseLocalCommandArgs(text)
+        #expect(args == nil)
+    }
+
     @Test("isCaveatMessage detects isMeta flag")
     func caveatDetection() {
         let caveat: [String: Any] = ["type": "user", "isMeta": true, "message": ["content": "test"]]

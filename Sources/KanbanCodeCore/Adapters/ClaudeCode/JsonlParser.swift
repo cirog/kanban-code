@@ -340,6 +340,14 @@ public enum JsonlParser {
         return command.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Extract args from `<command-args>text</command-args>`.
+    public static func parseLocalCommandArgs(_ text: String) -> String? {
+        let regex = try! Regex("<command-args>([\\s\\S]*?)</command-args>")
+        guard let match = text.firstMatch(of: regex) else { return nil }
+        let args = String(match.output[1].substring!)
+        return args.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Extract output text from `<local-command-stdout>text</local-command-stdout>`.
     public static func parseLocalCommandStdout(_ text: String) -> String? {
         let regex = try! Regex("<local-command-stdout>([\\s\\S]*?)</local-command-stdout>")

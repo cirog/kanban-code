@@ -291,6 +291,9 @@ public enum TranscriptReader {
         if let text = JsonlParser.extractTextContent(from: obj) {
             // Show slash commands cleanly (e.g. "/clear")
             if let command = JsonlParser.parseLocalCommand(text) {
+                if let args = JsonlParser.parseLocalCommandArgs(text), !args.isEmpty {
+                    return [ContentBlock(kind: .text, text: "\(command) \(args)")]
+                }
                 return [ContentBlock(kind: .text, text: command)]
             }
             // Show command stdout as plain text
