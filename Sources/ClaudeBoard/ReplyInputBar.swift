@@ -1,10 +1,12 @@
 import SwiftUI
+import AppKit
 
 struct ReplyInputBar: View {
     @State private var inputText = ""
     @State private var sentFlash = false
     @FocusState private var isInputFocused: Bool
     var isWorking: Bool = false
+    var grabFocus: Bool = false
     var onSend: (String) -> Void = { _ in }
 
     var body: some View {
@@ -70,7 +72,23 @@ struct ReplyInputBar: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-        .onAppear { isInputFocused = true }
+        .onAppear { requestFocus() }
+        .onChange(of: grabFocus) {
+            if grabFocus { requestFocus() }
+        }
+    }
+
+    private func requestFocus() {
+        // Use both FocusState and direct NSApp responder to ensure focus
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            isInputFocused = true
+            // Also try to find the NSTextView backing the TextEditor and make it first responder
+            if let window = NSApp.mainWindow {
+                if let textView = window.contentView?.findFirstResponderCandidate(ofType: NSTextView.self) {
+                    window.makeFirstResponder(textView)
+                }
+            }
+        }
     }
 
     private func send() {
@@ -82,5 +100,19 @@ struct ReplyInputBar: View {
         withAnimation(.easeOut(duration: 1.0)) {
             sentFlash = false
         }
+    }
+}
+
+// MARK: - NSView helper for finding subviews by type
+
+private extension NSView {
+    func findFirstResponderCandidate<T: NSView>(ofType type: T.Type) -> T? {
+        if let match = self as? T { return match }
+        for subview in subviews {
+            if let found = subview.findFirstResponderCandidate(ofType: type) {
+                return found
+            }
+        }
+        return nil
     }
 }

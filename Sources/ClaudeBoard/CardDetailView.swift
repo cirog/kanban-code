@@ -207,9 +207,11 @@ struct CardDetailView: View {
                     )
                     if card.link.tmuxLink != nil {
                         Divider()
-                        ReplyInputBar(isWorking: card.column == .inProgress, onSend: { text in
-                            onSendReplyText(text)
-                        })
+                        ReplyInputBar(
+                            isWorking: card.column == .inProgress,
+                            grabFocus: selectedTab == .reply,
+                            onSend: { text in onSendReplyText(text) }
+                        )
                     }
                 }
             case .history:
