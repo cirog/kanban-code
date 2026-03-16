@@ -303,7 +303,7 @@ struct ContentView: View {
             onColumnBackgroundClick: { column in
                 handleColumnBackgroundClick(column)
             },
-            terminalContent: AnyView(terminalPanelContent),
+            terminalContent: terminalPanelContent,
             onQuickLaunch: { prompt in
                 let link = Link(name: String(prompt.prefix(80)), column: .backlog, source: .manual, promptBody: prompt)
                 store.dispatch(.createManualTask(link))

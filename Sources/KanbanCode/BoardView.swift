@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import KanbanCodeCore
 
-struct BoardView: View {
+struct BoardView<TerminalContent: View>: View {
     var store: BoardStore
     @State private var dragState = DragState()
     var onStartCard: (String) -> Void = { _ in }
@@ -27,7 +27,7 @@ struct BoardView: View {
     var onNewTask: () -> Void = {}
     var onCardClicked: (String) -> Void = { _ in }
     var onColumnBackgroundClick: (KanbanCodeColumn) -> Void = { _ in }
-    var terminalContent: AnyView? = nil
+    var terminalContent: TerminalContent?
     @State private var quickLaunchText: String = ""
     var onQuickLaunch: (String) -> Void = { _ in }
 
