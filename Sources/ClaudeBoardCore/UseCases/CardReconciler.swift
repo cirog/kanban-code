@@ -171,10 +171,12 @@ public enum CardReconciler {
         }
 
         // 2. Match by project path + tmux (card has tmuxLink, same project, no sessionLink yet)
+        //    Skip cards mid-launch — the launch flow will set sessionLink via launchCompleted
         if let projectPath = session.projectPath {
             for (_, link) in linksById {
                 if link.tmuxLink != nil,
                    link.sessionLink == nil,
+                   link.isLaunching != true,
                    link.projectPath == projectPath {
                     ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by projectPath+tmux → card=\(link.id.prefix(12)) (tmux=\(link.tmuxLink?.sessionName ?? "?"))")
                     return link.id
@@ -183,9 +185,11 @@ public enum CardReconciler {
         }
 
         // 3. Match by promptBody (manual card with same prompt, no sessionLink yet)
+        //    Skip cards mid-launch — same reason as above
         if let firstPrompt = session.firstPrompt, !firstPrompt.isEmpty {
             for (_, link) in linksById {
                 if link.sessionLink == nil,
+                   link.isLaunching != true,
                    link.source == .manual,
                    let prompt = link.promptBody,
                    prompt == firstPrompt {

@@ -714,9 +714,9 @@ public enum Reducer {
 
         case .launchTmuxReady(let cardId):
             guard var link = state.links[cardId] else { return [] }
-            // Clear isLaunching so the UI shows the terminal immediately.
-            // tmuxLink was already set by launchCard — we just flip the flag.
-            link.isLaunching = nil
+            // Keep isLaunching=true — prevents reconciler from creating duplicates
+            // before launchCompleted sets the sessionLink. The UI can show the
+            // terminal via tmuxLink even with isLaunching still set.
             link.lastActivity = .now
             link.updatedAt = .now
             state.links[cardId] = link

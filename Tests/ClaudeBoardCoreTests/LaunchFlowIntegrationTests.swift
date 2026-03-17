@@ -158,9 +158,9 @@ struct LaunchFlowIntegrationTests {
             commandOverride: "echo 'running'", skipPermissions: false
         )
 
-        // Step 3: launchTmuxReady — clears isLaunching, shows terminal
+        // Step 3: launchTmuxReady — keeps isLaunching, shows terminal
         let _ = Reducer.reduce(state: &state, action: .launchTmuxReady(cardId: "card_lifecycle"))
-        #expect(state.links["card_lifecycle"]?.isLaunching == nil)
+        #expect(state.links["card_lifecycle"]?.isLaunching == true)
         #expect(state.links["card_lifecycle"]?.column == .inProgress)
         #expect(state.links["card_lifecycle"]?.lastActivity != nil)
 
@@ -178,8 +178,8 @@ struct LaunchFlowIntegrationTests {
         #expect(state.links["card_lifecycle"]?.isLaunching == nil)
     }
 
-    @Test("launchTmuxReady clears isLaunching immediately — terminal shows without waiting for session detection")
-    func launchTmuxReadyClearsLaunchingImmediately() {
+    @Test("launchTmuxReady keeps isLaunching true — only launchCompleted clears it")
+    func launchTmuxReadyKeepsIsLaunching() {
         let card = makeLink(
             id: "card_ready",
             column: .inProgress,
@@ -190,7 +190,8 @@ struct LaunchFlowIntegrationTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchTmuxReady(cardId: "card_ready"))
 
-        #expect(state.links["card_ready"]?.isLaunching == nil)
+        // isLaunching stays true — prevents reconciler from creating duplicates
+        #expect(state.links["card_ready"]?.isLaunching == true)
         #expect(state.links["card_ready"]?.column == .inProgress)
         #expect(state.links["card_ready"]?.tmuxLink?.sessionName == "project-card_ready")
         #expect(state.links["card_ready"]?.lastActivity != nil)
@@ -309,6 +310,50 @@ struct LaunchFlowIntegrationTests {
         #expect(state.links["card_recon"]?.tmuxLink?.sessionName == "proj-card_recon")
     }
 
+    @Test("Reconciler skips isLaunching cards — no duplicate on launch")
+    func reconcilerSkipsLaunchingCards() {
+        // Card is mid-launch: has tmuxLink, isLaunching=true, no sessionLink yet
+        var card = makeLink(
+            id: "card_launching",
+            column: .inProgress,
+            projectPath: "/test/project",
+            tmuxLink: TmuxLink(sessionName: "project-card_launching"),
+            isLaunching: true,
+            source: .manual
+        )
+        card.promptBody = "investigate the bug"
+
+        // Discovered session from the same project with same prompt
+        let discoveredSession = Session(
+            id: "sess_new",
+            firstPrompt: "investigate the bug",
+            projectPath: "/test/project",
+            jsonlPath: "/test/project/.claude/sessions/sess_new.jsonl"
+        )
+
+        let result = CardReconciler.reconcile(
+            existing: [card],
+            snapshot: CardReconciler.DiscoverySnapshot(
+                sessions: [discoveredSession],
+                tmuxSessions: [TmuxSession(name: "project-card_launching", path: "/test/project")],
+                didScanTmux: true
+            )
+        )
+
+        // Should NOT create a duplicate — should create a new discovered card
+        // because the launching card should be skipped during matching
+        let launchingCard = result.first { $0.id == "card_launching" }
+        #expect(launchingCard != nil)
+        #expect(launchingCard?.sessionLink == nil) // launch flow will set this
+
+        // The session should create a new discovered card (will be deduped later by launchCompleted)
+        // OR be left unmatched — either way, the launching card should NOT get the sessionLink
+        // from reconciliation
+        let totalCards = result.count
+        // We expect 2 cards: the original launching card + a new discovered one
+        #expect(totalCards == 2, "Should have original + discovered, not merged")
+    }
+
     // MARK: - Resume flow with real tmux
 
     @Test("Resume creates tmux session with correct naming convention")
@@ -388,8 +433,14 @@ struct LaunchFlowIntegrationTests {
         // Step 2: Actually create tmux session
         try await tmux.createSession(name: sessionName, path: "/tmp", command: "echo 'e2e'")
 
-        // Step 3: launchTmuxReady
+        // Step 3: launchTmuxReady (isLaunching stays true until launchCompleted)
         let _ = Reducer.reduce(state: &state, action: .launchTmuxReady(cardId: "card_e2e"))
+        #expect(state.links["card_e2e"]?.isLaunching == true)
+
+        // Step 3b: launchCompleted clears isLaunching
+        let _ = Reducer.reduce(state: &state, action: .launchCompleted(
+            cardId: "card_e2e", tmuxName: sessionName, sessionLink: nil
+        ))
         #expect(state.links["card_e2e"]?.isLaunching == nil)
 
         // Step 4: Reconcile with live tmux

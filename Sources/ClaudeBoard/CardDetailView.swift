@@ -477,7 +477,8 @@ struct CardDetailView: View {
     @ViewBuilder
     private var terminalView: some View {
         if showTabBar {
-            let isLaunching = card.link.isLaunching == true && !isLaunchStale
+            // Show launch overlay only if tmux isn't ready yet (no tmuxLink or tmux not alive)
+            let isLaunching = card.link.isLaunching == true && !isLaunchStale && effectiveActiveSession == nil
             let showOverlay = isClaudeTabSelected && effectiveActiveSession == nil
 
             VStack(spacing: 0) {
