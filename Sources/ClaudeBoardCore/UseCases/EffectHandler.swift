@@ -113,6 +113,7 @@ public actor EffectHandler {
                 ClaudeBoardLog.info("todoist", "Completed task \(todoistId)")
             } catch {
                 ClaudeBoardLog.warn("todoist", "Failed to complete task \(todoistId): \(error)")
+                await dispatch(.setError("Todoist: failed to complete task \(todoistId): \(error.localizedDescription)"))
             }
         }
     }
