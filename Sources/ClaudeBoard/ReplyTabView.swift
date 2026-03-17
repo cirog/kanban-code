@@ -75,6 +75,7 @@ struct ReplyTabView: NSViewRepresentable {
                     <script>\(Self.markedJs)</script>
                     <script>
                         document.getElementById('content').innerHTML = marked.parse(`\(escapedMd)`);
+                        window.scrollTo(0, document.body.scrollHeight);
                     </script>
                     """)
 

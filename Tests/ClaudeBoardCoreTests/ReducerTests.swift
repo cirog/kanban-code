@@ -1116,6 +1116,46 @@ struct ReducerTests {
         #expect(link.todoistProjectId == "proj_xyz")
     }
 
+    // MARK: - Backlog Auto-Promotion
+
+    @Test("activityChanged clears manual backlog override when activelyWorking")
+    func activityChangedClearsBacklogOverride() {
+        var link = Link(
+            id: "card_backlog_active",
+            name: "Backlog task",
+            column: .backlog,
+            source: .manual,
+            sessionLink: SessionLink(sessionId: "sess_backlog", sessionPath: "/tmp/test.jsonl")
+        )
+        link.manualOverrides = ManualOverrides(column: true)
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .activityChanged(["sess_backlog": .activelyWorking]))
+
+        let updated = state.links["card_backlog_active"]!
+        #expect(updated.column == .inProgress)
+        #expect(updated.manualOverrides.column == false)
+    }
+
+    @Test("activityChanged keeps manual backlog override when not activelyWorking")
+    func activityChangedKeepsBacklogOverrideWhenNotActive() {
+        var link = Link(
+            id: "card_backlog_idle",
+            name: "Backlog task",
+            column: .backlog,
+            source: .manual,
+            sessionLink: SessionLink(sessionId: "sess_idle", sessionPath: "/tmp/test.jsonl")
+        )
+        link.manualOverrides = ManualOverrides(column: true)
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .activityChanged(["sess_idle": .needsAttention]))
+
+        let updated = state.links["card_backlog_idle"]!
+        #expect(updated.column == .backlog)
+        #expect(updated.manualOverrides.column == true)
+    }
+
     // MARK: - Consolidated Archive Behavior
 
     @Test("moveCard to done kills tmux sessions")

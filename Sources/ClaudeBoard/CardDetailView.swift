@@ -1014,52 +1014,69 @@ struct CardDetailView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        // Original prompt (from card.link.promptBody) if present
-                        if let original = card.link.promptBody, !original.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Original Prompt")
-                                    .font(.app(.caption, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                Text(original)
-                                    .font(.app(.body))
-                                    .textSelection(.enabled)
-                                    .lineLimit(5)
-                            }
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.draculaCurrentLine)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            // Original prompt (from card.link.promptBody) if present
+                            if let original = card.link.promptBody, !original.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Original Prompt")
+                                        .font(.app(.caption, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                    Text(original)
+                                        .font(.app(.body))
+                                        .textSelection(.enabled)
+                                        .lineLimit(5)
+                                }
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.draculaCurrentLine)
 
-                            Divider()
+                                Divider()
+                            }
+
+                            // Chronological prompts
+                            ForEach(Array(promptTurns.enumerated()), id: \.offset) { _, turn in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text(formatPromptTimestamp(turn.timestamp))
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.tertiary)
+                                        .frame(width: 80, alignment: .trailing)
+
+                                    Text(turn.textPreview)
+                                        .font(.app(.body))
+                                        .textSelection(.enabled)
+                                        .lineLimit(3)
+                                }
+                                .padding(.horizontal)
+                                .padding(.vertical, 6)
+
+                                if turn.index != promptTurns.last?.index {
+                                    Divider().padding(.leading, 96)
+                                }
+                            }
+
+                            Color.clear.frame(height: 1).id("prompts-bottom")
                         }
-
-                        // Chronological prompts
-                        ForEach(Array(promptTurns.enumerated()), id: \.offset) { _, turn in
-                            HStack(alignment: .top, spacing: 8) {
-                                Text(formatPromptTimestamp(turn.timestamp))
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.tertiary)
-                                    .frame(width: 80, alignment: .trailing)
-
-                                Text(turn.textPreview)
-                                    .font(.app(.body))
-                                    .textSelection(.enabled)
-                                    .lineLimit(3)
-                            }
-                            .padding(.horizontal)
-                            .padding(.vertical, 6)
-
-                            if turn.index != promptTurns.last?.index {
-                                Divider().padding(.leading, 96)
-                            }
-                        }
+                    }
+                    .onAppear {
+                        scrollPromptsToBottom(proxy: proxy)
+                    }
+                    .onChange(of: promptTurns.count) {
+                        scrollPromptsToBottom(proxy: proxy)
                     }
                 }
             }
         }
         .task(id: card.id) {
             await loadPrompts()
+        }
+    }
+
+    private func scrollPromptsToBottom(proxy: ScrollViewProxy) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            proxy.scrollTo("prompts-bottom", anchor: .bottom)
         }
     }
 

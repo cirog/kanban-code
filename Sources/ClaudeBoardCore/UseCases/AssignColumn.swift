@@ -9,15 +9,16 @@ public enum AssignColumn {
         link: Link,
         activityState: ActivityState? = nil
     ) -> ClaudeBoardColumn {
-        // Manual backlog override is sticky — user explicitly parked this card.
-        // Only resumeCard/launchCard (which clear manualOverrides.column) can move it out.
-        if link.manualOverrides.column && link.column == .backlog {
-            return .backlog
-        }
-
-        // Actively working always shows in progress — even if manually archived.
+        // Actively working always shows in progress — even if manually in backlog or archived.
         if activityState == .activelyWorking {
             return .inProgress
+        }
+
+        // Manual backlog override is sticky — user explicitly parked this card.
+        // Only resumeCard/launchCard (which clear manualOverrides.column) or
+        // activelyWorking (checked above) can move it out.
+        if link.manualOverrides.column && link.column == .backlog {
+            return .backlog
         }
 
         // Archive wins over everything else
