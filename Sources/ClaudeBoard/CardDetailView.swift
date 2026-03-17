@@ -13,7 +13,7 @@ enum DetailTab: String {
 
     static func initialTab(for card: ClaudeBoardCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
-        if card.link.sessionLink != nil { return .history }
+        if card.link.sessionLink != nil { return .reply }
         if card.link.todoistId != nil { return .description }
         if card.link.promptBody != nil { return .prompt }
         return .history
