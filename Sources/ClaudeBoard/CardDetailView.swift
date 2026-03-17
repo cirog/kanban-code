@@ -1144,21 +1144,7 @@ struct CardDetailView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let summary = summaryText, summaryCardId == card.id {
-                ScrollView {
-                    if let attributed = try? AttributedString(markdown: summary) {
-                        Text(attributed)
-                            .font(.app(.body))
-                            .textSelection(.enabled)
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text(summary)
-                            .font(.app(.body))
-                            .textSelection(.enabled)
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
+                MarkdownWebView(markdown: summary)
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "sparkles")
