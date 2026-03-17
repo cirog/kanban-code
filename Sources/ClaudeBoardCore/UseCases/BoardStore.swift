@@ -349,7 +349,12 @@ public enum Reducer {
             }
             link.updatedAt = .now
             state.links[cardId] = link
-            return [.upsertLink(link)]
+            var effects: [Effect] = [.upsertLink(link)]
+            // Complete the Todoist task when moving to Done
+            if column == .done, let todoistId = link.todoistId {
+                effects.append(.completeTodoistTask(todoistId: todoistId))
+            }
+            return effects
 
         case .reorderCard(let cardId, let targetCardId, let above):
             guard let link = state.links[cardId] else { return [] }
