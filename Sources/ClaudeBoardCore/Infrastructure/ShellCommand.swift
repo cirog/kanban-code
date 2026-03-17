@@ -53,7 +53,8 @@ public enum ShellCommand {
         stdin: String? = nil
     ) async throws -> Result {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
+        let resolvedPath = executable.contains("/") ? executable : (findExecutable(executable) ?? executable)
+        process.executableURL = URL(fileURLWithPath: resolvedPath)
         process.arguments = arguments
         process.environment = userEnvironment
 
