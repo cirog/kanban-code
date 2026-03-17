@@ -109,7 +109,7 @@ public actor EffectHandler {
 
         case .completeTodoistTask(let todoistId):
             do {
-                let _ = try await ShellCommand.run("todoist", arguments: ["task", "complete", "--ids", todoistId])
+                try await TodoistAdapter.completeTask(id: todoistId)
                 ClaudeBoardLog.info("todoist", "Completed task \(todoistId)")
             } catch {
                 ClaudeBoardLog.warn("todoist", "Failed to complete task \(todoistId): \(error)")

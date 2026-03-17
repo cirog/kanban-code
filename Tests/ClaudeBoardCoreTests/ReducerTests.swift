@@ -1116,6 +1116,101 @@ struct ReducerTests {
         #expect(link.todoistProjectId == "proj_xyz")
     }
 
+    // MARK: - Consolidated Archive Behavior
+
+    @Test("moveCard to done kills tmux sessions")
+    func moveCardToDoneKillsTmux() {
+        let tmux = TmuxLink(sessionName: "ciro-test_sess")
+        var link = Link(id: "card_tmux_done", name: "Has tmux", column: .inProgress, source: .manual)
+        link.tmuxLink = tmux
+        var state = stateWith([link])
+
+        let effects = Reducer.reduce(state: &state, action: .moveCard(cardId: "card_tmux_done", to: .done))
+
+        #expect(state.links["card_tmux_done"]?.column == .done)
+        #expect(state.links["card_tmux_done"]?.tmuxLink == nil)
+        #expect(state.links["card_tmux_done"]?.manuallyArchived == true)
+        #expect(effects.contains(where: {
+            if case .killTmuxSessions = $0 { return true }
+            return false
+        }))
+        #expect(effects.contains(where: {
+            if case .cleanupTerminalCache = $0 { return true }
+            return false
+        }))
+    }
+
+    @Test("moveCard to done completes todoist task")
+    func moveCardToDoneCompletesTodoist() {
+        let link = Link(
+            id: "card_move_todoist",
+            name: "Todoist task",
+            column: .inProgress,
+            source: .todoist,
+            todoistId: "todoist_move"
+        )
+        var state = stateWith([link])
+
+        let effects = Reducer.reduce(state: &state, action: .moveCard(cardId: "card_move_todoist", to: .done))
+
+        #expect(effects.contains(where: {
+            if case .completeTodoistTask(todoistId: "todoist_move") = $0 { return true }
+            return false
+        }))
+    }
+
+    @Test("archiveCard and moveCard to done produce same side effects")
+    func archiveAndMoveProduceSameEffects() {
+        // Setup two identical cards with tmux + todoist
+        let tmux = TmuxLink(sessionName: "ciro-same_test")
+        var link1 = Link(id: "card_archive", name: "Task", column: .inProgress, source: .todoist, todoistId: "tid_same")
+        link1.tmuxLink = tmux
+        var link2 = Link(id: "card_move", name: "Task", column: .inProgress, source: .todoist, todoistId: "tid_same2")
+        link2.tmuxLink = TmuxLink(sessionName: "ciro-same_test2")
+
+        var state1 = stateWith([link1])
+        var state2 = stateWith([link2])
+
+        let archiveEffects = Reducer.reduce(state: &state1, action: .archiveCard(cardId: "card_archive"))
+        let moveEffects = Reducer.reduce(state: &state2, action: .moveCard(cardId: "card_move", to: .done))
+
+        // Both should produce the same types of effects
+        func effectTypes(_ effects: [Effect]) -> Set<String> {
+            Set(effects.map { "\(type(of: $0)):\(String(describing: $0).components(separatedBy: "(").first ?? "")" })
+        }
+
+        // Both should: upsertLink, killTmuxSessions, cleanupTerminalCache, completeTodoistTask
+        #expect(state1.links["card_archive"]?.column == .done)
+        #expect(state2.links["card_move"]?.column == .done)
+        #expect(state1.links["card_archive"]?.tmuxLink == nil)
+        #expect(state2.links["card_move"]?.tmuxLink == nil)
+        #expect(state1.links["card_archive"]?.manuallyArchived == true)
+        #expect(state2.links["card_move"]?.manuallyArchived == true)
+
+        // Same effect count (upsert + kill + cleanup + todoist complete)
+        #expect(archiveEffects.count == moveEffects.count)
+    }
+
+    @Test("moveCard to non-done column does not kill tmux or complete todoist")
+    func moveCardToNonDoneNoSideEffects() {
+        let tmux = TmuxLink(sessionName: "ciro-keep_tmux")
+        var link = Link(id: "card_keep", name: "Keep", column: .inProgress, source: .todoist, todoistId: "tid_keep")
+        link.tmuxLink = tmux
+        var state = stateWith([link])
+
+        let effects = Reducer.reduce(state: &state, action: .moveCard(cardId: "card_keep", to: .waiting))
+
+        #expect(state.links["card_keep"]?.tmuxLink != nil)
+        #expect(!effects.contains(where: {
+            if case .killTmuxSessions = $0 { return true }
+            return false
+        }))
+        #expect(!effects.contains(where: {
+            if case .completeTodoistTask = $0 { return true }
+            return false
+        }))
+    }
+
     @Test("assignColumn keeps todoist card with no session in backlog")
     func assignColumnPreservesTodoist() {
         let link = Link(

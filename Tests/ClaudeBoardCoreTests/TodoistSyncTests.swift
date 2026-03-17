@@ -7,7 +7,7 @@ struct TodoistSyncTests {
         let json = """
         [{"id":"123","content":"Fix bug","description":"Some details","labels":["claude"],"priority":1}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks.count == 1)
         #expect(tasks[0].id == "123")
         #expect(tasks[0].content == "Fix bug")
@@ -16,7 +16,7 @@ struct TodoistSyncTests {
 
     @Test("Parse empty array")
     func parseEmpty() throws {
-        let tasks = try TodoistSyncService.parseTasks(from: "[]")
+        let tasks = try TodoistAdapter.parseTasks(from: "[]")
         #expect(tasks.isEmpty)
     }
 
@@ -25,7 +25,7 @@ struct TodoistSyncTests {
         let json = """
         [{"id":"1","content":"Task A"},{"id":"2","content":"Task B","description":"Details B"}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks.count == 2)
         #expect(tasks[1].description == "Details B")
     }
@@ -35,14 +35,14 @@ struct TodoistSyncTests {
         let json = """
         [{"content":"No ID task"},{"id":"1","content":"Valid"}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks.count == 1)
         #expect(tasks[0].id == "1")
     }
 
     @Test("Parse handles non-array JSON gracefully")
     func parseNonArray() throws {
-        let tasks = try TodoistSyncService.parseTasks(from: "{\"key\":\"value\"}")
+        let tasks = try TodoistAdapter.parseTasks(from: "{\"key\":\"value\"}")
         #expect(tasks.isEmpty)
     }
 
@@ -53,7 +53,7 @@ struct TodoistSyncTests {
         let json = """
         [{"id":"1","content":"Task","priority":3}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks[0].priority == 3)
     }
 
@@ -62,7 +62,7 @@ struct TodoistSyncTests {
         let json = """
         [{"id":"1","content":"Task","due":{"date":"2026-03-20","string":"Mar 20"}}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks[0].due == "2026-03-20")
     }
 
@@ -71,7 +71,7 @@ struct TodoistSyncTests {
         let json = """
         [{"id":"1","content":"Task","labels":["claude","urgent"]}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks[0].labels == ["claude", "urgent"])
     }
 
@@ -80,7 +80,7 @@ struct TodoistSyncTests {
         let json = """
         [{"id":"1","content":"Task","project_id":"proj_abc"}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks[0].projectId == "proj_abc")
     }
 
@@ -89,7 +89,7 @@ struct TodoistSyncTests {
         let json = """
         [{"id":"1","content":"Task"}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks[0].priority == 1)
     }
 
@@ -98,7 +98,7 @@ struct TodoistSyncTests {
         let json = """
         [{"id":"1","content":"Task","due":null}]
         """
-        let tasks = try TodoistSyncService.parseTasks(from: json)
+        let tasks = try TodoistAdapter.parseTasks(from: json)
         #expect(tasks[0].due == nil)
     }
 }

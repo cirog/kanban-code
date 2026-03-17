@@ -344,17 +344,15 @@ public enum Reducer {
             link.manualOverrides.column = true
             if column == .done {
                 link.manuallyArchived = true
+                let archiveEffects = archiveLinkEffects(link: &link)
+                state.links[cardId] = link
+                return [.upsertLink(link)] + archiveEffects
             } else if link.manuallyArchived {
                 link.manuallyArchived = false
             }
             link.updatedAt = .now
             state.links[cardId] = link
-            var effects: [Effect] = [.upsertLink(link)]
-            // Complete the Todoist task when moving to Done
-            if column == .done, let todoistId = link.todoistId {
-                effects.append(.completeTodoistTask(todoistId: todoistId))
-            }
-            return effects
+            return [.upsertLink(link)]
 
         case .reorderCard(let cardId, let targetCardId, let above):
             guard let link = state.links[cardId] else { return [] }
@@ -414,21 +412,9 @@ public enum Reducer {
             guard var link = state.links[cardId] else { return [] }
             link.manuallyArchived = true
             link.column = .done
-            link.updatedAt = .now
-            // Kill tmux sessions on archive — user expects cleanup
-            var effects: [Effect] = []
-            if let tmux = link.tmuxLink {
-                effects.append(.killTmuxSessions(tmux.allSessionNames))
-                effects.append(.cleanupTerminalCache(sessionNames: tmux.allSessionNames))
-                link.tmuxLink = nil
-            }
+            let archiveEffects = archiveLinkEffects(link: &link)
             state.links[cardId] = link
-            effects.insert(.upsertLink(link), at: 0)
-            // Complete the Todoist task when archiving a todoist card
-            if let todoistId = link.todoistId {
-                effects.append(.completeTodoistTask(todoistId: todoistId))
-            }
-            return effects
+            return [.upsertLink(link)] + archiveEffects
 
         case .deleteCard(let cardId):
             guard let link = state.links.removeValue(forKey: cardId) else { return [] }
@@ -1078,6 +1064,22 @@ public enum Reducer {
 
             return [.persistLinks(Array(state.links.values))]
         }
+    }
+
+    /// Shared side-effects for moving a card to Done: kill tmux, complete Todoist.
+    /// Mutates link in-place (clears tmuxLink, sets updatedAt).
+    private static func archiveLinkEffects(link: inout Link) -> [Effect] {
+        link.updatedAt = .now
+        var effects: [Effect] = []
+        if let tmux = link.tmuxLink {
+            effects.append(.killTmuxSessions(tmux.allSessionNames))
+            effects.append(.cleanupTerminalCache(sessionNames: tmux.allSessionNames))
+            link.tmuxLink = nil
+        }
+        if let todoistId = link.todoistId {
+            effects.append(.completeTodoistTask(todoistId: todoistId))
+        }
+        return effects
     }
 }
 
