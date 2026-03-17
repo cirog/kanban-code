@@ -13,7 +13,14 @@ public enum TodoistAdapter {
     /// Mark a task as complete in Todoist.
     public static func completeTask(id: String) async throws {
         let path = ShellCommand.findExecutable("todoist") ?? "todoist"
-        let _ = try await ShellCommand.run(path, arguments: ["task", "complete", "--ids", id])
+        let result = try await ShellCommand.run(path, arguments: ["task", "complete", id])
+        guard result.succeeded else {
+            throw NSError(
+                domain: "TodoistAdapter",
+                code: Int(result.exitCode),
+                userInfo: [NSLocalizedDescriptionKey: "todoist task complete exited with code \(result.exitCode): \(result.stderr)"]
+            )
+        }
     }
 
     /// Parse JSON output from `todoist task list --raw`.
