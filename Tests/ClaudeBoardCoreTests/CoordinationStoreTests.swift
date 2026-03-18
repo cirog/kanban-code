@@ -94,7 +94,7 @@ struct CoordinationStoreTests {
         #expect(links[0].sessionId == "b")
     }
 
-    @Test("Corrupted file returns empty and creates backup")
+    @Test("Corrupted file saves corrupt copy and returns empty when no backup exists")
     func corruptionRecovery() async throws {
         let dir = try makeTempDir()
         defer { cleanup(dir) }
@@ -107,9 +107,32 @@ struct CoordinationStoreTests {
         let links = try await store.readLinks()
         #expect(links.isEmpty)
 
-        // Backup should exist
-        let backupPath = filePath + ".bkp"
-        #expect(FileManager.default.fileExists(atPath: backupPath))
+        // Corrupt copy should exist (links.json.corrupt-<timestamp>)
+        let corruptFiles = try FileManager.default.contentsOfDirectory(atPath: dir)
+            .filter { $0.hasPrefix("links.json.corrupt-") }
+        #expect(!corruptFiles.isEmpty)
+    }
+
+    @Test("Corrupted file recovers from backup when backup exists")
+    func corruptionRecoveryFromBackup() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        // Write a valid link (creates .bkp on next write)
+        let link = Link(projectPath: "/test", column: .done, source: .discovered)
+        try await store.writeLinks([link])
+        // Write again so .bkp has the first write's data
+        try await store.writeLinks([link])
+
+        // Corrupt the main file
+        let filePath = (dir as NSString).appendingPathComponent("links.json")
+        try "not valid json {{{{".write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        // Should recover from backup
+        let recovered = try await store.readLinks()
+        #expect(recovered.count == 1)
+        #expect(recovered[0].projectPath == "/test")
     }
 
     @Test("File is human-readable JSON")

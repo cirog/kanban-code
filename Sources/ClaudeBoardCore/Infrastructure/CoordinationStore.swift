@@ -39,18 +39,40 @@ public actor CoordinationStore {
         do {
             return try decoder.decode(LinksContainer.self, from: data)
         } catch {
-            // Corruption recovery: backup and return empty
+            ClaudeBoardLog.warn("links", "links.json corrupted, attempting backup recovery")
+            // Try restoring from backup before returning empty
             let backupPath = filePath + ".bkp"
-            try? fileManager.copyItem(atPath: filePath, toPath: backupPath)
+            // Save the corrupt file with timestamp for forensics
+            let corruptPath = filePath + ".corrupt-\(Int(Date().timeIntervalSince1970))"
+            try? fileManager.copyItem(atPath: filePath, toPath: corruptPath)
+            // Try to read the backup
+            if fileManager.fileExists(atPath: backupPath),
+               let backupData = try? Data(contentsOf: URL(fileURLWithPath: backupPath)),
+               let backupContainer = try? decoder.decode(LinksContainer.self, from: backupData) {
+                ClaudeBoardLog.info("links", "Recovered \(backupContainer.links.count) links from backup")
+                // Restore backup as the active file
+                try? fileManager.removeItem(atPath: filePath)
+                try? fileManager.copyItem(atPath: backupPath, toPath: filePath)
+                return backupContainer
+            }
+            ClaudeBoardLog.warn("links", "No valid backup found, starting fresh")
             return LinksContainer(links: [])
         }
     }
 
     /// Write all links to the coordination file (atomic).
+    /// Creates a .bkp backup of the current file before overwriting.
     public func writeLinks(_ links: [Link]) throws {
         let fileManager = FileManager.default
         let dir = (filePath as NSString).deletingLastPathComponent
         try fileManager.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        // Backup current file before overwriting (last-known-good state for recovery)
+        let backupPath = filePath + ".bkp"
+        if fileManager.fileExists(atPath: filePath) {
+            _ = try? fileManager.removeItem(atPath: backupPath)
+            try? fileManager.copyItem(atPath: filePath, toPath: backupPath)
+        }
 
         let container = LinksContainer(links: links)
         let data = try encoder.encode(container)
