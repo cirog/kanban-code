@@ -26,13 +26,6 @@ struct HistoryPlusInputBar: View {
                     .frame(minHeight: 80, maxHeight: 150)
                     .fixedSize(horizontal: false, vertical: true)
                     .focused($isInputFocused)
-                    .onKeyPress(phases: .down) { keyPress in
-                        if keyPress.key == .return && keyPress.modifiers.contains(.command) {
-                            send()
-                            return .handled
-                        }
-                        return .ignored
-                    }
             }
             .background(Color(hex: "#44475A"))
             .clipShape(RoundedRectangle(cornerRadius: 8))
