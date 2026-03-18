@@ -64,7 +64,12 @@ public enum TranscriptReader {
                   let type = obj["type"] as? String else { continue }
 
             // Stdout responses display as assistant-style turns
-            let role = (type == "user" && JsonlParser.isLocalCommandStdout(obj)) ? "assistant" : type
+            let role: String
+            if type == "user" && (JsonlParser.isLocalCommandStdout(obj) || JsonlParser.isTaskNotification(obj)) {
+                role = "assistant"
+            } else {
+                role = type
+            }
 
             let blocks: [ContentBlock]
             let textPreview: String
@@ -127,7 +132,12 @@ public enum TranscriptReader {
                         if type == "user" && JsonlParser.isCaveatMessage(obj) { continue }
 
                         // Stdout responses display as assistant-style turns
-                        let role = (type == "user" && JsonlParser.isLocalCommandStdout(obj)) ? "assistant" : type
+                        let role: String
+                        if type == "user" && (JsonlParser.isLocalCommandStdout(obj) || JsonlParser.isTaskNotification(obj)) {
+                            role = "assistant"
+                        } else {
+                            role = type
+                        }
 
                         let blocks: [ContentBlock]
                         let textPreview: String
@@ -195,7 +205,12 @@ public enum TranscriptReader {
                         if type == "user" && JsonlParser.isCaveatMessage(obj) { continue }
 
                         // Stdout responses display as assistant-style turns
-                        let role = (type == "user" && JsonlParser.isLocalCommandStdout(obj)) ? "assistant" : type
+                        let role: String
+                        if type == "user" && (JsonlParser.isLocalCommandStdout(obj) || JsonlParser.isTaskNotification(obj)) {
+                            role = "assistant"
+                        } else {
+                            role = type
+                        }
 
                         // Extract content the same way the reader/frontend does
                         let blocks: [ContentBlock]
@@ -245,7 +260,12 @@ public enum TranscriptReader {
             if type == "user" && JsonlParser.isCaveatMessage(obj) { continue }
 
             // Stdout responses display as assistant-style turns
-            let role = (type == "user" && JsonlParser.isLocalCommandStdout(obj)) ? "assistant" : type
+            let role: String
+            if type == "user" && (JsonlParser.isLocalCommandStdout(obj) || JsonlParser.isTaskNotification(obj)) {
+                role = "assistant"
+            } else {
+                role = type
+            }
 
             defer { turnIndex += 1 }
 
@@ -373,6 +393,16 @@ public enum TranscriptReader {
             // Show command stdout as plain text
             if let stdout = JsonlParser.parseLocalCommandStdout(text) {
                 return [ContentBlock(kind: .text, text: stdout)]
+            }
+            // Show task notifications as clean text (strip all XML tags)
+            if text.hasPrefix("<task-notification>") {
+                let cleaned = text
+                    .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty {
+                    return [ContentBlock(kind: .text, text: cleaned)]
+                }
+                return []
             }
             // Strip any remaining metadata tags from mixed-content messages
             let cleaned = JsonlParser.stripMetadataTags(text)

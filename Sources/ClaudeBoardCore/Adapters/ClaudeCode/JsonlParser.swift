@@ -310,6 +310,7 @@ public enum JsonlParser {
         "command-message",
         "command-args",
         "local-command-stdout",
+        "task-notification",
     ]
 
     /// Regex matching any known metadata XML tag pair (greedy within each pair).
@@ -338,6 +339,13 @@ public enum JsonlParser {
     public static func isLocalCommandStdout(_ obj: [String: Any]) -> Bool {
         guard let text = extractTextContent(from: obj) else { return false }
         return text.contains("<local-command-stdout>")
+    }
+
+    /// True if this user message is a background task notification.
+    /// These should be displayed as assistant-style responses (like stdout).
+    public static func isTaskNotification(_ obj: [String: Any]) -> Bool {
+        guard let text = extractTextContent(from: obj) else { return false }
+        return text.hasPrefix("<task-notification>")
     }
 
     /// Extract command name from `<command-name>/foo</command-name>` → `/foo`.

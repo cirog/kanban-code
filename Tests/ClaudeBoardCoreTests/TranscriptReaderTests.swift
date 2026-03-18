@@ -484,6 +484,24 @@ struct TranscriptReaderTests {
         #expect(result!.texts[1].contains("Daily Results"))
     }
 
+    @Test("Shows task notification as assistant-style turn in history")
+    func showsTaskNotificationAsAssistant() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+
+        let path = (dir as NSString).appendingPathComponent("test.jsonl")
+        try [
+            #"{"type":"user","sessionId":"s1","message":{"content":"<task-notification>\nabc123 toolu_011CCVS completed\n</task-notification>"},"cwd":"/test"}"#,
+        ].joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+
+        let turns = try await TranscriptReader.readTurns(from: path)
+        #expect(turns.count == 1)
+        #expect(turns[0].role == "assistant")
+        // Text should be cleaned — no XML tags
+        #expect(!turns[0].textPreview.contains("<task-notification>"))
+        #expect(turns[0].textPreview.contains("abc123"))
+    }
+
     @Test("Shows command stdout as assistant-style turn in history")
     func showsStdoutAsAssistant() async throws {
         let dir = try makeTempDir()

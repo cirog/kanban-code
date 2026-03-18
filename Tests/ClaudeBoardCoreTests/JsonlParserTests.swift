@@ -252,4 +252,25 @@ struct JsonlParserTests {
         let normal: [String: Any] = ["type": "user", "message": ["content": "test"]]
         #expect(JsonlParser.isCaveatMessage(normal) == false)
     }
+
+    // MARK: - Task notification detection
+
+    @Test("isTaskNotification detects task-notification messages")
+    func taskNotificationDetection() {
+        let notification: [String: Any] = [
+            "type": "user",
+            "message": ["content": "<task-notification>\n<task-id>abc123</task-id>\n<output-file>/tmp/out</output-file>\n</task-notification>"]
+        ]
+        #expect(JsonlParser.isTaskNotification(notification) == true)
+
+        let normal: [String: Any] = ["type": "user", "message": ["content": "Fix the bug"]]
+        #expect(JsonlParser.isTaskNotification(normal) == false)
+    }
+
+    @Test("stripMetadataTags removes task-notification tags")
+    func stripTaskNotificationTags() {
+        let text = "<task-notification>\nabc123 completed\n</task-notification>"
+        let stripped = JsonlParser.stripMetadataTags(text)
+        #expect(stripped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
 }
