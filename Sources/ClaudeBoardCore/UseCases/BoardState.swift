@@ -87,9 +87,6 @@ public final class BoardState: @unchecked Sendable {
     /// Cached excluded paths for global view (refreshed from settings).
     private var excludedPaths: [String] = []
 
-    /// Last time GitHub issues were fetched.
-    public var lastGitHubRefresh: Date?
-
     /// Whether a GitHub issue refresh is currently running.
     public var isRefreshingBacklog = false
 

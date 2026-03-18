@@ -143,7 +143,7 @@ struct LaunchFlowIntegrationTests {
         // Step 1: launchCard — sets isLaunching, column, tmuxLink
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_lifecycle", prompt: "test", projectPath: "/tmp",
-            worktreeName: nil, runRemotely: false, commandOverride: nil
+            worktreeName: nil, commandOverride: nil
         ))
         #expect(state.links["card_lifecycle"]?.isLaunching == true)
         #expect(state.links["card_lifecycle"]?.column == .inProgress)
@@ -208,11 +208,11 @@ struct LaunchFlowIntegrationTests {
         // Launch with empty string worktreeName (treated as nil)
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_emp1", prompt: "test", projectPath: "/test/project",
-            worktreeName: "", runRemotely: false, commandOverride: nil
+            worktreeName: "", commandOverride: nil
         ))
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_emp2", prompt: "test", projectPath: "/test/project",
-            worktreeName: "", runRemotely: false, commandOverride: nil
+            worktreeName: "", commandOverride: nil
         ))
 
         let name1 = state.links["card_emp1"]?.tmuxLink?.sessionName ?? ""
@@ -231,7 +231,7 @@ struct LaunchFlowIntegrationTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_nil_wt", prompt: "test", projectPath: "/test/project",
-            worktreeName: nil, runRemotely: false, commandOverride: nil
+            worktreeName: nil, commandOverride: nil
         ))
 
         let name = state.links["card_nil_wt"]?.tmuxLink?.sessionName ?? ""
@@ -424,7 +424,7 @@ struct LaunchFlowIntegrationTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_e2e", prompt: "test", projectPath: "/tmp",
-            worktreeName: nil, runRemotely: false, commandOverride: nil
+            worktreeName: nil, commandOverride: nil
         ))
 
         // Override tmux name for test control

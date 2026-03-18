@@ -41,7 +41,6 @@ struct ContentView: View {
     @State private var deepSearchTrigger = false
     @State private var usageService = UsageService()
     @State private var usageData: UsageData = .empty
-    @AppStorage("showBoardInExpanded") private var showBoardInExpanded = false
     @State private var showNewTask = false
     @State private var showOnboarding = false
     @State private var showDonePopover = false
@@ -50,7 +49,6 @@ struct ContentView: View {
     @State private var quitOwnedSessions: [TmuxSession] = []
     @AppStorage("killTmuxOnQuit") private var killTmuxOnQuit = true
     @AppStorage("uiTextSize") private var uiTextSize: Int = 1
-    @AppStorage("detailExpanded") private var detailExpandedPersisted = false
     @State private var showAddFromPath = false
     @State private var showNewProjectLabel = false
     @State private var isDroppingFolder = false
@@ -62,14 +60,10 @@ struct ContentView: View {
     @State private var showSyncPopover = false
     @State private var rawSyncOutput = ""
     @State private var editingQueuedPromptId: String?
-    // showSearch and isExpandedDetail live in AppState (store.state.paletteOpen / detailExpanded)
+    // showSearch lives in AppState (store.state.paletteOpen)
     private var showSearch: Bool {
         get { store.state.paletteOpen }
         nonmutating set { store.dispatch(.setPaletteOpen(newValue)) }
-    }
-    private var isExpandedDetail: Bool {
-        get { false }
-        nonmutating set { /* expand disabled */ }
     }
     @State private var detailTab: DetailTab = .terminal
     @State private var actionsMenuProvider = ActionsMenuProvider()
@@ -362,10 +356,6 @@ struct ContentView: View {
                 },
                 actionsMenuProvider: actionsMenuProvider,
                 focusTerminal: $shouldFocusTerminal,
-                isExpanded: Binding(
-                    get: { isExpandedDetail },
-                    set: { isExpandedDetail = $0 }
-                ),
                 isDroppingImage: $isDroppingImage
             )
         } else {
@@ -404,12 +394,6 @@ struct ContentView: View {
                         detailTab = DetailTab.initialTab(for: card)
                     }
                 }
-            }
-            .onChange(of: store.state.detailExpanded) {
-                if !store.state.detailExpanded {
-                    showBoardInExpanded = false
-                }
-                detailExpandedPersisted = store.state.detailExpanded
             }
             .overlay {
                 FolderDropZone(isTargeted: $isDroppingFolder) { url in
@@ -497,11 +481,11 @@ struct ContentView: View {
                         get: { launchConfig != nil },
                         set: { if !$0 { launchConfig = nil } }
                     )
-                ) { editedPrompt, _, _, runRemotely, skipPermissions, commandOverride, images in
+                ) { editedPrompt, _, _, _, skipPermissions, commandOverride, images in
                     if config.isResume {
-                        executeResume(cardId: config.cardId, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, assistant: config.assistant)
+                        executeResume(cardId: config.cardId, skipPermissions: skipPermissions, commandOverride: commandOverride, assistant: config.assistant)
                     } else {
-                        executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: nil, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant)
+                        executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: nil, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant)
                     }
                 }
             }
@@ -668,10 +652,6 @@ struct ContentView: View {
                     } else {
                         selectedProjectPersisted = ""
                     }
-                }
-                // Restore persisted detail expansion
-                if detailExpandedPersisted {
-                    store.dispatch(.setDetailExpanded(true))
                 }
                 // Register TerminalCache relay for ClaudeBoardCore effects
                 TerminalCacheRelay.removeHandler = { name in
@@ -1796,7 +1776,7 @@ struct ContentView: View {
         }
     }
 
-    private func createManualTaskAndLaunch(prompt: String, projectPath: String?, title: String? = nil, createWorktree: Bool, runRemotely: Bool, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude) {
+    private func createManualTaskAndLaunch(prompt: String, projectPath: String?, title: String? = nil, createWorktree: Bool, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let name: String
         if let title, !title.isEmpty {
@@ -1829,7 +1809,7 @@ struct ContentView: View {
             let builtPrompt = PromptBuilder.buildPrompt(card: link, project: project, settings: settings)
 
             let wtName: String? = nil
-            executeLaunch(cardId: link.id, prompt: builtPrompt, projectPath: effectivePath, worktreeName: wtName, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant)
+            executeLaunch(cardId: link.id, prompt: builtPrompt, projectPath: effectivePath, worktreeName: wtName, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant)
         }
     }
 
@@ -1883,9 +1863,9 @@ struct ContentView: View {
         }
     }
 
-    private func executeLaunch(cardId: String, prompt: String, projectPath: String, worktreeName: String? = nil, runRemotely: Bool = true, skipPermissions: Bool = true, commandOverride: String? = nil, images: [Any] = [], assistant: CodingAssistant = .claude) {
+    private func executeLaunch(cardId: String, prompt: String, projectPath: String, worktreeName: String? = nil, skipPermissions: Bool = true, commandOverride: String? = nil, images: [Any] = [], assistant: CodingAssistant = .claude) {
         // IMMEDIATE state update via reducer — no more dual memory+disk writes
-        store.dispatch(.launchCard(cardId: cardId, prompt: prompt, projectPath: projectPath, worktreeName: nil, runRemotely: false, commandOverride: commandOverride))
+        store.dispatch(.launchCard(cardId: cardId, prompt: prompt, projectPath: projectPath, worktreeName: nil, commandOverride: commandOverride))
         shouldFocusTerminal = true
         let predictedTmuxName = store.state.links[cardId]?.tmuxLink?.sessionName ?? cardId
         ClaudeBoardLog.info("launch", "Starting launch for card=\(cardId.prefix(12)) tmux=\(predictedTmuxName) project=\(projectPath)")
@@ -2012,7 +1992,6 @@ struct ContentView: View {
               let sessionLink = card.link.sessionLink,
               let sessionPath = sessionLink.sessionPath else { return }
         let sourceAssistant = card.link.effectiveAssistant
-        let runRemotely = false
         guard let sourceStore = assistantRegistry.store(for: sourceAssistant),
               let targetStore = assistantRegistry.store(for: targetAssistant) else { return }
 
@@ -2039,7 +2018,6 @@ struct ContentView: View {
             // Resume the session with the new assistant right away
             executeResume(
                 cardId: cardId,
-                runRemotely: runRemotely,
                 skipPermissions: true,
                 commandOverride: nil,
                 assistant: targetAssistant
@@ -2136,7 +2114,7 @@ struct ContentView: View {
         }
     }
 
-    private func executeResume(cardId: String, runRemotely: Bool = false, skipPermissions: Bool = true, commandOverride: String?, assistant: CodingAssistant = .claude) {
+    private func executeResume(cardId: String, skipPermissions: Bool = true, commandOverride: String?, assistant: CodingAssistant = .claude) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
         let projectPath = resolveProjectPath(card: card)

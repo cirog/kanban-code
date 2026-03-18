@@ -99,7 +99,7 @@ struct ReducerTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_l1", prompt: "test", projectPath: "/test",
-            worktreeName: nil, runRemotely: false, commandOverride: nil
+            worktreeName: nil, commandOverride: nil
         ))
 
         #expect(state.links["card_l1"]?.column == .inProgress)
@@ -536,11 +536,11 @@ struct ReducerTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_a1", prompt: "test", projectPath: "/test/project",
-            worktreeName: nil, runRemotely: false, commandOverride: nil
+            worktreeName: nil, commandOverride: nil
         ))
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_b2", prompt: "test", projectPath: "/test/project",
-            worktreeName: nil, runRemotely: false, commandOverride: nil
+            worktreeName: nil, commandOverride: nil
         ))
 
         let name1 = state.links["card_a1"]?.tmuxLink?.sessionName ?? ""
@@ -557,7 +557,7 @@ struct ReducerTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_cl1", prompt: "test", projectPath: "/test",
-            worktreeName: nil, runRemotely: false, commandOverride: nil
+            worktreeName: nil, commandOverride: nil
         ))
 
         #expect(state.links["card_cl1"]?.tmuxLink?.isShellOnly != true)
@@ -1296,7 +1296,7 @@ struct ReducerTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_ti10", prompt: "test", projectPath: "/test/project",
-            worktreeName: nil, runRemotely: false, commandOverride: nil
+            worktreeName: nil, commandOverride: nil
         ))
 
         // Shell primary moved to extras

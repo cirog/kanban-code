@@ -12,7 +12,6 @@ public struct AppState: Sendable {
     public var selectedCardId: String?
     public var selectedProjectPath: String?
     public var paletteOpen: Bool = false
-    public var detailExpanded: Bool = false
     public var error: String?
     public var isLoading: Bool = false
     public var lastRefresh: Date?
@@ -27,8 +26,6 @@ public struct AppState: Sendable {
     /// Lightweight project labels for card categorization.
     public var projectLabels: [ProjectLabel] = []
 
-    /// Last time GitHub issues were fetched.
-    public var lastGitHubRefresh: Date?
     /// Whether a GitHub issue refresh is currently running.
     public var isRefreshingBacklog = false
 
@@ -136,7 +133,7 @@ public enum Action: Sendable {
     case createManualTask(Link)
     case createTerminal(cardId: String)
     case addExtraTerminal(cardId: String, sessionName: String)
-    case launchCard(cardId: String, prompt: String, projectPath: String, worktreeName: String?, runRemotely: Bool, commandOverride: String?)
+    case launchCard(cardId: String, prompt: String, projectPath: String, worktreeName: String?, commandOverride: String?)
     case resumeCard(cardId: String)
     case moveCard(cardId: String, to: ClaudeBoardColumn)
     case renameCard(cardId: String, name: String)
@@ -144,7 +141,6 @@ public enum Action: Sendable {
     case deleteCard(cardId: String)
     case selectCard(cardId: String?)
     case setPaletteOpen(Bool)
-    case setDetailExpanded(Bool)
     case unlinkFromCard(cardId: String, linkType: LinkType)
     case killTerminal(cardId: String, sessionName: String)
     case cancelLaunch(cardId: String)
@@ -180,7 +176,6 @@ public enum Action: Sendable {
 
     // Background reconciliation
     case reconciled(ReconciliationResult)
-    case gitHubIssuesUpdated(links: [Link])
     case activityChanged([String: ActivityState]) // sessionId → state
 
     // Busy state (transient spinners)
@@ -302,7 +297,7 @@ public enum Reducer {
             state.busyCards.insert(cardId)
             return [.createTmuxSession(cardId: cardId, name: sessionName, path: workDir), .upsertLink(link)]
 
-        case .launchCard(let cardId, _, let projectPath, _, _, _):
+        case .launchCard(let cardId, _, let projectPath, _, _):
             guard var link = state.links[cardId] else { return [] }
             let projectName = (projectPath as NSString).lastPathComponent
             let tmuxName = "\(projectName)-\(cardId)"
@@ -455,10 +450,6 @@ public enum Reducer {
 
         case .setPaletteOpen(let open):
             state.paletteOpen = open
-            return []
-
-        case .setDetailExpanded(let expanded):
-            state.detailExpanded = expanded
             return []
 
         case .unlinkFromCard(let cardId, let linkType):
@@ -947,18 +938,6 @@ public enum Reducer {
             }
 
             return [.persistLinks(Array(mergedLinks.values))]
-
-        case .gitHubIssuesUpdated(let updatedLinks):
-            let updatedIds = Set(updatedLinks.map(\.id))
-            for link in updatedLinks {
-                // Don't overwrite cards modified since the GitHub refresh started
-                if let existing = state.links[link.id], existing.updatedAt > link.updatedAt {
-                    continue
-                }
-                state.links[link.id] = link
-            }
-            state.lastGitHubRefresh = Date()
-            return [.persistLinks(Array(state.links.values))]
 
         case .activityChanged(let activityMap):
             // Lightweight column update — no full reconciliation, just activity → column

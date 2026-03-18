@@ -7,13 +7,11 @@ import ClaudeBoardCore
 struct AppShortcutContext {
     var paletteOpen: Bool
     var detailOpen: Bool
-    var expandedDetail: Bool
     var terminalTabActive: Bool
 
     init(from state: AppState, terminalTabActive: Bool = false) {
         self.paletteOpen = state.paletteOpen
         self.detailOpen = state.selectedCardId != nil
-        self.expandedDetail = state.detailExpanded
         self.terminalTabActive = terminalTabActive
     }
 }
@@ -29,7 +27,6 @@ enum AppShortcut: CaseIterable {
     case openCommandMode        // Cmd+Shift+P
 
     // Detail panel
-    case toggleExpanded         // Cmd+Enter (only when detail open, palette closed)
     case newTerminal            // Cmd+T (only when detail open on terminal tab, palette closed)
 
     // Palette-specific
@@ -46,7 +43,7 @@ enum AppShortcut: CaseIterable {
 
     static var allCases: [AppShortcut] {
         [.openPaletteK, .openPaletteP, .openCommandMode,
-         .toggleExpanded, .newTerminal, .deepSearch,
+         .newTerminal, .deepSearch,
          .deselect, .deleteCard, .deleteCardForward,
          .project1, .project2, .project3, .project4, .project5,
          .project6, .project7, .project8, .project9]
@@ -57,7 +54,7 @@ enum AppShortcut: CaseIterable {
         case .openPaletteK: return "k"
         case .openPaletteP: return "p"
         case .openCommandMode: return "p"
-        case .toggleExpanded, .deepSearch: return .return
+        case .deepSearch: return .return
         case .newTerminal: return "t"
         case .deselect: return .escape
         case .deleteCard: return .delete
@@ -78,7 +75,7 @@ enum AppShortcut: CaseIterable {
         switch self {
         case .openPaletteK, .openPaletteP: return .command
         case .openCommandMode: return [.command, .shift]
-        case .toggleExpanded, .deepSearch: return .command
+        case .deepSearch: return .command
         case .newTerminal: return .command
         case .deselect, .deleteCard, .deleteCardForward: return []
         case .project1, .project2, .project3, .project4, .project5,
@@ -92,10 +89,6 @@ enum AppShortcut: CaseIterable {
         // Palette open/close works everywhere
         case .openPaletteK, .openPaletteP, .openCommandMode:
             return true
-
-        // Expand detail only when detail is open AND palette is closed
-        case .toggleExpanded:
-            return ctx.detailOpen && !ctx.paletteOpen
 
         // New terminal only when detail is open on terminal tab AND palette is closed
         case .newTerminal:
