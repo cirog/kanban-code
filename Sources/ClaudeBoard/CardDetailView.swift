@@ -234,7 +234,10 @@ struct CardDetailView: View {
                     sessionPath: card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath
                 )
             case .historyPlus:
-                HistoryPlusView(turns: turns)
+                VStack(spacing: 0) {
+                    HistoryPlusView(turns: turns)
+                    HistoryPlusInputBar(onSend: { text in onSendReplyText(text) })
+                }
             case .prompt:
                 promptTabView
             case .description:
