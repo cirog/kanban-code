@@ -397,7 +397,6 @@ struct ContentView: View {
                     if let saved = card.link.lastTab, let tab = DetailTab(rawValue: saved) {
                         switch tab {
                         case .terminal where card.link.tmuxLink != nil: detailTab = tab
-                        case .reply where card.link.sessionLink != nil: detailTab = tab
                         case .history: detailTab = tab
                         default: detailTab = DetailTab.initialTab(for: card)
                         }
