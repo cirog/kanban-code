@@ -43,6 +43,7 @@ struct HistoryPlusInputBar: View {
                     )
             }
             .buttonStyle(.plain)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, 16)

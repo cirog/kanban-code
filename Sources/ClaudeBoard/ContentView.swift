@@ -1046,16 +1046,6 @@ struct ContentView: View {
             .keyboardShortcut(AppShortcut.openCommandMode.key, modifiers: AppShortcut.openCommandMode.modifiers)
             .hidden()
 
-        // Cmd+Enter — expand detail OR deep search depending on context
-        Button("") {
-            let ctx = shortcutContext
-            if AppShortcut.deepSearch.isActive(in: ctx) {
-                deepSearchTrigger.toggle()
-            }
-        }
-        .keyboardShortcut(AppShortcut.toggleExpanded.key, modifiers: AppShortcut.toggleExpanded.modifiers)
-        .hidden()
-
         // Cmd+T — new terminal tab (only when detail open on terminal tab)
         Button("") {
             if AppShortcut.newTerminal.isActive(in: shortcutContext),
