@@ -16,6 +16,16 @@ public enum HistoryPlusHTMLBuilder {
         var parts: [String] = []
 
         for turn in turns {
+            // Check for skill invocations first
+            let skillName = detectSkill(in: turn)
+            if let skill = skillName {
+                let escaped = escapeForAttribute(skill)
+                parts.append("""
+                <div class="message skill-msg" data-md="\(escaped)"></div>
+                """)
+                continue
+            }
+
             let textBlocks = turn.contentBlocks.filter {
                 if case .text = $0.kind { return true }
                 return false
@@ -26,12 +36,7 @@ public enum HistoryPlusHTMLBuilder {
             if let transform = transformMarkdown {
                 markdown = transform(markdown)
             }
-            // Escape for HTML attribute (double-quote context)
-            let attrEscaped = markdown
-                .replacingOccurrences(of: "&", with: "&amp;")
-                .replacingOccurrences(of: "\"", with: "&quot;")
-                .replacingOccurrences(of: "<", with: "&lt;")
-                .replacingOccurrences(of: ">", with: "&gt;")
+            let attrEscaped = escapeForAttribute(markdown)
 
             let cssClass = turn.role == "user" ? "user-msg" : "assistant-msg"
             parts.append("""
@@ -71,5 +76,48 @@ public enum HistoryPlusHTMLBuilder {
             margin-right: 10%;
         }
         .assistant-msg:last-child { margin-bottom: 40px; }
+        .skill-msg {
+            margin-right: 10%;
+            background: rgba(139, 233, 253, 0.12);
+            border: 1px solid rgba(139, 233, 253, 0.25);
+            font-size: 0.9em;
+        }
     """
+
+    // MARK: - Helpers
+
+    /// Detect if a turn is a skill invocation. Returns formatted skill display text or nil.
+    private static func detectSkill(in turn: ConversationTurn) -> String? {
+        // Check for Skill tool_use blocks (assistant programmatic invocation)
+        for block in turn.contentBlocks {
+            if case .toolUse(let name, let input) = block.kind, name == "Skill" {
+                let skill = input["skill"] ?? "unknown"
+                return "**Skill** `\(skill)`"
+            }
+        }
+        // Check for slash command invocations (user text starting with namespace:name pattern)
+        for block in turn.contentBlocks {
+            if case .text = block.kind {
+                let text = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Match patterns like "superpowers:brainstorming args" or "obsidian:obsidian-cli"
+                if let match = text.range(of: #"^[\w-]+:[\w-]+"#, options: .regularExpression) {
+                    let skillName = String(text[match])
+                    let args = String(text[match.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if args.isEmpty {
+                        return "**Skill** `\(skillName)`"
+                    }
+                    return "**Skill** `\(skillName)` — \(String(args.prefix(80)))"
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Escape markdown for HTML attribute (double-quote context).
+    private static func escapeForAttribute(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+    }
 }

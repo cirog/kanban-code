@@ -148,6 +148,45 @@ struct HistoryPlusHTMLBuilderTests {
         #expect(!html.contains("<script>"))
     }
 
+    @Test("Skill invocation turns get skill-msg class")
+    func skillInvocationClass() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "superpowers:brainstorming build a feature",
+                contentBlocks: [ContentBlock(kind: .text, text: "superpowers:brainstorming build a feature")]
+            ),
+        ]
+
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        #expect(html.contains("skill-msg"))
+        #expect(!html.contains("user-msg"))
+    }
+
+    @Test("Skill tool_use blocks get skill-msg class")
+    func skillToolUseClass() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "assistant",
+                textPreview: "Skill(obsidian:obsidian-cli)",
+                contentBlocks: [
+                    ContentBlock(kind: .toolUse(name: "Skill", input: ["skill": "obsidian:obsidian-cli"]), text: "Skill(obsidian:obsidian-cli)"),
+                ]
+            ),
+        ]
+
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        #expect(html.contains("skill-msg"))
+        #expect(!html.contains("assistant-msg"))
+    }
+
+    @Test("Chat CSS contains skill-msg rules with cyan color")
+    func chatCSSContainsSkillRules() {
+        let css = HistoryPlusHTMLBuilder.chatCSS
+        #expect(css.contains(".skill-msg"))
+        #expect(css.contains("139, 233, 253"))  // Dracula cyan (#8be9fd) in rgba
+    }
+
     @Test("Chat CSS contains user-msg and assistant-msg rules")
     func chatCSSContainsRules() {
         let css = HistoryPlusHTMLBuilder.chatCSS
