@@ -5,9 +5,10 @@ import Foundation
 public enum HistoryPlusHTMLBuilder {
 
     /// Build HTML message divs from conversation turns.
-    /// Each turn becomes a div with class "message user-msg" or "message assistant-msg".
+    /// Each turn becomes a div with class "message user-msg" or "message assistant-msg"
+    /// and a `data-md` attribute containing the escaped markdown.
     /// Turns with no text blocks are skipped entirely.
-    /// The markdown inside each div is raw — caller renders via marked.js.
+    /// The caller must load marked.js and then run the render script to parse data-md.
     public static func buildMessagesHTML(from turns: [ConversationTurn]) -> String {
         var parts: [String] = []
 
@@ -19,21 +20,29 @@ public enum HistoryPlusHTMLBuilder {
             guard !textBlocks.isEmpty else { continue }
 
             let markdown = textBlocks.map(\.text).joined(separator: "\n\n")
-            let escaped = markdown
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "`", with: "\\`")
-                .replacingOccurrences(of: "$", with: "\\$")
+            // Escape for HTML attribute (double-quote context)
+            let attrEscaped = markdown
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
 
             let cssClass = turn.role == "user" ? "user-msg" : "assistant-msg"
             parts.append("""
-            <div class="message \(cssClass)">
-                <script>document.currentScript.parentElement.innerHTML = marked.parse(`\(escaped)`);</script>
-            </div>
+            <div class="message \(cssClass)" data-md="\(attrEscaped)"></div>
             """)
         }
 
         return parts.joined(separator: "\n")
     }
+
+    /// JavaScript to render all data-md divs via marked.parse(). Run after marked.js loads.
+    public static let renderScript: String = """
+        document.querySelectorAll('[data-md]').forEach(el => {
+            el.innerHTML = marked.parse(el.getAttribute('data-md'));
+        });
+        window.scrollTo(0, document.body.scrollHeight);
+    """
 
     /// Additional CSS for chat-bubble layout (appended to base Dracula CSS).
     public static let chatCSS: String = """

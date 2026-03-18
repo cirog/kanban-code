@@ -38,9 +38,7 @@ struct HistoryPlusView: NSViewRepresentable {
                 \(messagesHTML)
             </div>
             <script>\(ReplyTabView.markedJs)</script>
-            <script>
-                window.scrollTo(0, document.body.scrollHeight);
-            </script>
+            <script>\(HistoryPlusHTMLBuilder.renderScript)</script>
             """)
 
         webView.loadHTMLString(html, baseURL: nil)

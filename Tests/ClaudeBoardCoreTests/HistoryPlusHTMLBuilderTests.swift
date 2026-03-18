@@ -132,6 +132,22 @@ struct HistoryPlusHTMLBuilderTests {
         #expect(html.isEmpty)
     }
 
+    @Test("Uses data-md attributes instead of inline scripts for deferred rendering")
+    func usesDataAttributes() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "Hello",
+                contentBlocks: [ContentBlock(kind: .text, text: "Hello")]
+            ),
+        ]
+
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        // Must use data-md attribute (not inline <script>) so marked.js can be loaded first
+        #expect(html.contains("data-md="))
+        #expect(!html.contains("<script>"))
+    }
+
     @Test("Chat CSS contains user-msg and assistant-msg rules")
     func chatCSSContainsRules() {
         let css = HistoryPlusHTMLBuilder.chatCSS
