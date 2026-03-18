@@ -214,6 +214,7 @@ public enum Action: Sendable {
 /// Bundles the result of a full background reconciliation cycle.
 public struct ReconciliationResult: Sendable {
     public let links: [Link]
+    public let mergedAwayCardIds: Set<String>
     public let sessions: [Session]
     public let activityMap: [String: ActivityState]
     public let tmuxSessions: Set<String>
@@ -222,6 +223,7 @@ public struct ReconciliationResult: Sendable {
     public let discoveredProjectPaths: [String]
     public init(
         links: [Link],
+        mergedAwayCardIds: Set<String> = [],
         sessions: [Session],
         activityMap: [String: ActivityState],
         tmuxSessions: Set<String>,
@@ -230,6 +232,7 @@ public struct ReconciliationResult: Sendable {
         discoveredProjectPaths: [String] = []
     ) {
         self.links = links
+        self.mergedAwayCardIds = mergedAwayCardIds
         self.sessions = sessions
         self.activityMap = activityMap
         self.tmuxSessions = tmuxSessions
@@ -815,6 +818,14 @@ public enum Reducer {
             )
             state.activityMap = result.activityMap
 
+            // Remove cards that were merged away by slug dedup
+            if !result.mergedAwayCardIds.isEmpty {
+                for id in result.mergedAwayCardIds {
+                    state.links.removeValue(forKey: id)
+                }
+                ClaudeBoardLog.info("store", "Removed \(result.mergedAwayCardIds.count) merged-away card(s)")
+            }
+
             // Merge reconciled links using last-writer-wins on updatedAt.
             // Reconciliation takes seconds of async work. Any in-memory changes
             // made during that window (launch, create terminal, move card) have a
@@ -1305,8 +1316,10 @@ public final class BoardStore: @unchecked Sendable {
                 tmuxSessions: tmuxSessions,
                 didScanTmux: tmuxAdapter != nil
             )
-            let mergedLinks = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
-            ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) merged)")
+            let reconcileResult = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
+            let mergedLinks = reconcileResult.links
+            let mergedAwayCardIds = reconcileResult.mergedAwayCardIds
+            ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) merged, \(mergedAwayCardIds.count) merged away)")
 
             // Build activity map
             let t4 = ContinuousClock.now
@@ -1331,6 +1344,7 @@ public final class BoardStore: @unchecked Sendable {
             let t5 = ContinuousClock.now
             let result = ReconciliationResult(
                 links: mergedLinks,
+                mergedAwayCardIds: mergedAwayCardIds,
                 sessions: sessions,
                 activityMap: activityMap,
                 tmuxSessions: Set(tmuxSessions.map(\.name)),

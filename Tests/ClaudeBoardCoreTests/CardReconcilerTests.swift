@@ -39,9 +39,9 @@ struct CardReconcilerTests {
         let result = CardReconciler.reconcile(existing: [existingLink], snapshot: snapshot)
 
         // Should still be 1 card, not 2
-        #expect(result.count == 1)
+        #expect(result.links.count == 1)
 
-        let card = result.first!
+        let card = result.links.first!
         #expect(card.id == "card-1")
 
         // SessionLink should point to new session
@@ -82,7 +82,7 @@ struct CardReconcilerTests {
         let result = CardReconciler.reconcile(existing: [existingLink], snapshot: snapshot)
 
         // Should be 2 cards — no slug match
-        #expect(result.count == 2)
+        #expect(result.links.count == 2)
     }
 
     @Test("Multiple context resets accumulate previousSessionPaths")
@@ -117,8 +117,8 @@ struct CardReconcilerTests {
 
         let result = CardReconciler.reconcile(existing: [existingLink], snapshot: snapshot)
 
-        #expect(result.count == 1)
-        let card = result.first!
+        #expect(result.links.count == 1)
+        let card = result.links.first!
         #expect(card.sessionLink?.sessionId == "session-3")
         #expect(card.sessionLink?.previousSessionPaths == [
             "/path/to/session-1.jsonl",
@@ -187,8 +187,9 @@ struct CardReconcilerTests {
         let result = CardReconciler.reconcile(existing: [card1, card2, card3], snapshot: snapshot)
 
         // Should merge into 1 card (the most recent one)
-        #expect(result.count == 1)
-        let survivor = result.first!
+        #expect(result.links.count == 1)
+        #expect(result.mergedAwayCardIds == Set(["card-1", "card-2"]))
+        let survivor = result.links.first!
         #expect(survivor.id == "card-3") // newest activity
         #expect(survivor.sessionLink?.sessionId == "session-3")
         #expect(survivor.sessionLink?.slug == "cozy-moseying-pudding")
@@ -244,8 +245,8 @@ struct CardReconcilerTests {
 
         let result = CardReconciler.reconcile(existing: [card1, card2], snapshot: snapshot)
 
-        #expect(result.count == 1)
-        let survivor = result.first!
+        #expect(result.links.count == 1)
+        let survivor = result.links.first!
         // Card with manual name override should survive
         #expect(survivor.name == "My Custom Name")
         #expect(survivor.manualOverrides.name == true)
@@ -295,7 +296,8 @@ struct CardReconcilerTests {
         let result = CardReconciler.reconcile(existing: [active, archived], snapshot: snapshot)
 
         // Should NOT merge — archived card is excluded
-        #expect(result.count == 2)
+        #expect(result.links.count == 2)
+        #expect(result.mergedAwayCardIds.isEmpty)
     }
 
     @Test("Exact sessionId match takes priority over slug match")
@@ -330,8 +332,8 @@ struct CardReconcilerTests {
         let result = CardReconciler.reconcile(existing: [card1], snapshot: snapshot)
 
         // Should match by sessionId, NOT chain
-        #expect(result.count == 1)
-        let card = result.first!
+        #expect(result.links.count == 1)
+        let card = result.links.first!
         #expect(card.sessionLink?.sessionId == "session-A")
         #expect(card.sessionLink?.previousSessionPaths == nil)
     }

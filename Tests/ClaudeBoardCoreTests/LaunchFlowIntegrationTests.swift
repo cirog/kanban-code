@@ -342,14 +342,14 @@ struct LaunchFlowIntegrationTests {
 
         // Should NOT create a duplicate — should create a new discovered card
         // because the launching card should be skipped during matching
-        let launchingCard = result.first { $0.id == "card_launching" }
+        let launchingCard = result.links.first { $0.id == "card_launching" }
         #expect(launchingCard != nil)
         #expect(launchingCard?.sessionLink == nil) // launch flow will set this
 
         // The session should create a new discovered card (will be deduped later by launchCompleted)
         // OR be left unmatched — either way, the launching card should NOT get the sessionLink
         // from reconciliation
-        let totalCards = result.count
+        let totalCards = result.links.count
         // We expect 2 cards: the original launching card + a new discovered one
         #expect(totalCards == 2, "Should have original + discovered, not merged")
     }

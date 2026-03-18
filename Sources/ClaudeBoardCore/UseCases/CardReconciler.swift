@@ -28,9 +28,15 @@ public enum CardReconciler {
         }
     }
 
+    /// Result of reconciliation, including merged links and IDs of cards removed by slug merge.
+    public struct ReconcileResult: Sendable {
+        public let links: [Link]
+        public let mergedAwayCardIds: Set<String>
+    }
+
     /// Reconcile existing cards with discovered resources.
-    /// Returns the merged list of links (some updated, some new, some with cleared links).
-    public static func reconcile(existing: [Link], snapshot: DiscoverySnapshot) -> [Link] {
+    /// Returns the merged list of links and IDs of cards that were merged away (slug dedup).
+    public static func reconcile(existing: [Link], snapshot: DiscoverySnapshot) -> ReconcileResult {
         var linksById: [String: Link] = [:]
         for link in existing {
             linksById[link.id] = link
@@ -134,7 +140,7 @@ public enum CardReconciler {
         }
 
         // B. Merge cards that share the same slug (handles sessions discovered in same batch)
-        mergeDuplicateSlugs(&linksById)
+        let mergedAwayIds = mergeDuplicateSlugs(&linksById)
 
         // C. Clear dead tmux links
         let liveTmuxNames = Set(snapshot.tmuxSessions.map(\.name))
@@ -181,7 +187,7 @@ public enum CardReconciler {
             }
         }
 
-        return Array(linksById.values)
+        return ReconcileResult(links: Array(linksById.values), mergedAwayCardIds: mergedAwayIds)
     }
 
     // MARK: - Slug Merge
@@ -189,7 +195,9 @@ public enum CardReconciler {
     /// Merge cards that ended up with the same slug on separate cards.
     /// This happens when multiple context-continued sessions are discovered in the same batch —
     /// each gets its own card via sessionId match, but they logically belong together.
-    private static func mergeDuplicateSlugs(_ linksById: inout [String: Link]) {
+    @discardableResult
+    private static func mergeDuplicateSlugs(_ linksById: inout [String: Link]) -> Set<String> {
+        var removedIds: Set<String> = []
         // Group non-archived cards by slug
         var cardsBySlug: [String: [String]] = [:] // slug → [cardId]
         for (id, link) in linksById {
@@ -229,6 +237,7 @@ public enum CardReconciler {
                 }
                 // Remove loser
                 linksById.removeValue(forKey: loser.id)
+                removedIds.insert(loser.id)
             }
 
             survivor.sessionLink?.previousSessionPaths = prevPaths.isEmpty ? nil : prevPaths
@@ -240,6 +249,7 @@ public enum CardReconciler {
 
             ClaudeBoardLog.info("reconciler", "Merged \(cardIds.count) cards with slug=\(slug) → survivor=\(survivor.id.prefix(12))")
         }
+        return removedIds
     }
 
     // MARK: - Private
