@@ -26,12 +26,11 @@ struct HistoryPlusInputBar: View {
                     .frame(minHeight: 80, maxHeight: 150)
                     .fixedSize(horizontal: false, vertical: true)
                     .focused($isInputFocused)
-                    .onKeyPress(.return, phases: .down) { keyPress in
-                        if keyPress.modifiers.contains(.command) {
+                    .onKeyPress(phases: .down) { keyPress in
+                        if keyPress.key == .return && keyPress.modifiers.contains(.command) {
                             send()
                             return .handled
                         }
-                        // Enter without modifiers = newline (default behavior)
                         return .ignored
                     }
             }
