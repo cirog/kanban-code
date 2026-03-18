@@ -2068,10 +2068,22 @@ struct ContentView: View {
         }
     }
 
+    /// Resolve the project path for a card, falling back to deriving it from the session file location.
+    private func resolveProjectPath(card: ClaudeBoardCard) -> String {
+        if let pp = card.link.projectPath, pp != "/", !pp.isEmpty {
+            return pp
+        }
+        if let sp = card.link.sessionLink?.sessionPath,
+           let derived = JsonlParser.projectPathFromSessionPath(sp) {
+            return derived
+        }
+        return NSHomeDirectory()
+    }
+
     private func resumeCard(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
-        let projectPath = card.link.projectPath ?? NSHomeDirectory()
+        let projectPath = resolveProjectPath(card: card)
 
         launchConfig = LaunchConfig(
             cardId: cardId,
@@ -2122,11 +2134,11 @@ struct ContentView: View {
     private func executeResume(cardId: String, runRemotely: Bool = false, skipPermissions: Bool = true, commandOverride: String?, assistant: CodingAssistant = .claude) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
-        let projectPath = card.link.projectPath ?? NSHomeDirectory()
+        let projectPath = resolveProjectPath(card: card)
 
         store.dispatch(.resumeCard(cardId: cardId))
         shouldFocusTerminal = true
-        ClaudeBoardLog.info("resume", "Starting resume for card=\(cardId.prefix(12)) session=\(sessionId.prefix(8))")
+        ClaudeBoardLog.info("resume", "Starting resume for card=\(cardId.prefix(12)) session=\(sessionId.prefix(8)) projectPath=\(projectPath) sessionPath=\(card.link.sessionLink?.sessionPath ?? "nil")")
 
         Task {
             do {

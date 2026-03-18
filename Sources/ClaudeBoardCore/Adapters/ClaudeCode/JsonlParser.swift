@@ -404,6 +404,17 @@ public enum JsonlParser {
         return false
     }
 
+    /// Derive the project path from a session file's absolute path.
+    /// e.g., "~/.claude/projects/-Users-ciro/abc.jsonl" → "/Users/ciro"
+    /// Returns nil if the path can't be decoded to a meaningful directory.
+    public static func projectPathFromSessionPath(_ sessionPath: String) -> String? {
+        let dir = (sessionPath as NSString).deletingLastPathComponent
+        let dirName = (dir as NSString).lastPathComponent
+        guard dirName.hasPrefix("-") else { return nil }
+        let decoded = decodeDirectoryName(dirName)
+        return decoded.isEmpty || decoded == "/" ? nil : decoded
+    }
+
     /// Decode a Claude projects directory name to a filesystem path.
     /// e.g., "-Users-rchaves-Projects-remote-langwatch" → "/Users/rchaves/Projects/remote/langwatch"
     public static func decodeDirectoryName(_ name: String) -> String {

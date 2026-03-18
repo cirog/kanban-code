@@ -109,6 +109,29 @@ struct JsonlParserTests {
         #expect(decoded == "/home/ubuntu/Projects")
     }
 
+    // MARK: - Project path from session path
+
+    @Test("Derives project path from session file path")
+    func projectPathFromSessionPath() {
+        let sessionPath = "/Users/ciro/.claude/projects/-Users-ciro/abc-123.jsonl"
+        let derived = JsonlParser.projectPathFromSessionPath(sessionPath)
+        #expect(derived == "/Users/ciro")
+    }
+
+    @Test("Derives project path with deeper directory encoding")
+    func projectPathFromSessionPathDeep() {
+        let sessionPath = "/Users/ciro/.claude/projects/-Users-ciro-Projects-myapp/def-456.jsonl"
+        let derived = JsonlParser.projectPathFromSessionPath(sessionPath)
+        #expect(derived == "/Users/ciro/Projects/myapp")
+    }
+
+    @Test("Returns nil for undecodable session path")
+    func projectPathFromSessionPathInvalid() {
+        // A bare filename with no directory structure
+        let derived = JsonlParser.projectPathFromSessionPath("abc.jsonl")
+        #expect(derived == nil)
+    }
+
     // MARK: - Metadata filtering
 
     @Test("Skips isMeta caveat messages for first prompt")
