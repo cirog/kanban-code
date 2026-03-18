@@ -9,7 +9,10 @@ public enum HistoryPlusHTMLBuilder {
     /// and a `data-md` attribute containing the escaped markdown.
     /// Turns with no text blocks are skipped entirely.
     /// The caller must load marked.js and then run the render script to parse data-md.
-    public static func buildMessagesHTML(from turns: [ConversationTurn]) -> String {
+    public static func buildMessagesHTML(
+        from turns: [ConversationTurn],
+        transformMarkdown: ((String) -> String)? = nil
+    ) -> String {
         var parts: [String] = []
 
         for turn in turns {
@@ -19,7 +22,10 @@ public enum HistoryPlusHTMLBuilder {
             }
             guard !textBlocks.isEmpty else { continue }
 
-            let markdown = textBlocks.map(\.text).joined(separator: "\n\n")
+            var markdown = textBlocks.map(\.text).joined(separator: "\n\n")
+            if let transform = transformMarkdown {
+                markdown = transform(markdown)
+            }
             // Escape for HTML attribute (double-quote context)
             let attrEscaped = markdown
                 .replacingOccurrences(of: "&", with: "&amp;")

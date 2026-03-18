@@ -30,7 +30,10 @@ struct HistoryPlusView: NSViewRepresentable {
     private func loadHTML(into webView: WKWebView, coordinator: Coordinator) {
         coordinator.lastTurnCount = turns.count
 
-        let messagesHTML = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        let messagesHTML = HistoryPlusHTMLBuilder.buildMessagesHTML(
+            from: turns,
+            transformMarkdown: ReplyTabView.transformInsightBlocks
+        )
 
         let html = ReplyTabView.htmlPage(body: """
             <style>\(HistoryPlusHTMLBuilder.chatCSS)</style>
