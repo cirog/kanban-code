@@ -31,6 +31,11 @@ public enum AssignColumn {
             return link.column
         }
 
+        // Scheduled tasks without a terminal are completed runs → done
+        if let prompt = link.promptBody, prompt.contains("<scheduled-task"), link.tmuxLink == nil {
+            return .done
+        }
+
         // Activity-based assignment
         if let state = activityState {
             switch state {
@@ -63,11 +68,6 @@ public enum AssignColumn {
         // Todoist task without a session → backlog
         if link.source == .todoist && link.sessionLink == nil {
             return .backlog
-        }
-
-        // Scheduled tasks without a terminal are completed runs → done
-        if let prompt = link.promptBody, prompt.contains("<scheduled-task"), link.tmuxLink == nil {
-            return .done
         }
 
         // Recently active (within 24h) → waiting
