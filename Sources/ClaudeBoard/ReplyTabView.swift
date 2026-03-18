@@ -137,7 +137,15 @@ struct ReplyTabView: NSViewRepresentable {
             // Detect insight header: backtick-wrapped line containing ★ and Insight
             if trimmed.hasPrefix("`") && trimmed.hasSuffix("`") &&
                trimmed.contains("\u{2605}") && trimmed.contains("Insight") {
-                let headerText = String(trimmed.dropFirst().dropLast())
+                // Strip decorative ─── dashes and wrap ★ for CSS styling
+                var headerText = String(trimmed.dropFirst().dropLast())
+                    .replacingOccurrences(of: "\u{2500}", with: "")
+                    .replacingOccurrences(of: "-", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                headerText = headerText.replacingOccurrences(
+                    of: "\u{2605}",
+                    with: "<span class=\"insight-star\">\u{2605}</span>"
+                )
 
                 var contentLines: [String] = []
                 i += 1
@@ -274,7 +282,13 @@ struct ReplyTabView: NSViewRepresentable {
             font-family: "SF Mono", Menlo, monospace;
             font-size: 0.9em;
             font-weight: 600;
+            letter-spacing: 0.05em;
             border-bottom: 1px solid rgba(189, 147, 249, 0.2);
+        }
+        .insight-star {
+            font-size: 1.2em;
+            margin-right: 4px;
+            filter: drop-shadow(0 0 4px rgba(189, 147, 249, 0.6));
         }
         .insight-content {
             padding: 4px 16px;
