@@ -9,7 +9,7 @@ final class ActionsMenuProvider {
 }
 
 enum DetailTab: String {
-    case terminal, reply, history, prompt, description, summary
+    case terminal, reply, history, historyPlus, prompt, description, summary
 
     static func initialTab(for card: ClaudeBoardCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
@@ -233,6 +233,8 @@ struct CardDetailView: View {
                     onLoadAroundTurn: { turnIndex in Task { await loadAroundTurn(turnIndex) } },
                     sessionPath: card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath
                 )
+            case .historyPlus:
+                HistoryPlusView(turns: turns)
             case .prompt:
                 promptTabView
             case .description:
@@ -255,7 +257,7 @@ struct CardDetailView: View {
             suppressTerminalFocus = true
             selectedTab = defaultTab(for: card)
             await loadHistory()
-            if selectedTab == .history || selectedTab == .reply {
+            if selectedTab == .history || selectedTab == .historyPlus || selectedTab == .reply {
                 startHistoryWatcher()
             }
             // After setup, focus terminal if this card has one and landed on terminal tab
@@ -269,20 +271,20 @@ struct CardDetailView: View {
         .onChange(of: card.link.sessionLink?.sessionPath) {
             // When a session path appears (e.g., after launch discovers the session),
             // restart the watcher so history starts updating live.
-            guard selectedTab == .history || selectedTab == .reply else { return }
+            guard selectedTab == .history || selectedTab == .historyPlus || selectedTab == .reply else { return }
             guard card.link.sessionLink?.sessionPath != nil else { return }
             startHistoryWatcher()
-            if selectedTab == .history {
+            if selectedTab == .history || selectedTab == .historyPlus {
                 Task { await loadHistory() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeBoardHistoryChanged)) { _ in
-            guard selectedTab == .history || selectedTab == .reply else { return }
+            guard selectedTab == .history || selectedTab == .historyPlus || selectedTab == .reply else { return }
             // Debounce: only reload if >0.5s since last reload
             let now = Date()
             guard now.timeIntervalSince(lastReloadTime) > 0.5 else { return }
             lastReloadTime = now
-            if selectedTab == .history {
+            if selectedTab == .history || selectedTab == .historyPlus {
                 Task { await loadHistory() }
             }
             if selectedTab == .reply {
@@ -1368,6 +1370,7 @@ struct CardDetailView: View {
                 Text("Terminal").tag(DetailTab.terminal)
                 if card.link.sessionLink != nil { Text("Reply").tag(DetailTab.reply) }
                 Text("History").tag(DetailTab.history)
+                if card.link.sessionLink != nil { Text("History+").tag(DetailTab.historyPlus) }
                 if card.link.promptBody != nil || card.link.sessionLink != nil {
                     Text("Prompts").tag(DetailTab.prompt)
                 }
@@ -1581,7 +1584,7 @@ struct CardDetailView: View {
         historyPollTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
-                guard !Task.isCancelled, selectedTab == .history else { break }
+                guard !Task.isCancelled, selectedTab == .history || selectedTab == .historyPlus else { break }
                 await loadHistory()
             }
         }
@@ -1627,8 +1630,8 @@ struct CardDetailView: View {
                 terminalGrabFocus = true
             }
         }
-        if selectedTab == .history || selectedTab == .reply {
-            if selectedTab == .history {
+        if selectedTab == .history || selectedTab == .historyPlus || selectedTab == .reply {
+            if selectedTab == .history || selectedTab == .historyPlus {
                 Task { await loadHistory() }
             }
             startHistoryWatcher()
