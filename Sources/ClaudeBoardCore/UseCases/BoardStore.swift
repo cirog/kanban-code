@@ -264,6 +264,24 @@ public enum Effect: Sendable {
 /// Pure function: (state, action) → (state', effects).
 /// No async. No side effects. Fully testable.
 public enum Reducer {
+    /// Propagate discovery-derived session metadata (slug, sessionPath, previousSessionPaths)
+    /// from a reconciled link onto a preserved link, without overwriting existing values.
+    private static func propagateSessionMetadata(from source: SessionLink, to link: inout Link) {
+        if link.sessionLink == nil {
+            link.sessionLink = source
+        } else {
+            if link.sessionLink?.slug == nil, let slug = source.slug {
+                link.sessionLink?.slug = slug
+            }
+            if link.sessionLink?.sessionPath == nil, let path = source.sessionPath {
+                link.sessionLink?.sessionPath = path
+            }
+            if link.sessionLink?.previousSessionPaths == nil, let paths = source.previousSessionPaths {
+                link.sessionLink?.previousSessionPaths = paths
+            }
+        }
+    }
+
     public static func reduce(state: inout AppState, action: Action) -> [Effect] {
         switch action {
 
@@ -852,13 +870,25 @@ public enum Reducer {
                             ClaudeBoardLog.info("store", "Cleared stale isLaunching on card=\(link.id.prefix(12))")
                             continue
                         }
-                        // Still launching, no activity yet — preserve
+                        // Still launching, no activity yet — preserve, but propagate session metadata
+                        if let reconciledSession = link.sessionLink {
+                            var updated = mergedLinks[link.id]!
+                            Self.propagateSessionMetadata(from: reconciledSession, to: &updated)
+                            mergedLinks[link.id] = updated
+                        }
                         preservedIds.insert(link.id)
                         continue
                     }
                     // In-memory state is newer → preserve it, skip stale reconciled data.
                     // The next reconciliation cycle (5s) will incorporate these changes.
+                    // But always propagate discovery-derived session metadata (slug, paths)
+                    // which is orthogonal to user state and should flow through regardless.
                     if existing.updatedAt > link.updatedAt {
+                        if let reconciledSession = link.sessionLink {
+                            var updated = mergedLinks[link.id]!
+                            Self.propagateSessionMetadata(from: reconciledSession, to: &updated)
+                            mergedLinks[link.id] = updated
+                        }
                         preservedIds.insert(link.id)
                         continue
                     }
