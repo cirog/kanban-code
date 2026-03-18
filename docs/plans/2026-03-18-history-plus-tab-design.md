@@ -57,6 +57,25 @@ Same mechanism as the existing History tab:
 - No change to `initialTab()` logic — History+ is opt-in by clicking the tab
 - Coexists with existing History tab (History+ is an eventual replacement, not immediate)
 
+### Skill Usage Display
+
+Skill invocations appear in the transcript in two forms:
+1. **Slash commands** — user turns containing `<command-name>/skill:name</command-name>` tags, already parsed by `TranscriptReader.parseLocalCommand()` into clean text like `superpowers:brainstorming args...`
+2. **Programmatic invocations** — assistant `.toolUse(name: "Skill")` blocks, currently filtered out by History tab
+
+**Display**: Skill invocations rendered as left-aligned bubbles with **Dracula cyan** (`#8be9fd` at ~12% opacity) background and a skill icon prefix. Visually distinct from both user (pink) and assistant (no background) messages. Shows the skill name prominently with args as secondary text.
+
+Detection: `HistoryPlusHTMLBuilder` checks each turn's text blocks for slash command patterns (starts with a skill namespace like `superpowers:`, `obsidian:`, `incontrol:`, etc.) and `.toolUse` blocks with `name == "Skill"`. Matched turns get `class="skill-msg"` instead of user/assistant classes.
+
+```css
+.skill-msg {
+    margin-right: 10%;
+    background: rgba(139, 233, 253, 0.12); /* Dracula cyan */
+    border: 1px solid rgba(139, 233, 253, 0.25);
+    font-size: 0.9em;
+}
+```
+
 ## Decisions
 
 - **Tool blocks hidden**: Only text content shown. Tool calls/results/thinking filtered out for readability. The existing History tab remains available for full detail.
