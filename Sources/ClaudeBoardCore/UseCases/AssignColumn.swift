@@ -65,6 +65,11 @@ public enum AssignColumn {
             return .backlog
         }
 
+        // Scheduled tasks without a terminal are completed runs → done
+        if let prompt = link.promptBody, prompt.contains("<scheduled-task"), link.tmuxLink == nil {
+            return .done
+        }
+
         // Recently active (within 24h) → waiting
         if let lastActivity = link.lastActivity {
             let hoursSinceActivity = Date.now.timeIntervalSince(lastActivity) / 3600
