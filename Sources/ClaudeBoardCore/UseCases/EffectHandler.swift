@@ -115,6 +115,28 @@ public actor EffectHandler {
                 ClaudeBoardLog.warn("todoist", "Failed to complete task \(todoistId): \(error)")
                 await dispatch(.setError("Todoist: failed to complete task \(todoistId): \(error.localizedDescription)"))
             }
+
+        case .killClaudeProcess(let sessionId):
+            await Self.killClaudeProcess(sessionId: sessionId)
+        }
+    }
+
+    /// Find and kill any `claude` CLI process whose arguments contain the given session ID.
+    private static func killClaudeProcess(sessionId: String) async {
+        do {
+            let result = try await ShellCommand.run("/bin/ps", arguments: ["ax", "-o", "pid=,args="])
+            let lines = result.stdout.components(separatedBy: "\n")
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.contains("claude") && trimmed.contains(sessionId) else { continue }
+                // Extract PID (first whitespace-delimited token)
+                guard let pidStr = trimmed.split(separator: " ").first,
+                      let pid = Int32(pidStr) else { continue }
+                kill(pid, SIGTERM)
+                ClaudeBoardLog.info("archive", "Killed claude process \(pid) for session \(sessionId.prefix(8))")
+            }
+        } catch {
+            ClaudeBoardLog.warn("archive", "Failed to find claude processes: \(error)")
         }
     }
 }

@@ -258,6 +258,7 @@ public enum Effect: Sendable {
     case sendPromptWithImagesToTmux(sessionName: String, promptBody: String, imagePaths: [String], assistant: CodingAssistant)
     case deleteFiles([String])
     case completeTodoistTask(todoistId: String)
+    case killClaudeProcess(sessionId: String)
 }
 
 // MARK: - Reducer
@@ -1079,6 +1080,9 @@ public enum Reducer {
             effects.append(.killTmuxSessions(tmux.allSessionNames))
             effects.append(.cleanupTerminalCache(sessionNames: tmux.allSessionNames))
             link.tmuxLink = nil
+        }
+        if let sessionId = link.sessionLink?.sessionId {
+            effects.append(.killClaudeProcess(sessionId: sessionId))
         }
         if let todoistId = link.todoistId {
             effects.append(.completeTodoistTask(todoistId: todoistId))
