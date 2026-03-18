@@ -360,6 +360,17 @@ public enum LinkSource: String, Codable, Sendable {
     case hook // Created via Claude hook event
     case manual // User-created task
     case todoist // Synced from Todoist
+
+    // Resilient decoding: unknown sources default to .discovered
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = LinkSource(rawValue: raw) ?? .discovered
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 /// A single content block within a conversation turn.

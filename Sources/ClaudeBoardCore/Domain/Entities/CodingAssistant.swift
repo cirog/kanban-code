@@ -4,6 +4,17 @@ import Foundation
 public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     case claude
 
+    // Resilient decoding: unknown assistants default to .claude
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = CodingAssistant(rawValue: raw) ?? .claude
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
     public var displayName: String {
         switch self {
         case .claude: "Claude Code"
