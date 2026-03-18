@@ -266,20 +266,20 @@ public enum Effect: Sendable {
 public enum Reducer {
     /// Propagate discovery-derived session metadata (slug, sessionPath, previousSessionPaths)
     /// from a reconciled link onto a preserved link, without overwriting existing values.
-    private static func propagateSessionMetadata(from source: SessionLink, to link: inout Link) {
-        if link.sessionLink == nil {
+    /// Returns true if any field was actually updated.
+    /// Note: sessionNumber is intentionally excluded — it's derived from the filename, not discovery.
+    @discardableResult
+    private static func propagateSessionMetadata(from source: SessionLink, to link: inout Link) -> Bool {
+        guard var sl = link.sessionLink else {
             link.sessionLink = source
-        } else {
-            if link.sessionLink?.slug == nil, let slug = source.slug {
-                link.sessionLink?.slug = slug
-            }
-            if link.sessionLink?.sessionPath == nil, let path = source.sessionPath {
-                link.sessionLink?.sessionPath = path
-            }
-            if link.sessionLink?.previousSessionPaths == nil, let paths = source.previousSessionPaths {
-                link.sessionLink?.previousSessionPaths = paths
-            }
+            return true
         }
+        var changed = false
+        if sl.slug == nil, let slug = source.slug { sl.slug = slug; changed = true }
+        if sl.sessionPath == nil, let path = source.sessionPath { sl.sessionPath = path; changed = true }
+        if sl.previousSessionPaths == nil, let paths = source.previousSessionPaths { sl.previousSessionPaths = paths; changed = true }
+        if changed { link.sessionLink = sl }
+        return changed
     }
 
     public static func reduce(state: inout AppState, action: Action) -> [Effect] {
@@ -851,6 +851,7 @@ public enum Reducer {
                     continue
                 }
                 if let existing = mergedLinks[link.id] {
+                    var shouldPreserve = false
                     if existing.isLaunching == true {
                         // Check if activity hook has confirmed the session is running
                         let activity = result.activityMap[existing.sessionLink?.sessionId ?? ""]
@@ -870,24 +871,21 @@ public enum Reducer {
                             ClaudeBoardLog.info("store", "Cleared stale isLaunching on card=\(link.id.prefix(12))")
                             continue
                         }
-                        // Still launching, no activity yet — preserve, but propagate session metadata
-                        if let reconciledSession = link.sessionLink {
-                            var updated = mergedLinks[link.id]!
-                            Self.propagateSessionMetadata(from: reconciledSession, to: &updated)
-                            mergedLinks[link.id] = updated
-                        }
-                        preservedIds.insert(link.id)
-                        continue
+                        // Still launching, no activity yet — preserve
+                        shouldPreserve = true
+                    } else if existing.updatedAt > link.updatedAt {
+                        // In-memory state is newer → preserve it, skip stale reconciled data.
+                        // The next reconciliation cycle (5s) will incorporate these changes.
+                        shouldPreserve = true
                     }
-                    // In-memory state is newer → preserve it, skip stale reconciled data.
-                    // The next reconciliation cycle (5s) will incorporate these changes.
-                    // But always propagate discovery-derived session metadata (slug, paths)
-                    // which is orthogonal to user state and should flow through regardless.
-                    if existing.updatedAt > link.updatedAt {
+                    if shouldPreserve {
+                        // Propagate discovery-derived session metadata (slug, paths) even on
+                        // preserved cards — these are orthogonal to user state.
                         if let reconciledSession = link.sessionLink {
-                            var updated = mergedLinks[link.id]!
-                            Self.propagateSessionMetadata(from: reconciledSession, to: &updated)
-                            mergedLinks[link.id] = updated
+                            var updated = existing
+                            if Self.propagateSessionMetadata(from: reconciledSession, to: &updated) {
+                                mergedLinks[link.id] = updated
+                            }
                         }
                         preservedIds.insert(link.id)
                         continue
