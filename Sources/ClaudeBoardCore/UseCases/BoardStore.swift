@@ -861,7 +861,15 @@ public enum Reducer {
                         continue
                     }
                 }
-                mergedLinks[link.id] = link
+                // Preserve manual name override — reconciler must not clobber user renames
+                if let existing = mergedLinks[link.id], existing.manualOverrides.name {
+                    var preserved = link
+                    preserved.name = existing.name
+                    preserved.manualOverrides.name = true
+                    mergedLinks[link.id] = preserved
+                } else {
+                    mergedLinks[link.id] = link
+                }
             }
 
             if !preservedIds.isEmpty {
