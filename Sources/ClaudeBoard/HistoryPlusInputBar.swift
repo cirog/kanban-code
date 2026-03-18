@@ -8,7 +8,7 @@ struct HistoryPlusInputBar: View {
     var onSend: (String) -> Void = { _ in }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             ZStack(alignment: .topLeading) {
                 if inputText.isEmpty {
                     Text("Type a message...")
@@ -19,7 +19,7 @@ struct HistoryPlusInputBar: View {
                 }
                 TextEditor(text: $inputText)
                     .scrollContentBackground(.hidden)
-                    .font(.system(size: 14))
+                    .font(.system(size: 16))
                     .foregroundStyle(Color(hex: "#F8F8F2"))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
