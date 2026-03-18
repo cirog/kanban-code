@@ -133,6 +133,9 @@ public enum CardReconciler {
             }
         }
 
+        // B. Merge cards that share the same slug (handles sessions discovered in same batch)
+        mergeDuplicateSlugs(&linksById)
+
         // C. Clear dead tmux links
         let liveTmuxNames = Set(snapshot.tmuxSessions.map(\.name))
         let didScanTmux = snapshot.didScanTmux
@@ -179,6 +182,64 @@ public enum CardReconciler {
         }
 
         return Array(linksById.values)
+    }
+
+    // MARK: - Slug Merge
+
+    /// Merge cards that ended up with the same slug on separate cards.
+    /// This happens when multiple context-continued sessions are discovered in the same batch —
+    /// each gets its own card via sessionId match, but they logically belong together.
+    private static func mergeDuplicateSlugs(_ linksById: inout [String: Link]) {
+        // Group non-archived cards by slug
+        var cardsBySlug: [String: [String]] = [:] // slug → [cardId]
+        for (id, link) in linksById {
+            guard !link.manuallyArchived,
+                  let slug = link.sessionLink?.slug, !slug.isEmpty else { continue }
+            cardsBySlug[slug, default: []].append(id)
+        }
+
+        for (slug, cardIds) in cardsBySlug where cardIds.count > 1 {
+            // Pick survivor: prefer card with manual overrides (name, column), then most recent activity
+            let sorted = cardIds.compactMap { linksById[$0] }.sorted { a, b in
+                let aHasOverrides = a.manualOverrides.name || a.manualOverrides.column
+                let bHasOverrides = b.manualOverrides.name || b.manualOverrides.column
+                if aHasOverrides != bHasOverrides { return aHasOverrides }
+                return (a.lastActivity ?? .distantPast) > (b.lastActivity ?? .distantPast)
+            }
+
+            guard var survivor = sorted.first else { continue }
+            let losers = sorted.dropFirst()
+
+            // Collect all session paths from losers into previousSessionPaths
+            var prevPaths = survivor.sessionLink?.previousSessionPaths ?? []
+            for loser in losers {
+                if let path = loser.sessionLink?.sessionPath {
+                    prevPaths.append(path)
+                }
+                if let loserPrev = loser.sessionLink?.previousSessionPaths {
+                    prevPaths.append(contentsOf: loserPrev)
+                }
+                // Absorb tmuxLink if survivor doesn't have one
+                if survivor.tmuxLink == nil, let tmux = loser.tmuxLink {
+                    survivor.tmuxLink = tmux
+                }
+                // Absorb queued prompts
+                if let prompts = loser.queuedPrompts {
+                    survivor.queuedPrompts = (survivor.queuedPrompts ?? []) + prompts
+                }
+                // Remove loser
+                linksById.removeValue(forKey: loser.id)
+            }
+
+            survivor.sessionLink?.previousSessionPaths = prevPaths.isEmpty ? nil : prevPaths
+            // Update activity to most recent across all merged cards
+            if let newestActivity = sorted.compactMap(\.lastActivity).max() {
+                survivor.lastActivity = newestActivity
+            }
+            linksById[survivor.id] = survivor
+
+            ClaudeBoardLog.info("reconciler", "Merged \(cardIds.count) cards with slug=\(slug) → survivor=\(survivor.id.prefix(12))")
+        }
     }
 
     // MARK: - Private
