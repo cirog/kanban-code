@@ -187,6 +187,56 @@ struct HistoryPlusHTMLBuilderTests {
         #expect(css.contains("139, 233, 253"))  // Dracula cyan (#8be9fd) in rgba
     }
 
+    @Test("URL-like patterns are NOT detected as skill invocations")
+    func urlPatternsNotSkill() {
+        let cases = [
+            "http:something",
+            "https://example.com",
+            "ftp://server.local/file",
+            "mailto:user@example.com",
+        ]
+        for text in cases {
+            let turns: [ConversationTurn] = [
+                ConversationTurn(
+                    index: 0, lineNumber: 0, role: "user",
+                    textPreview: text,
+                    contentBlocks: [ContentBlock(kind: .text, text: text)]
+                ),
+            ]
+            let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+            #expect(!html.contains("skill-msg"), "'\(text)' should NOT be a skill-msg")
+            #expect(html.contains("user-msg"), "'\(text)' should be a normal user-msg")
+        }
+    }
+
+    @Test("Short namespace like 're:' is NOT detected as skill")
+    func shortNamespaceNotSkill() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "re:meeting notes",
+                contentBlocks: [ContentBlock(kind: .text, text: "re:meeting notes")]
+            ),
+        ]
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        #expect(!html.contains("skill-msg"))
+        #expect(html.contains("user-msg"))
+    }
+
+    @Test("Valid skill pattern ic:daily-check still detected")
+    func validSkillStillDetected() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "ic:daily-check",
+                contentBlocks: [ContentBlock(kind: .text, text: "ic:daily-check")]
+            ),
+        ]
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        #expect(html.contains("skill-msg"))
+        #expect(!html.contains("user-msg"))
+    }
+
     @Test("Chat CSS contains user-msg and assistant-msg rules")
     func chatCSSContainsRules() {
         let css = HistoryPlusHTMLBuilder.chatCSS

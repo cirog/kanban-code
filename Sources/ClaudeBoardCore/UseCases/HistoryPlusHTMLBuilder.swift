@@ -96,12 +96,14 @@ public enum HistoryPlusHTMLBuilder {
             }
         }
         // Check for slash command invocations (user text starting with namespace:name pattern)
+        // Require namespace ≥2 chars, name ≥2 chars, and reject URL-scheme prefixes
         for block in turn.contentBlocks {
             if case .text = block.kind {
                 let text = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Match patterns like "superpowers:brainstorming args" or "obsidian:obsidian-cli"
-                if let match = text.range(of: #"^[\w-]+:[\w-]+"#, options: .regularExpression) {
+                if let match = text.range(of: #"^[\w-]{2,}:[\w-]{2,}"#, options: .regularExpression) {
                     let skillName = String(text[match])
+                    let namespace = skillName.prefix(while: { $0 != ":" })
+                    guard !["http", "https", "ftp", "ftps", "mailto", "tel", "ssh", "data", "re", "fw", "fwd"].contains(String(namespace)) else { continue }
                     let args = String(text[match.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
                     if args.isEmpty {
                         return "**Skill** `\(skillName)`"

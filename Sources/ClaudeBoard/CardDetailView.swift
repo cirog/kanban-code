@@ -225,9 +225,11 @@ struct CardDetailView: View {
             // Reset tab to a valid one for this card (skip auto-focus)
             suppressTerminalFocus = true
             selectedTab = defaultTab(for: card)
-            await loadHistory()
             if selectedTab == .history {
+                await loadFullHistory()
                 startHistoryWatcher()
+            } else {
+                await loadHistory()
             }
             // After setup, focus terminal if this card has one and landed on terminal tab
             if selectedTab == .terminal && card.link.tmuxLink != nil {
@@ -1437,6 +1439,16 @@ struct CardDetailView: View {
 
     private static let pageSize = 80
 
+    private func loadFullHistory() async {
+        guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
+        isLoadingHistory = true
+        do {
+            turns = try await TranscriptReader.readTurns(from: path)
+            hasMoreTurns = false
+        } catch { }
+        isLoadingHistory = false
+    }
+
     private func loadHistory() async {
         guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
         if turns.isEmpty { isLoadingHistory = true }
@@ -1567,9 +1579,7 @@ struct CardDetailView: View {
             }
         }
         if selectedTab == .history {
-            if selectedTab == .history {
-                Task { await loadHistory() }
-            }
+            Task { await loadFullHistory() }
             startHistoryWatcher()
         } else {
             stopHistoryWatcher()
