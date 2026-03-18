@@ -2085,6 +2085,11 @@ struct ContentView: View {
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
         let projectPath = resolveProjectPath(card: card)
 
+        // Clear stale terminal so TerminalCache creates a fresh one for the new tmux session
+        if let oldTmux = card.link.tmuxLink?.sessionName {
+            TerminalCache.shared.remove(oldTmux)
+        }
+
         launchConfig = LaunchConfig(
             cardId: cardId,
             projectPath: projectPath,
@@ -2135,6 +2140,11 @@ struct ContentView: View {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
         let projectPath = resolveProjectPath(card: card)
+
+        // Clear stale terminal so TerminalCache creates a fresh one for the new tmux session
+        if let oldTmux = card.link.tmuxLink?.sessionName {
+            TerminalCache.shared.remove(oldTmux)
+        }
 
         store.dispatch(.resumeCard(cardId: cardId))
         shouldFocusTerminal = true
