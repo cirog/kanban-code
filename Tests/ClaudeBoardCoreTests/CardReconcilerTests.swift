@@ -300,6 +300,58 @@ struct CardReconcilerTests {
         #expect(result.mergedAwayCardIds.isEmpty)
     }
 
+    @Test("Repeated reconciliation does not duplicate previousSessionPaths")
+    func noDuplicatePaths() {
+        // Simulates the scenario where reconciliation runs repeatedly on a card
+        // that was already merged — sessions match by slug each cycle
+        let survivor = Link(
+            id: "card-1",
+            projectPath: "/test",
+            column: .done,
+            lastActivity: .now,
+            source: .discovered,
+            sessionLink: SessionLink(
+                sessionId: "session-3",
+                sessionPath: "/path/to/session-3.jsonl",
+                slug: "repeated-slug",
+                previousSessionPaths: ["/path/to/session-1.jsonl", "/path/to/session-2.jsonl"]
+            )
+        )
+
+        // All three sessions show up again (as they do every cycle)
+        var s1 = Session(id: "session-1"); s1.projectPath = "/test"
+        s1.jsonlPath = "/path/to/session-1.jsonl"; s1.slug = "repeated-slug"
+        s1.messageCount = 5; s1.modifiedTime = Date(timeIntervalSince1970: 1000)
+        var s2 = Session(id: "session-2"); s2.projectPath = "/test"
+        s2.jsonlPath = "/path/to/session-2.jsonl"; s2.slug = "repeated-slug"
+        s2.messageCount = 5; s2.modifiedTime = Date(timeIntervalSince1970: 2000)
+        var s3 = Session(id: "session-3"); s3.projectPath = "/test"
+        s3.jsonlPath = "/path/to/session-3.jsonl"; s3.slug = "repeated-slug"
+        s3.messageCount = 5; s3.modifiedTime = Date(timeIntervalSince1970: 3000)
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [s1, s2, s3],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        // Run reconciliation twice to simulate repeated cycles
+        let result1 = CardReconciler.reconcile(existing: [survivor], snapshot: snapshot)
+        #expect(result1.links.count == 1)
+        let after1 = result1.links.first!
+        let paths1 = after1.sessionLink?.previousSessionPaths ?? []
+
+        let result2 = CardReconciler.reconcile(existing: [after1], snapshot: snapshot)
+        #expect(result2.links.count == 1)
+        let after2 = result2.links.first!
+        let paths2 = after2.sessionLink?.previousSessionPaths ?? []
+
+        // Paths should be stable — no growth across cycles
+        #expect(paths1.count == paths2.count, "previousSessionPaths grew from \(paths1.count) to \(paths2.count) across cycles")
+        // Should have exactly 2 previous paths (session-1 and session-2), not session-3 (that's the current)
+        #expect(paths2.count == 2)
+    }
+
     @Test("Exact sessionId match takes priority over slug match")
     func sessionIdPriorityOverSlug() {
         // Two cards: one with exact sessionId, one with same slug

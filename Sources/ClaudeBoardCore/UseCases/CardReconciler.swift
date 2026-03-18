@@ -92,15 +92,20 @@ public enum CardReconciler {
                 } else if link.sessionLink?.sessionId != session.id {
                     // Slug match with different sessionId → chain sessions
                     ClaudeBoardLog.info("reconciler", "Chaining session \(session.id.prefix(8)) to card \(cardId.prefix(12)) via slug")
-                    var prevPaths = link.sessionLink?.previousSessionPaths ?? []
+                    var pathSet = Set(link.sessionLink?.previousSessionPaths ?? [])
                     if let oldPath = link.sessionLink?.sessionPath {
-                        prevPaths.append(oldPath)
+                        pathSet.insert(oldPath)
                     }
+                    // Don't include the new session's own path in previous
+                    if let newPath = session.jsonlPath {
+                        pathSet.remove(newPath)
+                    }
+                    let dedupedPaths = pathSet.sorted()
                     link.sessionLink = SessionLink(
                         sessionId: session.id,
                         sessionPath: session.jsonlPath,
                         slug: session.slug,
-                        previousSessionPaths: prevPaths.isEmpty ? nil : prevPaths
+                        previousSessionPaths: dedupedPaths.isEmpty ? nil : dedupedPaths
                     )
                     cardIdBySessionId[session.id] = link.id
                 } else {
@@ -218,14 +223,14 @@ public enum CardReconciler {
             guard var survivor = sorted.first else { continue }
             let losers = sorted.dropFirst()
 
-            // Collect all session paths from losers into previousSessionPaths
-            var prevPaths = survivor.sessionLink?.previousSessionPaths ?? []
+            // Collect all session paths from losers into previousSessionPaths (deduplicated)
+            var pathSet = Set(survivor.sessionLink?.previousSessionPaths ?? [])
             for loser in losers {
                 if let path = loser.sessionLink?.sessionPath {
-                    prevPaths.append(path)
+                    pathSet.insert(path)
                 }
                 if let loserPrev = loser.sessionLink?.previousSessionPaths {
-                    prevPaths.append(contentsOf: loserPrev)
+                    pathSet.formUnion(loserPrev)
                 }
                 // Absorb tmuxLink if survivor doesn't have one
                 if survivor.tmuxLink == nil, let tmux = loser.tmuxLink {
@@ -240,7 +245,12 @@ public enum CardReconciler {
                 removedIds.insert(loser.id)
             }
 
-            survivor.sessionLink?.previousSessionPaths = prevPaths.isEmpty ? nil : prevPaths
+            // Don't include the survivor's own current session path
+            if let currentPath = survivor.sessionLink?.sessionPath {
+                pathSet.remove(currentPath)
+            }
+            let dedupedPaths = pathSet.sorted()
+            survivor.sessionLink?.previousSessionPaths = dedupedPaths.isEmpty ? nil : dedupedPaths
             // Update activity to most recent across all merged cards
             if let newestActivity = sorted.compactMap(\.lastActivity).max() {
                 survivor.lastActivity = newestActivity
