@@ -1,4 +1,4 @@
-.PHONY: build test run app run-app clean
+.PHONY: build test run app run-app deploy clean
 
 BUNDLE_NAME = ClaudeBoard.app
 BUNDLE_DIR = build/$(BUNDLE_NAME)
@@ -56,6 +56,18 @@ app: build
 
 run-app: app
 	open $(BUNDLE_DIR)
+
+deploy: app
+	@echo "Stopping ClaudeBoard..."
+	@pkill -x ClaudeBoard 2>/dev/null; sleep 1
+	@echo "Deploying to /Applications..."
+	@rm -rf /Applications/$(BUNDLE_NAME)
+	@cp -R $(BUNDLE_DIR) /Applications/$(BUNDLE_NAME)
+	@echo "Registering with Launch Services..."
+	@/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f /Applications/$(BUNDLE_NAME) 2>/dev/null || true
+	@echo "Launching /Applications/$(BUNDLE_NAME)..."
+	@open /Applications/$(BUNDLE_NAME)
+	@echo "Deployed and running from /Applications."
 
 clean:
 	swift package clean

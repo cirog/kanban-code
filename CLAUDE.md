@@ -5,8 +5,11 @@
 ```bash
 swift build          # build the app
 swift test           # run all tests
-make run-app         # build + launch the app
+make deploy          # build, kill old instance, deploy to /Applications, relaunch
+make run-app         # build + launch from build/ (dev only, NOT for deployment)
 ```
+
+**Always use `make deploy`** when launching or restarting ClaudeBoard. Never open from `build/` — that leaves a stale binary in `/Applications` and can cause dual-instance conflicts.
 
 ## Test-Driven Development (mandatory)
 
