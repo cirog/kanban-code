@@ -68,8 +68,8 @@ struct ContentView: View {
         nonmutating set { store.dispatch(.setPaletteOpen(newValue)) }
     }
     private var isExpandedDetail: Bool {
-        get { store.state.detailExpanded }
-        nonmutating set { store.dispatch(.setDetailExpanded(newValue)) }
+        get { false }
+        nonmutating set { /* expand disabled */ }
     }
     @State private var detailTab: DetailTab = .terminal
     @State private var actionsMenuProvider = ActionsMenuProvider()
@@ -807,55 +807,6 @@ struct ContentView: View {
                     }
                 }
 
-                if isExpandedDetail, let card = store.state.cards.first(where: { $0.id == store.state.selectedCardId }) {
-                    ToolbarItemGroup(placement: .navigation) {
-                        HStack {
-                            Text("⠀⠀" + card.displayTitle)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: 200)
-
-                            if card.link.cardLabel == .session {
-                                Text(card.relativeTime)
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                                    .fixedSize()
-                            }
-
-                            Picker("", selection: $detailTab) {
-                                Text("Terminal").tag(DetailTab.terminal)
-                                Text("History").tag(DetailTab.history)
-                                if card.link.promptBody != nil { Text("Prompt").tag(DetailTab.prompt) }
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-                            .fixedSize()
-                        }
-                    }
-
-                    ToolbarItem(placement: .primaryAction) {
-                        Button { isExpandedDetail = false } label: {
-                            Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        }
-                        .help("Contract (⌘⏎)")
-                    }
-
-                    ToolbarItem(placement: .primaryAction) {
-                        if let path = card.link.projectPath {
-                            Button {
-                                EditorDiscovery.open(path: path, bundleId: editorBundleId)
-                            } label: {
-                                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            }
-                            .help("Open in editor")
-                        }
-                    }
-
-                    ToolbarItem(placement: .primaryAction) {
-                        expandedActionsMenu
-                    }
-                }
-
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showDonePopover.toggle()
@@ -1101,8 +1052,6 @@ struct ContentView: View {
             let ctx = shortcutContext
             if AppShortcut.deepSearch.isActive(in: ctx) {
                 deepSearchTrigger.toggle()
-            } else if AppShortcut.toggleExpanded.isActive(in: ctx) {
-                isExpandedDetail.toggle()
             }
         }
         .keyboardShortcut(AppShortcut.toggleExpanded.key, modifiers: AppShortcut.toggleExpanded.modifiers)

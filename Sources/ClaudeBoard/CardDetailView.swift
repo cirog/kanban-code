@@ -193,9 +193,7 @@ struct CardDetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !isExpanded {
-                normalHeader
-            }
+            normalHeader
 
             // Content
             switch selectedTab {
@@ -1306,8 +1304,6 @@ struct CardDetailView: View {
                         .help(isStart ? "Start work on this task" : "Resume session")
                     }
 
-                    expandCollapseButton
-
                     if let path = card.link.projectPath {
                         Button {
                             EditorDiscovery.open(path: path, bundleId: editorBundleId)
@@ -1388,24 +1384,6 @@ struct CardDetailView: View {
         .padding(.vertical, 8)
     }
 
-    // MARK: - Expand/Collapse Button
-
-    private var expandCollapseButton: some View {
-        Button {
-            isExpanded.toggle()
-        } label: {
-            Image(systemName: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                .font(.app(size: 13))
-                .frame(width: CGFloat(36).scaled, height: CGFloat(36).scaled)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular, in: .capsule)
-        .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
-        .modifier(HoverBrightness())
-        .help(isExpanded ? "Contract (⌘⏎)" : "Expand (⌘⏎)")
-    }
-
     private var actionsMenuButton: some View {
         NSMenuButton {
             Image(systemName: "ellipsis")
@@ -1419,13 +1397,6 @@ struct CardDetailView: View {
 
     private func buildActionsMenu() -> NSMenu {
         let menu = NSMenu()
-
-        if isExpanded {
-            menu.addActionItem("View Details", image: "info.circle") { [self] in
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded = false }
-            }
-            menu.addItem(NSMenuItem.separator())
-        }
 
         menu.addActionItem("Rename", image: "pencil") { [self] in showRenameSheet = true }
 
