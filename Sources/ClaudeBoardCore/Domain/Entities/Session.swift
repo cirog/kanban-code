@@ -7,6 +7,7 @@ public struct Session: Identifiable, Sendable {
     public var firstPrompt: String? // First user message text
     public var projectPath: String? // Decoded project directory path
     public var gitBranch: String? // Git branch if in a worktree
+    public var slug: String? // Conversation continuity identifier (shared across context resets)
     public var messageCount: Int
     public var modifiedTime: Date
     public var jsonlPath: String? // Full path to the session file (.jsonl or .json)
@@ -18,6 +19,7 @@ public struct Session: Identifiable, Sendable {
         firstPrompt: String? = nil,
         projectPath: String? = nil,
         gitBranch: String? = nil,
+        slug: String? = nil,
         messageCount: Int = 0,
         modifiedTime: Date = .now,
         jsonlPath: String? = nil,
@@ -28,6 +30,7 @@ public struct Session: Identifiable, Sendable {
         self.firstPrompt = firstPrompt
         self.projectPath = projectPath
         self.gitBranch = gitBranch
+        self.slug = slug
         self.messageCount = messageCount
         self.modifiedTime = modifiedTime
         self.jsonlPath = jsonlPath

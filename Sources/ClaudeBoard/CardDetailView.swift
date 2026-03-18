@@ -1440,12 +1440,31 @@ struct CardDetailView: View {
     private static let pageSize = 80
 
     private func loadFullHistory() async {
-        guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
+        guard let currentPath = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
         isLoadingHistory = true
-        do {
-            turns = try await TranscriptReader.readTurns(from: path)
-            hasMoreTurns = false
-        } catch { }
+        var allTurns: [ConversationTurn] = []
+        // Load previous chained sessions first (oldest to newest)
+        for prevPath in card.link.sessionLink?.previousSessionPaths ?? [] {
+            if let prev = try? await TranscriptReader.readTurns(from: prevPath) {
+                allTurns.append(contentsOf: prev)
+            }
+        }
+        // Load current session
+        if let current = try? await TranscriptReader.readTurns(from: currentPath) {
+            allTurns.append(contentsOf: current)
+        }
+        // Re-index turns sequentially so scroll/search works correctly
+        turns = allTurns.enumerated().map { idx, turn in
+            ConversationTurn(
+                index: idx,
+                lineNumber: turn.lineNumber,
+                role: turn.role,
+                textPreview: turn.textPreview,
+                timestamp: turn.timestamp,
+                contentBlocks: turn.contentBlocks
+            )
+        }
+        hasMoreTurns = false
         isLoadingHistory = false
     }
 

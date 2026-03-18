@@ -10,6 +10,7 @@ public enum JsonlParser {
         public var firstPrompt: String?
         public var projectPath: String?
         public var gitBranch: String?
+        public var slug: String?
         public var messageCount: Int
 
         public init(
@@ -17,12 +18,14 @@ public enum JsonlParser {
             firstPrompt: String? = nil,
             projectPath: String? = nil,
             gitBranch: String? = nil,
+            slug: String? = nil,
             messageCount: Int = 0
         ) {
             self.sessionId = sessionId
             self.firstPrompt = firstPrompt
             self.projectPath = projectPath
             self.gitBranch = gitBranch
+            self.slug = slug
             self.messageCount = messageCount
         }
     }
@@ -63,6 +66,11 @@ public enum JsonlParser {
             // Extract git branch
             if metadata.gitBranch == nil, let branch = obj["gitBranch"] as? String {
                 metadata.gitBranch = branch
+            }
+
+            // Extract conversation slug (continuity identifier across context resets)
+            if metadata.slug == nil, let slug = obj["slug"] as? String {
+                metadata.slug = slug
             }
 
             if type == "user" || type == "assistant" {

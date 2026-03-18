@@ -108,6 +108,9 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
                     if session.gitBranch == nil {
                         session.gitBranch = metadata.gitBranch
                     }
+                    if session.slug == nil {
+                        session.slug = metadata.slug
+                    }
 
                     cachedSessions[sessionId] = session
                 } else if let entry = indexEntry {

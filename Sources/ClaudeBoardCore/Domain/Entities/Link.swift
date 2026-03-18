@@ -7,11 +7,15 @@ public struct SessionLink: Codable, Sendable, Equatable {
     public var sessionId: String
     public var sessionPath: String?
     public var sessionNumber: Int?
+    public var slug: String?
+    public var previousSessionPaths: [String]?
 
-    public init(sessionId: String, sessionPath: String? = nil, sessionNumber: Int? = nil) {
+    public init(sessionId: String, sessionPath: String? = nil, sessionNumber: Int? = nil, slug: String? = nil, previousSessionPaths: [String]? = nil) {
         self.sessionId = sessionId
         self.sessionPath = sessionPath
         self.sessionNumber = sessionNumber
+        self.slug = slug
+        self.previousSessionPaths = previousSessionPaths
     }
 }
 

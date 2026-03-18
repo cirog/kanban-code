@@ -190,6 +190,37 @@ struct JsonlParserTests {
         #expect(args == nil)
     }
 
+    // MARK: - Slug extraction
+
+    @Test("Extracts slug from JSONL metadata")
+    func extractsSlug() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+
+        let path = try writeJsonl(dir, "slug-1.jsonl", [
+            #"{"type":"progress","sessionId":"slug-1","cwd":"/test","slug":"cozy-moseying-pudding"}"#,
+            #"{"type":"user","sessionId":"slug-1","message":{"content":"Hello"},"cwd":"/test","slug":"cozy-moseying-pudding"}"#,
+            #"{"type":"assistant","sessionId":"slug-1","message":{"content":[{"type":"text","text":"Hi"}]}}"#,
+        ])
+
+        let metadata = try await JsonlParser.extractMetadata(from: path)
+        #expect(metadata?.slug == "cozy-moseying-pudding")
+    }
+
+    @Test("Slug is nil when not present in JSONL")
+    func slugNilWhenMissing() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+
+        let path = try writeJsonl(dir, "no-slug.jsonl", [
+            #"{"type":"user","sessionId":"no-slug","message":{"content":"Hello"},"cwd":"/test"}"#,
+            #"{"type":"assistant","sessionId":"no-slug","message":{"content":[{"type":"text","text":"Hi"}]}}"#,
+        ])
+
+        let metadata = try await JsonlParser.extractMetadata(from: path)
+        #expect(metadata?.slug == nil)
+    }
+
     @Test("isCaveatMessage detects isMeta flag")
     func caveatDetection() {
         let caveat: [String: Any] = ["type": "user", "isMeta": true, "message": ["content": "test"]]

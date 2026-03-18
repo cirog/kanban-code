@@ -39,10 +39,14 @@ public enum CardReconciler {
         // Build reverse indexes for matching
         var cardIdBySessionId: [String: String] = [:]
         var cardIdByTmuxName: [String: String] = [:]
+        var cardIdBySlug: [String: String] = [:]
 
         for link in existing {
             if let sid = link.sessionLink?.sessionId {
                 cardIdBySessionId[sid] = link.id
+            }
+            if let slug = link.sessionLink?.slug, !slug.isEmpty {
+                cardIdBySlug[slug] = link.id
             }
             if let tmux = link.tmuxLink {
                 for name in tmux.allSessionNames {
@@ -59,6 +63,7 @@ public enum CardReconciler {
             let cardId = findCardForSession(
                 session: session,
                 cardIdBySessionId: cardIdBySessionId,
+                cardIdBySlug: cardIdBySlug,
                 cardIdByTmuxName: cardIdByTmuxName,
                 linksById: linksById
             )
@@ -74,12 +79,30 @@ public enum CardReconciler {
                     ClaudeBoardLog.info("reconciler", "Linking session \(session.id.prefix(8)) to existing card \(cardId.prefix(12))")
                     link.sessionLink = SessionLink(
                         sessionId: session.id,
-                        sessionPath: session.jsonlPath
+                        sessionPath: session.jsonlPath,
+                        slug: session.slug
+                    )
+                    cardIdBySessionId[session.id] = link.id
+                } else if link.sessionLink?.sessionId != session.id {
+                    // Slug match with different sessionId → chain sessions
+                    ClaudeBoardLog.info("reconciler", "Chaining session \(session.id.prefix(8)) to card \(cardId.prefix(12)) via slug")
+                    var prevPaths = link.sessionLink?.previousSessionPaths ?? []
+                    if let oldPath = link.sessionLink?.sessionPath {
+                        prevPaths.append(oldPath)
+                    }
+                    link.sessionLink = SessionLink(
+                        sessionId: session.id,
+                        sessionPath: session.jsonlPath,
+                        slug: session.slug,
+                        previousSessionPaths: prevPaths.isEmpty ? nil : prevPaths
                     )
                     cardIdBySessionId[session.id] = link.id
                 } else {
-                    // Update existing session link
+                    // Same sessionId — update path and slug
                     link.sessionLink?.sessionPath = session.jsonlPath
+                    if let slug = session.slug {
+                        link.sessionLink?.slug = slug
+                    }
                 }
                 link.lastActivity = session.modifiedTime
                 if link.projectPath == nil, let pp = session.projectPath {
@@ -97,11 +120,15 @@ public enum CardReconciler {
                     source: .discovered,
                     sessionLink: SessionLink(
                         sessionId: session.id,
-                        sessionPath: session.jsonlPath
+                        sessionPath: session.jsonlPath,
+                        slug: session.slug
                     )
                 )
                 linksById[newLink.id] = newLink
                 cardIdBySessionId[session.id] = newLink.id
+                if let slug = session.slug {
+                    cardIdBySlug[slug] = newLink.id
+                }
                 matchedSessionIds.insert(session.id)
             }
         }
@@ -157,10 +184,11 @@ public enum CardReconciler {
     // MARK: - Private
 
     /// Find an existing card that should own this session.
-    /// Match priority: exact sessionId → project path + tmux.
+    /// Match priority: exact sessionId → project path + tmux → promptBody → slug.
     private static func findCardForSession(
         session: Session,
         cardIdBySessionId: [String: String],
+        cardIdBySlug: [String: String],
         cardIdByTmuxName: [String: String],
         linksById: [String: Link]
     ) -> String? {
@@ -197,6 +225,12 @@ public enum CardReconciler {
                     return link.id
                 }
             }
+        }
+
+        // 4. Match by slug (context-continued session shares same conversation slug)
+        if let slug = session.slug, !slug.isEmpty, let cardId = cardIdBySlug[slug] {
+            ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by slug=\(slug) → card=\(cardId.prefix(12))")
+            return cardId
         }
 
         ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) projectPath=\(session.projectPath ?? "nil") → NO MATCH")
