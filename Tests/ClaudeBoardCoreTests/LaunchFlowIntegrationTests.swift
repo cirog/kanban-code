@@ -143,7 +143,7 @@ struct LaunchFlowIntegrationTests {
         // Step 1: launchCard — sets isLaunching, column, tmuxLink
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_lifecycle", prompt: "test", projectPath: "/tmp",
-            worktreeName: nil, commandOverride: nil
+            commandOverride: nil
         ))
         #expect(state.links["card_lifecycle"]?.isLaunching == true)
         #expect(state.links["card_lifecycle"]?.column == .inProgress)
@@ -196,49 +196,6 @@ struct LaunchFlowIntegrationTests {
         #expect(state.links["card_ready"]?.tmuxLink?.sessionName == "project-card_ready")
         #expect(state.links["card_ready"]?.lastActivity != nil)
     }
-
-    // MARK: - Empty worktreeName handling
-
-    @Test("launchCard with empty worktreeName uses cardId for tmux name (no collision)")
-    func emptyWorktreeNameUsesCardId() {
-        let card1 = makeLink(id: "card_emp1", column: .backlog, projectPath: "/test/project")
-        let card2 = makeLink(id: "card_emp2", column: .backlog, projectPath: "/test/project")
-        var state = stateWith([card1, card2])
-
-        // Launch with empty string worktreeName (treated as nil)
-        let _ = Reducer.reduce(state: &state, action: .launchCard(
-            cardId: "card_emp1", prompt: "test", projectPath: "/test/project",
-            worktreeName: "", commandOverride: nil
-        ))
-        let _ = Reducer.reduce(state: &state, action: .launchCard(
-            cardId: "card_emp2", prompt: "test", projectPath: "/test/project",
-            worktreeName: "", commandOverride: nil
-        ))
-
-        let name1 = state.links["card_emp1"]?.tmuxLink?.sessionName ?? ""
-        let name2 = state.links["card_emp2"]?.tmuxLink?.sessionName ?? ""
-
-        // Must be different — empty worktreeName should fallback to cardId
-        #expect(name1 != name2, "Empty worktreeName must not create identical tmux names")
-        #expect(name1.contains("card_emp1"), "Should contain card ID for uniqueness")
-        #expect(name2.contains("card_emp2"), "Should contain card ID for uniqueness")
-    }
-
-    @Test("launchCard with nil worktreeName uses cardId for tmux name")
-    func nilWorktreeNameUsesCardId() {
-        let card = makeLink(id: "card_nil_wt", column: .backlog, projectPath: "/test/project")
-        var state = stateWith([card])
-
-        let _ = Reducer.reduce(state: &state, action: .launchCard(
-            cardId: "card_nil_wt", prompt: "test", projectPath: "/test/project",
-            worktreeName: nil, commandOverride: nil
-        ))
-
-        let name = state.links["card_nil_wt"]?.tmuxLink?.sessionName ?? ""
-        #expect(name == "project-card_nil_wt")
-    }
-
-    // Worktree and PR tests removed (features stripped)
 
     // MARK: - Launch failure reverts state
 
@@ -424,7 +381,7 @@ struct LaunchFlowIntegrationTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_e2e", prompt: "test", projectPath: "/tmp",
-            worktreeName: nil, commandOverride: nil
+            commandOverride: nil
         ))
 
         // Override tmux name for test control

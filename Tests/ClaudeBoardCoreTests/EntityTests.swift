@@ -42,8 +42,6 @@ struct EntityTests {
         #expect(ClaudeBoardColumn.done.allowsBoardTaskCreation)
     }
 
-    // Worktree test removed (worktree feature stripped)
-
     @Test("Project effectiveRepoRoot uses repoRoot when set")
     func projectRepoRoot() {
         let p = Project(path: "/a/b/langwatch", repoRoot: "/a/b")

@@ -10,7 +10,7 @@ public enum ActivityState: String, Codable, Sendable {
     case idleWaiting = "idle_waiting"
     /// Session process has ended.
     case ended
-    /// Session is old with no process, worktree, or tmux session.
+    /// Session is old with no process or tmux session.
     case stale
 
     /// Priority for composite activity detection: higher = more informative.

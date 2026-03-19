@@ -99,7 +99,7 @@ struct ReducerTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_l1", prompt: "test", projectPath: "/test",
-            worktreeName: nil, commandOverride: nil
+            commandOverride: nil
         ))
 
         #expect(state.links["card_l1"]?.column == .inProgress)
@@ -536,11 +536,11 @@ struct ReducerTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_a1", prompt: "test", projectPath: "/test/project",
-            worktreeName: nil, commandOverride: nil
+            commandOverride: nil
         ))
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_b2", prompt: "test", projectPath: "/test/project",
-            worktreeName: nil, commandOverride: nil
+            commandOverride: nil
         ))
 
         let name1 = state.links["card_a1"]?.tmuxLink?.sessionName ?? ""
@@ -557,13 +557,11 @@ struct ReducerTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_cl1", prompt: "test", projectPath: "/test",
-            worktreeName: nil, commandOverride: nil
+            commandOverride: nil
         ))
 
         #expect(state.links["card_cl1"]?.tmuxLink?.isShellOnly != true)
     }
-
-    // Worktree dedup tests removed (worktree feature stripped)
 
     // MARK: - Merge Cards
 
@@ -645,8 +643,6 @@ struct ReducerTests {
         #expect(state.error != nil)
         #expect(effects.isEmpty)
     }
-
-    // mergeCards issue/PR tests removed (GitHub integration stripped)
 
     @Test("mergeCards preserves target fields over source")
     func mergePreservesTargetFields() {
@@ -744,8 +740,6 @@ struct ReducerTests {
         #expect(effects.isEmpty)
     }
 
-    // mergeCards isRemote test removed (remote feature stripped)
-
     // MARK: - Update Notes
 
     @Test("updateNotes sets notes on card")
@@ -790,8 +784,6 @@ struct ReducerTests {
         let target = Link(id: "b", column: .inProgress, tmuxLink: TmuxLink(sessionName: "t2"))
         #expect(Link.mergeBlocked(source: source, target: target) != nil)
     }
-
-    // Worktree merge blocked tests removed (worktree feature stripped)
 
     @Test("mergeBlocked detects self-merge")
     func mergeBlockedSelf() {
@@ -1296,7 +1288,7 @@ struct ReducerTests {
 
         let _ = Reducer.reduce(state: &state, action: .launchCard(
             cardId: "card_ti10", prompt: "test", projectPath: "/test/project",
-            worktreeName: nil, commandOverride: nil
+            commandOverride: nil
         ))
 
         // Shell primary moved to extras

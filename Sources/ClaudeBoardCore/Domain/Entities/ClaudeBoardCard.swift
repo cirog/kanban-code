@@ -6,8 +6,7 @@ public struct ClaudeBoardCard: Identifiable, Sendable {
     public let link: Link
     public let session: Session?
     public let activityState: ActivityState?
-    /// True when an async operation is in progress on this card
-    /// (terminal creating, PR discovery).
+    /// True when an async operation is in progress on this card (terminal creating).
     public let isBusy: Bool
 
     public init(link: Link, session: Session? = nil, activityState: ActivityState? = nil, isBusy: Bool = false) {

@@ -40,10 +40,6 @@ struct CodingAssistantTests {
         #expect(CodingAssistant.claude.resumeFlag == "--resume")
     }
 
-    // MARK: - Capabilities
-
-    // Worktree and image upload capability tests removed (features stripped)
-
     // MARK: - Config Directory
 
     @Test("Claude config dir")

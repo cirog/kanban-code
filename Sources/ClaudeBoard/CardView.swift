@@ -311,7 +311,7 @@ struct CardLabelBadge: View {
 
 // MARK: - Card Badges Row (reused by CardView + SearchCardRow)
 
-/// Displays tmux, PR, rate limit, issue, image, and remote indicators for a card.
+/// Displays tmux and image indicators for a card.
 struct CardBadgesRow: View {
     let card: ClaudeBoardCard
 

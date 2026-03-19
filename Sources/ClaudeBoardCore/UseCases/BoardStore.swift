@@ -34,7 +34,7 @@ public struct AppState: Sendable {
     /// Prevents the reconciler from re-adding them during in-flight reconciliation.
     public var deletedCardIds: Set<String> = []
 
-    /// Cards with an async operation in progress (terminal creating, worktree cleanup, PR discovery).
+    /// Cards with an async operation in progress (terminal creating).
     /// Transient — not persisted. Used to show a spinner on the card.
     public var busyCards: Set<String> = []
 
@@ -132,7 +132,7 @@ public enum Action: Sendable {
     case createManualTask(Link)
     case createTerminal(cardId: String)
     case addExtraTerminal(cardId: String, sessionName: String)
-    case launchCard(cardId: String, prompt: String, projectPath: String, worktreeName: String?, commandOverride: String?)
+    case launchCard(cardId: String, prompt: String, projectPath: String, commandOverride: String?)
     case resumeCard(cardId: String)
     case moveCard(cardId: String, to: ClaudeBoardColumn)
     case renameCard(cardId: String, name: String)
@@ -288,7 +288,7 @@ public enum Reducer {
             state.busyCards.insert(cardId)
             return [.createTmuxSession(cardId: cardId, name: sessionName, path: workDir), .upsertLink(link)]
 
-        case .launchCard(let cardId, _, let projectPath, _, _):
+        case .launchCard(let cardId, _, let projectPath, _):
             guard var link = state.links[cardId] else { return [] }
             let projectName = (projectPath as NSString).lastPathComponent
             let tmuxName = "\(projectName)-\(cardId)"
@@ -1167,8 +1167,8 @@ public final class BoardStore: @unchecked Sendable {
     // MARK: - Activity Refresh (fast path)
 
     /// Lightweight activity-only refresh. Queries the activity detector for all
-    /// sessions with hook data and recomputes columns immediately — no discovery,
-    /// no worktree scan, no PR fetch. Runs in <1ms.
+    /// sessions with hook data and recomputes columns immediately — no full
+    /// discovery cycle. Runs in <1ms.
     public func refreshActivity() async {
         guard let activityDetector else { return }
         var activityMap: [String: ActivityState] = [:]

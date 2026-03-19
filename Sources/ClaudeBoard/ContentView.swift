@@ -270,7 +270,7 @@ struct ContentView: View {
                 onRename: { name in
                     store.dispatch(.renameCard(cardId: card.id, name: name))
                 },
-                onFork: { _ in forkCard(cardId: card.id) },
+                onFork: { forkCard(cardId: card.id) },
                 onDismiss: { store.dispatch(.selectCard(cardId: nil)) },
                 onUnlink: { linkType in
                     store.dispatch(.unlinkFromCard(cardId: card.id, linkType: linkType))
@@ -1614,7 +1614,7 @@ struct ContentView: View {
 
     private func executeLaunch(cardId: String, prompt: String, projectPath: String, skipPermissions: Bool = true, commandOverride: String? = nil, images: [Any] = [], assistant: CodingAssistant = .claude) {
         // IMMEDIATE state update via reducer — no more dual memory+disk writes
-        store.dispatch(.launchCard(cardId: cardId, prompt: prompt, projectPath: projectPath, worktreeName: nil, commandOverride: commandOverride))
+        store.dispatch(.launchCard(cardId: cardId, prompt: prompt, projectPath: projectPath, commandOverride: commandOverride))
         shouldFocusTerminal = true
         let predictedTmuxName = store.state.links[cardId]?.tmuxLink?.sessionName ?? cardId
         ClaudeBoardLog.info("launch", "Starting launch for card=\(cardId.prefix(12)) tmux=\(predictedTmuxName) project=\(projectPath)")

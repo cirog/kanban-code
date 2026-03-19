@@ -6,7 +6,7 @@ public struct Session: Identifiable, Sendable {
     public var name: String? // Custom name or auto-generated summary
     public var firstPrompt: String? // First user message text
     public var projectPath: String? // Decoded project directory path
-    public var gitBranch: String? // Git branch if in a worktree
+    public var gitBranch: String? // Git branch
     public var slug: String? // Conversation continuity identifier (shared across context resets)
     public var messageCount: Int
     public var modifiedTime: Date
