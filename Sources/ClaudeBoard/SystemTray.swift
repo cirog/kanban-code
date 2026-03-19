@@ -142,7 +142,7 @@ final class SystemTray: NSObject, @unchecked Sendable {
     /// Update the badge text on the menu bar icon.
     private func updateBadge() {
         guard let store else { return }
-        let waitingCount = store.state.cardCount(in: .waiting)
+        let waitingCount = store.state.globalCardCount(in: .waiting)
         let badge = TrayBadge.badgeText(waitingCount: waitingCount)
         statusItem?.button?.title = badge
         statusItem?.button?.imagePosition = badge.isEmpty ? .imageOnly : .imageLeading
@@ -151,8 +151,8 @@ final class SystemTray: NSObject, @unchecked Sendable {
     /// Show tray icon when there are In Progress sessions, waiting cards, or within linger timeout.
     private func updateVisibility() {
         guard let store else { return }
-        let inProgressCount = store.state.cardCount(in: .inProgress)
-        let waitingCount = store.state.cardCount(in: .waiting)
+        let inProgressCount = store.state.globalCardCount(in: .inProgress)
+        let waitingCount = store.state.globalCardCount(in: .waiting)
 
         if inProgressCount > 0 {
             lastActiveTime = Date()

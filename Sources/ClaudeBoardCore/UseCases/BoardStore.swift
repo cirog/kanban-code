@@ -86,6 +86,12 @@ public struct AppState: Sendable {
         filteredCards.filter { $0.column == column }.count
     }
 
+    /// Count of cards in a column across ALL projects (no filtering).
+    /// Used by the system tray badge/visibility — the menu bar icon is global.
+    public func globalCardCount(in column: ClaudeBoardColumn) -> Int {
+        cards.filter { $0.column == column }.count
+    }
+
     /// The visible columns (non-empty or always-shown).
     public var visibleColumns: [ClaudeBoardColumn] {
         return [.backlog, .inProgress, .waiting]

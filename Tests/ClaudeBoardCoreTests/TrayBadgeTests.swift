@@ -45,4 +45,31 @@ struct TrayBadgeTests {
     func visibleWithBoth() {
         #expect(TrayBadge.shouldShowTray(inProgressCount: 2, waitingCount: 3, isLingering: false) == true)
     }
+
+    // MARK: - Global card count (unfiltered)
+
+    @Test("globalCardCount ignores project filter")
+    func globalCardCountIgnoresFilter() {
+        var state = AppState()
+
+        // Card A: waiting, project /a
+        let linkA = Link(name: "A", projectPath: "/a", column: .waiting)
+        state.links[linkA.id] = linkA
+
+        // Card B: inProgress, project /b
+        let linkB = Link(name: "B", projectPath: "/b", column: .inProgress)
+        state.links[linkB.id] = linkB
+
+        state.rebuildCards()
+
+        // Select project /b — only card B is visible in filtered view
+        state.selectedProjectPath = "/b"
+
+        // Filtered count should exclude card A (different project)
+        #expect(state.cardCount(in: .waiting) == 0)
+
+        // Global count should still see card A
+        #expect(state.globalCardCount(in: .waiting) == 1)
+        #expect(state.globalCardCount(in: .inProgress) == 1)
+    }
 }
