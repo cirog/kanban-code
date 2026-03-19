@@ -55,11 +55,13 @@ final class SystemTray: NSObject, @unchecked Sendable {
         }
 
         updateMenu()
+        updateBadge()
         updateVisibility()
     }
 
     func update() {
         updateMenu()
+        updateBadge()
         updateVisibility()
     }
 
@@ -137,21 +139,35 @@ final class SystemTray: NSObject, @unchecked Sendable {
         NSApp.windows.first?.makeKeyAndOrderFront(nil)
     }
 
-    /// Show tray icon when there are In Progress sessions, or within linger timeout.
+    /// Update the badge text on the menu bar icon.
+    private func updateBadge() {
+        guard let store else { return }
+        let waitingCount = store.state.cardCount(in: .waiting)
+        statusItem?.button?.title = TrayBadge.badgeText(waitingCount: waitingCount)
+    }
+
+    /// Show tray icon when there are In Progress sessions, waiting cards, or within linger timeout.
     private func updateVisibility() {
         guard let store else { return }
-        let hasActive = store.state.cardCount(in: .inProgress) > 0
+        let inProgressCount = store.state.cardCount(in: .inProgress)
+        let waitingCount = store.state.cardCount(in: .waiting)
 
-        if hasActive {
+        if inProgressCount > 0 {
             lastActiveTime = Date()
-            statusItem?.isVisible = true
-        } else if let lastActive = lastActiveTime,
-                  Date().timeIntervalSince(lastActive) < lingerTimeout {
-            // Linger: keep visible for a bit after last active session
-            statusItem?.isVisible = true
-        } else {
-            statusItem?.isVisible = false
         }
+
+        let isLingering: Bool
+        if let lastActive = lastActiveTime {
+            isLingering = Date().timeIntervalSince(lastActive) < lingerTimeout
+        } else {
+            isLingering = false
+        }
+
+        statusItem?.isVisible = TrayBadge.shouldShowTray(
+            inProgressCount: inProgressCount,
+            waitingCount: waitingCount,
+            isLingering: isLingering
+        )
     }
 
     // MARK: - Logging
