@@ -62,8 +62,6 @@ struct CardDetailView: View {
     var onFork: (_ keepWorktree: Bool) -> Void = { _ in }
     var onDismiss: () -> Void = {}
     var onUnlink: (Action.LinkType) -> Void = { _ in }
-    var onCleanupWorktree: () -> Void = {}
-    var canCleanupWorktree: Bool = true
     var onDeleteCard: () -> Void = {}
     var onCreateTerminal: () -> Void = {}
     var onKillTerminal: (String) -> Void = { _ in }
@@ -154,7 +152,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: ClaudeBoardCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onCleanupWorktree: @escaping () -> Void = {}, canCleanupWorktree: Bool = true, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, onSendReplyText: @escaping (String) -> Void = { _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, onSetLastTab: @escaping (String) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
+    init(card: ClaudeBoardCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping (_ keepWorktree: Bool) -> Void = { _ in }, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, onSendReplyText: @escaping (String) -> Void = { _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, onSetLastTab: @escaping (String) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -162,8 +160,6 @@ struct CardDetailView: View {
         self.onFork = onFork
         self.onDismiss = onDismiss
         self.onUnlink = onUnlink
-        self.onCleanupWorktree = onCleanupWorktree
-        self.canCleanupWorktree = canCleanupWorktree
         self.onDeleteCard = onDeleteCard
         self.onCreateTerminal = onCreateTerminal
         self.onKillTerminal = onKillTerminal
@@ -376,16 +372,9 @@ struct CardDetailView: View {
         }
         .alert("Fork Session?", isPresented: $showForkConfirm) {
             Button("Cancel", role: .cancel) {}
-            if false {
-                Button("Fork (same worktree)") { onFork(true) }
-            }
-            Button("Fork (project root)") { onFork(false) }
+            Button("Fork") { onFork(false) }
         } message: {
-            if false {
-                Text("This creates a duplicate session you can resume independently. Do you want the forked session to continue from the same worktree or from the project root?")
-            } else {
-                Text("This creates a duplicate session you can resume independently.")
-            }
+            Text("This creates a duplicate session you can resume independently.")
         }
         .alert("Restore to Turn \(checkpointTurn.map { String($0.index + 1) } ?? "")?", isPresented: $showCheckpointConfirm) {
             Button("Cancel", role: .cancel) {
@@ -859,8 +848,6 @@ struct CardDetailView: View {
     }
 
 
-    // Issue Tab, PR Tab, and PR helpers removed (GitHub integration stripped)
-
     // MARK: - Todoist Task Tab
 
     @ViewBuilder
@@ -1301,17 +1288,6 @@ struct CardDetailView: View {
                 }
             }
 
-            if false {
-                HStack(spacing: 2) {
-                    Image(systemName: "cloud")
-                        .font(.app(.caption))
-                        .foregroundStyle(.teal)
-                    Text("Remote")
-                        .font(.app(.caption))
-                        .foregroundStyle(.teal)
-                }
-            }
-
             VStack(alignment: .leading, spacing: 2) {
                 if let projectPath = card.link.projectPath {
                     copyableRow(icon: "folder.badge.gearshape", text: projectPath)
@@ -1383,11 +1359,6 @@ struct CardDetailView: View {
 
         if let tmux = card.link.tmuxLink?.sessionName {
             menu.addActionItem("Copy Tmux Command", image: "terminal") { [self] in copyToClipboard("tmux attach -t \(tmux)") }
-        }
-
-        if false, canCleanupWorktree {
-            menu.addItem(NSMenuItem.separator())
-            menu.addActionItem("Cleanup Worktree", image: "trash") { [self] in onCleanupWorktree() }
         }
 
         if card.link.sessionLink != nil {

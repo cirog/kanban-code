@@ -38,11 +38,9 @@ struct ContentView: View {
     @State private var orchestrator: BackgroundOrchestrator
     @State private var searchInitialQuery = ""
     @State private var terminalHadFocusBeforeSearch = false
-    @State private var deepSearchTrigger = false
     @State private var usageService = UsageService()
     @State private var usageData: UsageData = .empty
     @State private var showNewTask = false
-    @State private var showOnboarding = false
     @State private var showDonePopover = false
     @State private var showProcessManager = false
     @State private var showQuitConfirmation = false
@@ -55,10 +53,6 @@ struct ContentView: View {
     @State private var isDroppingImage = false
     @State private var addFromPathText = ""
     @State private var launchConfig: LaunchConfig?
-    @State private var syncStatuses: [String: SyncStatus] = [:]
-    @State private var isSyncRefreshing = false
-    @State private var showSyncPopover = false
-    @State private var rawSyncOutput = ""
     @State private var editingQueuedPromptId: String?
     // showSearch lives in AppState (store.state.paletteOpen)
     private var showSearch: Bool {
@@ -78,7 +72,6 @@ struct ContentView: View {
     private let launcher: LaunchSession
     private let tmuxAdapter: TmuxAdapter
     private let systemTray = SystemTray()
-    private let mutagenAdapter = MutagenAdapter()
     private let hookEventsPath: String
     private let settingsFilePath: String
 
@@ -212,11 +205,6 @@ struct ContentView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(cmd, forType: .string)
             },
-            onCleanupWorktree: { _ in },
-            canCleanupWorktree: { cardId in
-                guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return false }
-                return false
-            },
             onArchiveCard: { cardId in archiveCard(cardId: cardId) },
             onDeleteCard: { cardId in pendingDeleteCardId = cardId },
             availableProjects: projectList,
@@ -232,7 +220,6 @@ struct ContentView: View {
             onSetProject: { cardId, projectId in
                 store.dispatch(.setProject(cardId: cardId, projectId: projectId))
             },
-            onRefreshBacklog: { },
             canDropCard: { card, column in
                 CardDropIntent.resolve(card, to: column).isAllowed
             },
@@ -288,10 +275,6 @@ struct ContentView: View {
                 onUnlink: { linkType in
                     store.dispatch(.unlinkFromCard(cardId: card.id, linkType: linkType))
                 },
-                onCleanupWorktree: {
-                    // worktree cleanup removed
-                },
-                canCleanupWorktree: false,
                 onDeleteCard: {
                     pendingDeleteCardId = card.id
                 },
@@ -485,7 +468,7 @@ struct ContentView: View {
                     if config.isResume {
                         executeResume(cardId: config.cardId, skipPermissions: skipPermissions, commandOverride: commandOverride, assistant: config.assistant)
                     } else {
-                        executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: nil, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant)
+                        executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant)
                     }
                 }
             }
@@ -780,12 +763,6 @@ struct ContentView: View {
                     projectLabelsMenu
                 }
 
-                ToolbarItem(placement: .navigation) {
-                    if currentProjectHasRemote {
-                        syncStatusView
-                    }
-                }
-
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showDonePopover.toggle()
@@ -1062,8 +1039,6 @@ struct ContentView: View {
         }
     }
 
-    // paletteCommands removed (search overlay stripped)
-
     private var currentProjectName: String {
         guard let path = store.state.selectedProjectPath else { return "All Projects" }
         return store.state.configuredProjects.first(where: { $0.path == path })?.name
@@ -1080,20 +1055,6 @@ struct ContentView: View {
             result.append((name: project.name, path: project.path))
         }
         return result
-    }
-
-    private var currentProjectHasRemote: Bool {
-        false
-    }
-
-    private var currentSyncStatus: SyncStatus {
-        if syncStatuses.isEmpty { return .notRunning }
-        if syncStatuses.values.contains(.error) { return .error }
-        if syncStatuses.values.contains(.conflicts) { return .conflicts }
-        if syncStatuses.values.contains(.paused) { return .paused }
-        if syncStatuses.values.contains(.staging) { return .staging }
-        if syncStatuses.values.contains(.watching) { return .watching }
-        return .notRunning
     }
 
     // MARK: - Quit Confirmation
@@ -1185,215 +1146,6 @@ struct ContentView: View {
             return "~" + path.dropFirst(home.count)
         }
         return path
-    }
-
-    @ViewBuilder
-    private var syncStatusView: some View {
-        Button { showSyncPopover.toggle() } label: {
-            HStack(spacing: 4) {
-                Image(systemName: syncStatusIcon(currentSyncStatus))
-                    .foregroundStyle(currentSyncStatus == .watching ? .primary : syncStatusColor(currentSyncStatus))
-                Text(syncStatusLabel(currentSyncStatus))
-                    .font(.app(.headline))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 8)
-        }
-        .buttonStyle(.plain)
-        .help("Mutagen file sync status")
-        .task(id: currentSyncStatus) {
-            await refreshSyncStatus()
-            let interval: Duration = currentSyncStatus == .staging ? .seconds(1) : .seconds(10)
-            while !Task.isCancelled {
-                try? await Task.sleep(for: interval)
-                await refreshSyncStatus()
-            }
-        }
-        .popover(isPresented: $showSyncPopover) {
-            syncStatusPopover
-        }
-        .onChange(of: currentSyncStatus) {
-            if showSyncPopover {
-                showSyncPopover = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    showSyncPopover = true
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var syncStatusPopover: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("File sync for remote Claude Code sessions, configured in Settings > Remote.")
-                .font(.app(.callout))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 6) {
-                Image(systemName: syncStatusIcon(currentSyncStatus))
-                    .foregroundStyle(syncStatusColor(currentSyncStatus))
-                Text(syncStatusLabel(currentSyncStatus))
-                    .font(.app(.callout))
-            }
-
-            ScrollView {
-                Text(rawSyncOutput)
-                    .font(.app(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-            }
-            .id(rawSyncOutput.count)
-            .frame(maxHeight: 250)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-
-            HStack(spacing: 4) {
-                Text("mutagen sync list -l")
-                    .font(.app(.caption2, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("mutagen sync list -l", forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.app(.caption))
-                }
-                .buttonStyle(.borderless)
-                .help("Copy command")
-            }
-
-            HStack {
-                Button {
-                    Task {
-                        isSyncRefreshing = true
-                        try? await mutagenAdapter.flushSync()
-                        await refreshSyncStatus()
-                    }
-                } label: {
-                    Label("Flush", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isSyncRefreshing)
-
-                if currentSyncStatus == .notRunning {
-                    Button {
-                        Task {
-                            isSyncRefreshing = true
-                            // Remote sync removed
-                            await refreshSyncStatus()
-                        }
-                    } label: {
-                        Label("Start", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isSyncRefreshing)
-                }
-
-                if currentSyncStatus == .error || currentSyncStatus == .paused {
-                    Button {
-                        Task {
-                            isSyncRefreshing = true
-                            for name in syncStatuses.keys {
-                                try? await mutagenAdapter.resetSync(name: name)
-                            }
-                            await refreshSyncStatus()
-                        }
-                    } label: {
-                        Label("Restart", systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isSyncRefreshing)
-                }
-
-                if !syncStatuses.isEmpty {
-                    Button {
-                        Task {
-                            isSyncRefreshing = true
-                            for name in syncStatuses.keys {
-                                try? await mutagenAdapter.stopSync(name: name)
-                            }
-                            await refreshSyncStatus()
-                        }
-                    } label: {
-                        Label("Stop", systemImage: "stop.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isSyncRefreshing)
-                }
-
-                Spacer()
-
-                Button {
-                    Task { await refreshSyncStatus() }
-                } label: {
-                    if isSyncRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isSyncRefreshing)
-                .help("Refresh status")
-            }
-        }
-        .padding(16)
-        .frame(width: 420)
-    }
-
-    private func refreshSyncStatus() async {
-        guard await mutagenAdapter.isAvailable() else {
-            syncStatuses = [:]
-            rawSyncOutput = "Mutagen is not installed."
-            return
-        }
-        isSyncRefreshing = true
-        defer { isSyncRefreshing = false }
-        syncStatuses = (try? await mutagenAdapter.status()) ?? [:]
-        rawSyncOutput = (try? await mutagenAdapter.rawStatus()) ?? "Failed to fetch status."
-    }
-
-    private func syncStatusIcon(_ status: SyncStatus) -> String {
-        switch status {
-        case .watching: "checkmark.circle.fill"
-        case .staging: "arrow.triangle.2.circlepath"
-        case .conflicts: "exclamationmark.triangle.fill"
-        case .paused: "pause.circle.fill"
-        case .error: "exclamationmark.triangle.fill"
-        case .notRunning: "circle.dashed"
-        }
-    }
-
-    private func syncStatusColor(_ status: SyncStatus) -> Color {
-        switch status {
-        case .watching: .green
-        case .staging: .secondary
-        case .conflicts: .yellow
-        case .paused: .yellow
-        case .error: .red
-        case .notRunning: .secondary
-        }
-    }
-
-    private func syncStatusLabel(_ status: SyncStatus) -> String {
-        switch status {
-        case .watching: "Files in Sync"
-        case .staging: "Syncing Files…"
-        case .conflicts: "Conflicts Detected"
-        case .paused: "Sync Paused"
-        case .error: "Sync Error"
-        case .notRunning: "Sync Not Running"
-        }
     }
 
     /// Find the card that should be selected after deleting the given card.
@@ -1776,7 +1528,7 @@ struct ContentView: View {
         }
     }
 
-    private func createManualTaskAndLaunch(prompt: String, projectPath: String?, title: String? = nil, createWorktree: Bool, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude) {
+    private func createManualTaskAndLaunch(prompt: String, projectPath: String?, title: String? = nil, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let name: String
         if let title, !title.isEmpty {
@@ -1808,12 +1560,9 @@ struct ContentView: View {
             let project = settings?.projects.first(where: { $0.path == effectivePath })
             let builtPrompt = PromptBuilder.buildPrompt(card: link, project: project, settings: settings)
 
-            let wtName: String? = nil
-            executeLaunch(cardId: link.id, prompt: builtPrompt, projectPath: effectivePath, worktreeName: wtName, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant)
+            executeLaunch(cardId: link.id, prompt: builtPrompt, projectPath: effectivePath, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant)
         }
     }
-
-    // Worktree cleanup removed
 
     // MARK: - Archive
 
@@ -1863,7 +1612,7 @@ struct ContentView: View {
         }
     }
 
-    private func executeLaunch(cardId: String, prompt: String, projectPath: String, worktreeName: String? = nil, skipPermissions: Bool = true, commandOverride: String? = nil, images: [Any] = [], assistant: CodingAssistant = .claude) {
+    private func executeLaunch(cardId: String, prompt: String, projectPath: String, skipPermissions: Bool = true, commandOverride: String? = nil, images: [Any] = [], assistant: CodingAssistant = .claude) {
         // IMMEDIATE state update via reducer — no more dual memory+disk writes
         store.dispatch(.launchCard(cardId: cardId, prompt: prompt, projectPath: projectPath, worktreeName: nil, commandOverride: commandOverride))
         shouldFocusTerminal = true

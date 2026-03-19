@@ -26,12 +26,6 @@ public struct AppState: Sendable {
     /// Lightweight project labels for card categorization.
     public var projectLabels: [ProjectLabel] = []
 
-    /// Whether a GitHub issue refresh is currently running.
-    public var isRefreshingBacklog = false
-
-    /// Repo paths currently affected by GitHub API rate limiting.
-    public var rateLimitedRepos: Set<String> = []
-
     /// Session IDs that were deliberately deleted by the user.
     /// Prevents the reconciler from recreating cards for these sessions.
     public var deletedSessionIds: Set<String> = []
@@ -55,8 +49,7 @@ public struct AppState: Sendable {
         cards = links.values.map { link in
             let session = link.sessionLink.flatMap { sessions[$0.sessionId] }
             let activity = link.sessionLink.flatMap { activityMap[$0.sessionId] }
-            let rateLimited = link.projectPath.map { rateLimitedRepos.contains($0) } ?? false
-            return ClaudeBoardCard(link: link, session: session, activityState: activity, isBusy: busyCards.contains(link.id), isRateLimited: rateLimited)
+            return ClaudeBoardCard(link: link, session: session, activityState: activity, isBusy: busyCards.contains(link.id))
         }
     }
 
@@ -150,14 +143,11 @@ public enum Action: Sendable {
     case unlinkFromCard(cardId: String, linkType: LinkType)
     case killTerminal(cardId: String, sessionName: String)
     case cancelLaunch(cardId: String)
-    case addBranchToCard(cardId: String, branch: String)
-    // Removed: addIssueLinkToCard, addPRToCard (GitHub integration stripped)
     case moveCardToProject(cardId: String, projectPath: String)
     case moveCardToFolder(cardId: String, folderPath: String, parentProjectPath: String)
     case beginMigration(cardId: String)
     case migrateSession(cardId: String, newAssistant: CodingAssistant, newSessionId: String, newSessionPath: String)
     case migrationFailed(cardId: String, error: String)
-    // Removed: markPRMerged (GitHub integration stripped)
     case mergeCards(sourceId: String, targetId: String)
     case updatePrompt(cardId: String, body: String, imagePaths: [String]?)
     case reorderCard(cardId: String, targetCardId: String, above: Bool)
@@ -190,10 +180,8 @@ public enum Action: Sendable {
     // Settings / misc
     case settingsLoaded(projects: [Project], excludedPaths: [String], projectLabels: [ProjectLabel])
     case setError(String?)
-    case setRateLimitedRepos(Set<String>)
     case setSelectedProject(String?)
     case setLoading(Bool)
-    case setIsRefreshingBacklog(Bool)
 
     // Project labels
     case setProject(cardId: String, projectId: String?)
@@ -513,9 +501,6 @@ public enum Reducer {
                 effects.append(.cleanupTerminalCache(sessionNames: [tmuxName]))
             }
             return effects
-
-        case .addBranchToCard:
-            return [] // Worktree support removed
 
         case .addQueuedPrompt(let cardId, let prompt):
             guard var link = state.links[cardId] else { return [] }
@@ -1005,20 +990,12 @@ public enum Reducer {
             state.error = message
             return []
 
-        case .setRateLimitedRepos(let repos):
-            state.rateLimitedRepos = repos
-            return []
-
         case .setSelectedProject(let path):
             state.selectedProjectPath = path
             return []
 
         case .setLoading(let loading):
             state.isLoading = loading
-            return []
-
-        case .setIsRefreshingBacklog(let refreshing):
-            state.isRefreshingBacklog = refreshing
             return []
 
         // MARK: Todoist Sync
@@ -1278,7 +1255,7 @@ public final class BoardStore: @unchecked Sendable {
             ClaudeBoardLog.info("reconcile", "discoverSessions: \(t1.duration(to: .now)) (\(sessions.count) sessions)")
 
             // Use in-memory state as source of truth — NOT disk.
-            var existingLinks = Array(state.links.values)
+            let existingLinks = Array(state.links.values)
 
             // Scan tmux sessions
             let t2 = ContinuousClock.now

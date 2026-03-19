@@ -11,8 +11,6 @@ struct CardView: View {
     var onFork: () -> Void = {}
     var onRename: () -> Void = {}
     var onCopyResumeCmd: () -> Void = {}
-    var onCleanupWorktree: () -> Void = {}
-    var canCleanupWorktree: Bool = true
     var onArchive: () -> Void = {}
     var onDelete: () -> Void = {}
     var availableProjects: [(name: String, path: String)] = []
@@ -311,32 +309,6 @@ struct CardLabelBadge: View {
     }
 }
 
-// MARK: - Rate Limit Badge
-
-struct RateLimitBadge: View {
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.app(size: 8))
-            Text("Rate Limited")
-                .font(.app(size: 9, weight: .medium))
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(Capsule().fill(Color.orange.opacity(0.15)))
-        .foregroundStyle(.orange)
-        .onHover { isHovering = $0 }
-        .popover(isPresented: $isHovering, arrowEdge: .top) {
-            Text("GitHub API rate limit exceeded.\nPR status updates paused for 5 minutes.")
-                .font(.app(.caption))
-                .padding(8)
-                .fixedSize()
-        }
-    }
-}
-
 // MARK: - Card Badges Row (reused by CardView + SearchCardRow)
 
 /// Displays tmux, PR, rate limit, issue, image, and remote indicators for a card.
@@ -358,9 +330,6 @@ struct CardBadgesRow: View {
             }
         }
 
-        // Rate limit badge (kept for future use)
-        // if card.isRateLimited { RateLimitBadge() }
-
         // Image attachment indicator
         if let imgs = card.link.promptImagePaths, !imgs.isEmpty {
             Image(systemName: "photo")
@@ -368,11 +337,5 @@ struct CardBadgesRow: View {
                 .foregroundStyle(.secondary)
         }
 
-        // Remote execution indicator
-        if false {
-            Image(systemName: "cloud")
-                .font(.app(.caption2))
-                .foregroundStyle(.teal)
-        }
     }
 }

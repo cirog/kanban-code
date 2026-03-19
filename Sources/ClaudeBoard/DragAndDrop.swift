@@ -29,7 +29,6 @@ struct DroppableColumnView: View {
     @Binding var selectedCardId: String?
     var dragState: DragState
     var canDropCard: (ClaudeBoardCard, ClaudeBoardColumn) -> Bool = { _, _ in true }
-    var isRefreshingBacklog: Bool = false
     var onMoveCard: (String, ClaudeBoardColumn) -> Void = { _, _ in }
     var onMergeCards: (String, String) -> Void = { _, _ in }   // (sourceId, targetId)
     var onReorderCard: (String, String, Bool) -> Void = { _, _, _ in }  // (cardId, targetCardId, above)
@@ -39,8 +38,6 @@ struct DroppableColumnView: View {
     var onResumeCard: (String) -> Void = { _ in }
     var onForkCard: (String) -> Void = { _ in }
     var onCopyResumeCmd: (String) -> Void = { _ in }
-    var onCleanupWorktree: (String) -> Void = { _ in }
-    var canCleanupWorktree: (String) -> Bool = { _ in true }
     var onDeleteCard: (String) -> Void = { _ in }
     var availableProjects: [(name: String, path: String)] = []
     var onMoveToProject: (String, String) -> Void = { _, _ in }   // (cardId, projectPath)
@@ -48,7 +45,6 @@ struct DroppableColumnView: View {
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (String, CodingAssistant) -> Void = { _, _ in }
     var onSetProject: (String, String?) -> Void = { _, _ in }  // (cardId, projectId)
-    var onRefreshBacklog: (() -> Void)?
     var onCardClicked: (String) -> Void = { _ in }
     var onColumnBackgroundClick: (ClaudeBoardColumn) -> Void = { _ in }
 
@@ -94,8 +90,6 @@ struct DroppableColumnView: View {
                             renamingCardId = card.id
                         },
                         onCopyResumeCmd: { onCopyResumeCmd(card.id) },
-                        onCleanupWorktree: { onCleanupWorktree(card.id) },
-                        canCleanupWorktree: canCleanupWorktree(card.id),
                         onArchive: { onArchiveCard(card.id) },
                         onDelete: { onDeleteCard(card.id) },
                         availableProjects: availableProjects,
@@ -208,23 +202,6 @@ struct DroppableColumnView: View {
                     .foregroundStyle(.primary)
 
                 Spacer()
-
-                if let onRefreshBacklog {
-                    Button {
-                        onRefreshBacklog()
-                    } label: {
-                        if isRefreshingBacklog {
-                            ProgressView()
-                                .controlSize(.mini)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.app(.caption))
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Refresh GitHub issues")
-                    .disabled(isRefreshingBacklog)
-                }
 
                 Text("\(cards.count)")
                     .font(.app(.caption))

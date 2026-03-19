@@ -11,14 +11,6 @@ struct ClaudeProcessInfo: Identifiable {
     let cardTitle: String?
 }
 
-struct WorktreeInfo: Identifiable {
-    var id: String { path }
-    let project: String
-    let branch: String?
-    let path: String
-    let repoRoot: String
-}
-
 // MARK: - Process Manager View
 
 struct ProcessManagerView: View {
@@ -29,22 +21,17 @@ struct ProcessManagerView: View {
     enum Tab: String, CaseIterable {
         case tmux = "Tmux"
         case claude = "Claude"
-        case worktrees = "Worktrees"
     }
 
     @State private var selectedTab: Tab = .tmux
     @State private var tmuxSessions: [TmuxSession] = []
     @State private var claudeProcesses: [ClaudeProcessInfo] = []
-    @State private var worktreeInfos: [WorktreeInfo] = []
     @State private var isLoading = false
     @State private var selectedTmuxIds: Set<String> = []
     @State private var selectedClaudeIds: Set<Int> = []
-    @State private var selectedWorktreeIds: Set<String> = []
-
     private let tmuxAdapter = TmuxAdapter()
 
     private let tmuxFound = ShellCommand.findExecutable("tmux") != nil
-    private let gitFound = ShellCommand.findExecutable("git") != nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,7 +53,6 @@ struct ProcessManagerView: View {
                 switch selectedTab {
                 case .tmux: tmuxTab
                 case .claude: claudeTab
-                case .worktrees: worktreesTab
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -91,12 +77,6 @@ struct ProcessManagerView: View {
                     if !selectedClaudeIds.isEmpty {
                         Button("Kill Selected (\(selectedClaudeIds.count))") {
                             Task { await killSelectedClaude() }
-                        }
-                    }
-                } else if selectedTab == .worktrees {
-                    if !selectedWorktreeIds.isEmpty {
-                        Button("Remove Selected (\(selectedWorktreeIds.count))") {
-                            Task { await removeSelectedWorktrees(selectedWorktreeIds) }
                         }
                     }
                 }
@@ -126,7 +106,6 @@ struct ProcessManagerView: View {
         switch tab {
         case .tmux: "Tmux (\(tmuxSessions.count))"
         case .claude: "Claude (\(claudeProcesses.count))"
-        case .worktrees: "Worktrees (\(worktreeInfos.count))"
         }
     }
 
@@ -249,41 +228,6 @@ struct ProcessManagerView: View {
         }
     }
 
-    // MARK: - Worktrees Tab
-
-    private var worktreesTab: some View {
-        VStack(spacing: 0) {
-            if !gitFound {
-                binaryNotFoundBanner("git")
-            }
-            Table(worktreeInfos, selection: $selectedWorktreeIds) {
-            TableColumn("Project") { info in
-                Text(info.project)
-                    .lineLimit(1)
-            }
-            .width(min: 80, ideal: 120)
-
-            TableColumn("Branch") { info in
-                if let branch = info.branch {
-                    Text(branch)
-                        .lineLimit(1)
-                } else {
-                    Text("(detached)")
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .width(min: 100, ideal: 150)
-
-            TableColumn("Path") { info in
-                Text(abbreviatePath(info.path))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .width(min: 150, ideal: 250)
-        }
-        }
-    }
-
     // MARK: - Data Loading
 
     private func loadAll() async {
@@ -292,8 +236,7 @@ struct ProcessManagerView: View {
 
         async let t: Void = loadTmux()
         async let c: Void = loadClaude()
-        async let w: Void = loadWorktrees()
-        _ = await (t, c, w)
+        _ = await (t, c)
     }
 
     private func loadTmux() async {
@@ -302,10 +245,6 @@ struct ProcessManagerView: View {
 
     private func loadClaude() async {
         claudeProcesses = await discoverClaudeProcesses()
-    }
-
-    private func loadWorktrees() async {
-        worktreeInfos = []
     }
 
     // MARK: - Claude Process Discovery
@@ -440,13 +379,6 @@ struct ProcessManagerView: View {
         // Brief delay for processes to exit
         try? await Task.sleep(for: .milliseconds(500))
         await loadClaude()
-    }
-
-    // MARK: - Worktree Actions
-
-    private func removeSelectedWorktrees(_ ids: Set<String>) async {
-        // Worktree removal stripped
-        selectedWorktreeIds.removeAll()
     }
 
     // MARK: - Helpers

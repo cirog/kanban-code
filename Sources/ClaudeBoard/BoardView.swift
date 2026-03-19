@@ -9,8 +9,6 @@ struct BoardView<TerminalContent: View>: View {
     var onResumeCard: (String) -> Void = { _ in }
     var onForkCard: (String) -> Void = { _ in }
     var onCopyResumeCmd: (String) -> Void = { _ in }
-    var onCleanupWorktree: (String) -> Void = { _ in }
-    var canCleanupWorktree: (String) -> Bool = { _ in true }
     var onArchiveCard: (String) -> Void = { _ in }
     var onDeleteCard: (String) -> Void = { _ in }
     var availableProjects: [(name: String, path: String)] = []
@@ -19,8 +17,6 @@ struct BoardView<TerminalContent: View>: View {
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (String, CodingAssistant) -> Void = { _, _ in }
     var onSetProject: (String, String?) -> Void = { _, _ in }  // (cardId, projectId)
-    var onRefreshBacklog: () -> Void = {}
-
     var canDropCard: (ClaudeBoardCard, ClaudeBoardColumn) -> Bool = { _, _ in true }
     var onDropCard: (String, ClaudeBoardColumn) -> Void = { _, _ in }
     var onMergeCards: (String, String) -> Void = { _, _ in }   // (sourceId, targetId)
@@ -55,7 +51,6 @@ struct BoardView<TerminalContent: View>: View {
                             ),
                             dragState: dragState,
                             canDropCard: canDropCard,
-                            isRefreshingBacklog: store.state.isRefreshingBacklog,
                             onMoveCard: { cardId, targetColumn in
                                 onDropCard(cardId, targetColumn)
                             },
@@ -75,8 +70,6 @@ struct BoardView<TerminalContent: View>: View {
                             onResumeCard: onResumeCard,
                             onForkCard: onForkCard,
                             onCopyResumeCmd: onCopyResumeCmd,
-                            onCleanupWorktree: onCleanupWorktree,
-                            canCleanupWorktree: canCleanupWorktree,
                             onDeleteCard: onDeleteCard,
                             availableProjects: availableProjects,
                             onMoveToProject: onMoveToProject,
@@ -84,7 +77,6 @@ struct BoardView<TerminalContent: View>: View {
                             enabledAssistants: enabledAssistants,
                             onMigrateAssistant: onMigrateAssistant,
                             onSetProject: onSetProject,
-                            onRefreshBacklog: column == .backlog ? onRefreshBacklog : nil,
                             onCardClicked: onCardClicked,
                             onColumnBackgroundClick: onColumnBackgroundClick
                         )
