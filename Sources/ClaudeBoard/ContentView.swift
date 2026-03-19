@@ -2,37 +2,6 @@ import SwiftUI
 import AppKit
 import ClaudeBoardCore
 
-/// Bundles all parameters for the launch confirmation dialog.
-/// Used with `.sheet(item:)` to guarantee all values are captured atomically.
-struct LaunchConfig: Identifiable {
-    let id = UUID()
-    let cardId: String
-    let projectPath: String
-    let prompt: String
-    let isResume: Bool
-    let sessionId: String?
-    let promptImagePaths: [String]
-    let assistant: CodingAssistant
-
-    init(
-        cardId: String,
-        projectPath: String,
-        prompt: String,
-        isResume: Bool = false,
-        sessionId: String? = nil,
-        promptImagePaths: [String] = [],
-        assistant: CodingAssistant = .claude
-    ) {
-        self.cardId = cardId
-        self.projectPath = projectPath
-        self.prompt = prompt
-        self.isResume = isResume
-        self.sessionId = sessionId
-        self.promptImagePaths = promptImagePaths
-        self.assistant = assistant
-    }
-}
-
 struct ContentView: View {
     @State private var store: BoardStore
     @State private var orchestrator: BackgroundOrchestrator
@@ -46,13 +15,13 @@ struct ContentView: View {
     @State private var showQuitConfirmation = false
     @State private var quitOwnedSessions: [TmuxSession] = []
     @AppStorage("killTmuxOnQuit") private var killTmuxOnQuit = true
+    @AppStorage("dangerouslySkipPermissions") private var dangerouslySkipPermissions = true
     @AppStorage("uiTextSize") private var uiTextSize: Int = 1
     @State private var showAddFromPath = false
     @State private var showNewProjectLabel = false
     @State private var isDroppingFolder = false
     @State private var isDroppingImage = false
     @State private var addFromPathText = ""
-    @State private var launchConfig: LaunchConfig?
     @State private var editingQueuedPromptId: String?
     // showSearch lives in AppState (store.state.paletteOpen)
     private var showSearch: Bool {
@@ -450,27 +419,6 @@ struct ContentView: View {
                         NotificationCenter.default.post(name: .claudeBoardSettingsChanged, object: nil)
                     }
                 })
-            }
-            .sheet(item: $launchConfig) { config in
-                LaunchConfirmationDialog(
-                    cardId: config.cardId,
-                    projectPath: config.projectPath,
-                    initialPrompt: config.prompt,
-                    isResume: config.isResume,
-                    sessionId: config.sessionId,
-                    promptImagePaths: config.promptImagePaths,
-                    assistant: config.assistant,
-                    isPresented: Binding(
-                        get: { launchConfig != nil },
-                        set: { if !$0 { launchConfig = nil } }
-                    )
-                ) { editedPrompt, _, _, _, skipPermissions, commandOverride, images in
-                    if config.isResume {
-                        executeResume(cardId: config.cardId, skipPermissions: skipPermissions, commandOverride: commandOverride, assistant: config.assistant)
-                    } else {
-                        executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant)
-                    }
-                }
             }
             .sheet(isPresented: $showProcessManager) {
                 ProcessManagerView(
@@ -1593,6 +1541,7 @@ struct ContentView: View {
     private func startCard(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let effectivePath = card.link.projectPath ?? NSHomeDirectory()
+        let assistant = card.link.effectiveAssistant
 
         Task {
             let settings = try? await settingsStore.read()
@@ -1602,13 +1551,8 @@ struct ContentView: View {
                 prompt = card.link.promptBody ?? card.link.name ?? ""
             }
 
-            launchConfig = LaunchConfig(
-                cardId: cardId,
-                projectPath: effectivePath,
-                prompt: prompt,
-                promptImagePaths: card.link.promptImagePaths ?? [],
-                assistant: card.link.effectiveAssistant
-            )
+            let imageAttachments: [Any] = (card.link.promptImagePaths ?? []).compactMap { ImageAttachment.fromPath($0) }
+            executeLaunch(cardId: cardId, prompt: prompt, projectPath: effectivePath, skipPermissions: dangerouslySkipPermissions, images: imageAttachments, assistant: assistant)
         }
     }
 
@@ -1817,14 +1761,7 @@ struct ContentView: View {
             TerminalCache.shared.remove(oldTmux)
         }
 
-        launchConfig = LaunchConfig(
-            cardId: cardId,
-            projectPath: projectPath,
-            prompt: "",
-            isResume: true,
-            sessionId: sessionId,
-            assistant: card.link.effectiveAssistant
-        )
+        executeResume(cardId: cardId, skipPermissions: dangerouslySkipPermissions, commandOverride: nil, assistant: card.link.effectiveAssistant)
     }
 
     private func forkCard(cardId: String) {

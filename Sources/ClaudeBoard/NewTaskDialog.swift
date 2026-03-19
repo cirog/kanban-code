@@ -71,7 +71,7 @@ struct NewTaskDialog: View {
         guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let proj = selectedProjectPath.isEmpty ? nil : selectedProjectPath
         if let proj { lastSelectedProjectPath = proj }
-        onCreate(prompt, proj, nil, false, [])
+        onCreate(prompt, proj, nil, true, [])
         isPresented = false
     }
 }
