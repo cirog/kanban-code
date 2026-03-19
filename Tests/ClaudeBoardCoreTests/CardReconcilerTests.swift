@@ -178,6 +178,120 @@ struct CardReconcilerTests {
         #expect(paths2.count == 2)
     }
 
+    // MARK: - Tmux fallback matching
+
+    @Test("Session with different slug chains to card via tmux fallback when projectPath matches")
+    func tmuxFallbackChainsSession() {
+        // Existing card has a session with slug "old-slug" and a live tmux session
+        let existingLink = Link(
+            id: "card-1",
+            projectPath: "/test",
+            column: .inProgress,
+            source: .discovered,
+            sessionLink: SessionLink(
+                sessionId: "old-session-id",
+                sessionPath: "/path/to/old-session.jsonl",
+                slug: "old-slug"
+            ),
+            tmuxLink: TmuxLink(sessionName: "claude-test-tmux")
+        )
+
+        // New session has DIFFERENT slug but same project path
+        var newSession = Session(id: "new-session-id")
+        newSession.projectPath = "/test"
+        newSession.jsonlPath = "/path/to/new-session.jsonl"
+        newSession.slug = "different-slug"
+        newSession.messageCount = 5
+        newSession.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [newSession],
+            tmuxSessions: [TmuxSession(name: "claude-test-tmux", path: "/test", attached: false)],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [existingLink], snapshot: snapshot)
+
+        // Should be 1 card — tmux fallback chains the session
+        #expect(result.links.count == 1)
+
+        let card = result.links.first!
+        #expect(card.id == "card-1")
+        #expect(card.sessionLink?.sessionId == "new-session-id")
+        #expect(card.sessionLink?.previousSessionPaths == ["/path/to/old-session.jsonl"])
+    }
+
+    @Test("Tmux fallback does NOT match when tmux session is dead")
+    func tmuxFallbackSkipsDeadTmux() {
+        let existingLink = Link(
+            id: "card-1",
+            projectPath: "/test",
+            column: .inProgress,
+            source: .discovered,
+            sessionLink: SessionLink(
+                sessionId: "old-session-id",
+                sessionPath: "/path/to/old.jsonl",
+                slug: "old-slug"
+            ),
+            tmuxLink: TmuxLink(sessionName: "claude-dead-tmux")
+        )
+
+        var newSession = Session(id: "new-session-id")
+        newSession.projectPath = "/test"
+        newSession.jsonlPath = "/path/to/new.jsonl"
+        newSession.slug = "different-slug"
+        newSession.messageCount = 3
+        newSession.modifiedTime = .now
+
+        // tmux NOT in live list
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [newSession],
+            tmuxSessions: [],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [existingLink], snapshot: snapshot)
+
+        // Should be 2 cards — dead tmux means no fallback
+        #expect(result.links.count == 2)
+    }
+
+    @Test("Tmux fallback does NOT match when project paths differ")
+    func tmuxFallbackSkipsDifferentProject() {
+        let existingLink = Link(
+            id: "card-1",
+            projectPath: "/project-A",
+            column: .inProgress,
+            source: .discovered,
+            sessionLink: SessionLink(
+                sessionId: "old-session-id",
+                sessionPath: "/path/to/old.jsonl",
+                slug: "old-slug"
+            ),
+            tmuxLink: TmuxLink(sessionName: "claude-tmux")
+        )
+
+        var newSession = Session(id: "new-session-id")
+        newSession.projectPath = "/project-B"
+        newSession.jsonlPath = "/path/to/new.jsonl"
+        newSession.slug = "different-slug"
+        newSession.messageCount = 3
+        newSession.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [newSession],
+            tmuxSessions: [TmuxSession(name: "claude-tmux", path: "/project-A", attached: false)],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [existingLink], snapshot: snapshot)
+
+        // Should be 2 cards — different project paths
+        #expect(result.links.count == 2)
+    }
+
+    // MARK: - Priority tests
+
     @Test("Exact sessionId match takes priority over slug match")
     func sessionIdPriorityOverSlug() {
         // Two cards: one with exact sessionId, one with same slug
