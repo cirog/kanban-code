@@ -9,9 +9,9 @@ Feature: Coordination File
   # ── File Structure ──
 
   Scenario: Coordination file location and format
-    Then the coordination file should be at ~/.kanban-code/links.json
+    Then the coordination file should be at ~/.kanban-code/links.db
     And it should be valid JSON, pretty-printed for readability
-    And it should be inspectable with `cat ~/.kanban-code/links.json | jq`
+    And it should be inspectable with `cat ~/.kanban-code/links.db | jq`
 
   Scenario: Card entry with all links attached
     Given a card has a session, worktree, tmux, PR, and GitHub issue linked
@@ -132,8 +132,8 @@ Feature: Coordination File
 
   # ── Backward Compatibility ──
 
-  Scenario: Old flat-format links.json is auto-migrated
-    Given an existing links.json with flat fields:
+  Scenario: Old flat-format links.db is auto-migrated
+    Given an existing links.db with flat fields:
       """json
       {
         "id": "old-uuid-format",
@@ -158,15 +158,15 @@ Feature: Coordination File
     When the coordination file is updated
     Then it should be written atomically:
       | Step | Action                                    |
-      | 1    | Write to ~/.kanban-code/links.json.tmp         |
-      | 2    | Rename links.json.tmp to links.json       |
+      | 1    | Write to ~/.kanban-code/links.db.tmp         |
+      | 2    | Rename links.db.tmp to links.db       |
     And this prevents partial writes on crash
 
   Scenario: Concurrent access safety
     Given multiple processes might read/write the file
     Then updates should use file locking
     And reads should not require locks (eventual consistency is OK)
-    And the lock file should be ~/.kanban-code/links.json.lock
+    And the lock file should be ~/.kanban-code/links.db.lock
 
   Scenario: File corruption recovery
     Given the coordination file is corrupted
@@ -174,7 +174,7 @@ Feature: Coordination File
     Then it should:
       | Step | Action                                    |
       | 1    | Detect invalid JSON                       |
-      | 2    | Back up corrupted file as links.json.bkp  |
+      | 2    | Back up corrupted file as links.db.bkp  |
       | 3    | Rebuild from session discovery             |
       | 4    | Show notification about the recovery      |
 
@@ -211,7 +211,7 @@ Feature: Coordination File
   # ── Manual Editing ──
 
   Scenario: User edits the file directly
-    Given I open ~/.kanban-code/links.json in a text editor
+    Given I open ~/.kanban-code/links.db in a text editor
     When I add a worktreeLink to a card that didn't have one
     And save the file
     Then Kanban Code should detect the change
@@ -228,7 +228,7 @@ Feature: Coordination File
 
   Scenario: Card file is useful for debugging
     Given I'm debugging why a session isn't linked to its worktree
-    When I run `cat ~/.kanban-code/links.json | jq '.links[] | select(.sessionLink.sessionId == "abc-123")'`
+    When I run `cat ~/.kanban-code/links.db | jq '.links[] | select(.sessionLink.sessionId == "abc-123")'`
     Then I should see all the card data including all typed links
     And I should be able to identify what's missing or wrong
     And manually fix it if needed

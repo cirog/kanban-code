@@ -217,7 +217,7 @@ Settings are stored in `~/.kanban-code/settings.json` — human-readable, versio
 }
 ```
 
-Card coordination lives in `~/.kanban-code/links.json` — the single source of truth linking sessions, worktrees, tmux sessions, and PRs together. You can inspect and edit it directly if needed.
+Card coordination lives in `~/.kanban-code/links.db` — the single source of truth linking sessions, worktrees, tmux sessions, and PRs together.
 
 ## Architecture
 

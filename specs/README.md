@@ -72,7 +72,7 @@ specs/
 │
 └── architecture/                  # Technical architecture
     ├── adapter-pattern.feature   # Clean architecture, port/adapter pattern
-    ├── coordination-file.feature # links.json structure and operations
+    ├── coordination-file.feature # links.db structure and operations
     └── technology-decision.feature # Swift/SwiftUI decision and rationale
 ```
 

@@ -86,4 +86,4 @@ Feature: Queued Prompts
     Given I have queued prompts on a card
     When I quit and relaunch Kanban Code
     Then the queued prompts are still visible on the card
-    And they are stored in the card's link data (~/.kanban-code/links.json)
+    And they are stored in the card's link data (~/.kanban-code/links.db)

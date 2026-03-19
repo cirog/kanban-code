@@ -89,7 +89,7 @@ Feature: Adapter Pattern and Clean Architecture
       | SyncManager        | Mutagen sync lifecycle                 |
       | RemoteShell        | SSH command routing                    |
       | SearchEngine       | BM25 scoring engine                    |
-      | CoordinationStore  | links.json read/write                  |
+      | CoordinationStore  | links.db read/write (SQLite)            |
 
   # ── Code Organization ──
 

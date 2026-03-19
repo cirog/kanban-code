@@ -46,9 +46,9 @@ Feature: Technology Decisions
     Then hook handlers should be bash scripts (like claude-pushover)
     And they should communicate with the main app via:
       | Method             | Use Case                              |
-      | Coordination file  | Update links.json with hook data      |
+      | Coordination file  | Update links.db with hook data        |
       | Unix signals       | Wake up the background process        |
-    And the scripts should be minimal (just write to links.json)
+    And the scripts should be minimal (just write to links.db)
 
   Scenario: Remote shell wrapper stays as bash
     Given the fake shell must be named "zsh" and behave like a shell

@@ -210,35 +210,6 @@ struct CoordinationStoreTests {
         #expect(links[0].sessionId == "s1")
     }
 
-    @Test("Migrates from links.json on first use")
-    func migratesFromJson() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-
-        // Write a links.json file (old format)
-        let jsonPath = (dir as NSString).appendingPathComponent("links.json")
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        let links = [
-            Link(name: "Migrated", column: .waiting, manuallyArchived: true, sessionLink: SessionLink(sessionId: "mig-1")),
-        ]
-        let container = MigrationLinksContainer(links: links)
-        let data = try encoder.encode(container)
-        try data.write(to: URL(fileURLWithPath: jsonPath))
-
-        // Create store — should auto-migrate
-        let store = CoordinationStore(basePath: dir)
-        let read = try await store.readLinks()
-        #expect(read.count == 1)
-        #expect(read[0].name == "Migrated")
-        #expect(read[0].manuallyArchived == true)
-        #expect(read[0].sessionId == "mig-1")
-
-        // links.json should be deleted
-        #expect(!FileManager.default.fileExists(atPath: jsonPath))
-    }
-
     // MARK: - Relational schema tests
 
     @Test("Relational: link with session paths round-trips all fields")
@@ -434,7 +405,3 @@ struct CoordinationStoreTests {
     }
 }
 
-/// Mirror of the private LinksContainer for migration testing
-private struct MigrationLinksContainer: Codable {
-    let links: [Link]
-}

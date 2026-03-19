@@ -2,7 +2,7 @@
 
 ## Why
 
-The app had **two sources of truth** (in-memory `BoardState.cards` and on-disk `CoordinationStore` links.json) with **5 independent writers** racing against each other. This caused cards bouncing between columns, terminals disappearing, and duplicates appearing on rapid creation. Every band-aid fix introduced new edge cases.
+The app had **two sources of truth** (in-memory `BoardState.cards` and on-disk `CoordinationStore` links.db) with **5 independent writers** racing against each other. This caused cards bouncing between columns, terminals disappearing, and duplicates appearing on rapid creation. Every band-aid fix introduced new edge cases.
 
 The fix: a lightweight Elm/Redux-style store that serializes all state mutations through a pure reducer. Not TCA (The Composable Architecture) — just ~400 lines of our own code with the same core guarantees.
 

@@ -72,7 +72,7 @@ public enum CardLabel: String, Sendable {
 // MARK: - Link (Card Entity)
 
 /// The coordination record — a card on the board with independently optional typed links.
-/// Stored in ~/.kanban-code/links.json.
+/// Stored in ~/.kanban-code/links.db (SQLite).
 public struct Link: Identifiable, Codable, Sendable {
     public let id: String
 

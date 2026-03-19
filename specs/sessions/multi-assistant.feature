@@ -38,8 +38,8 @@ Feature: Multi-Coding-Assistant Support
     Then its effectiveAssistant should default to "claude"
 
   Scenario: Cards persist assistant through JSON round-trip
-    Given a card with assistant "gemini" is saved to links.json
-    When links.json is loaded
+    Given a card with assistant "gemini" is saved to links.db
+    When links.db is loaded
     Then the card's assistant should be "gemini"
 
   # ── Session Discovery Tags ──

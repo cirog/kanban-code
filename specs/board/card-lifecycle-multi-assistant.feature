@@ -64,12 +64,12 @@ Feature: Card Lifecycle with Multiple Assistants
   # ── Persist and Load ──
 
   Scenario: Card with assistant survives app restart
-    Given a card with assistant "gemini" is saved to links.json
-    When the app restarts and loads links.json
+    Given a card with assistant "gemini" is saved to links.db
+    When the app restarts and loads links.db
     Then the card should have assistant "gemini"
 
   Scenario: Legacy card without assistant field loads as claude
-    Given links.json contains a card without "assistant" key
+    Given links.db contains a card without "assistant" key
     When loaded
     Then card.assistant should be nil
     And card.effectiveAssistant should be "claude"

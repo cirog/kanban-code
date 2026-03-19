@@ -9,25 +9,12 @@ public actor CoordinationStore {
     private let basePath: String
     nonisolated(unsafe) private var db: OpaquePointer?
 
-    /// Legacy JSON encoder/decoder — used only for migration from old blob schema.
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
-
     private var initialized = false
 
     public init(basePath: String? = nil) {
         let base = basePath ?? (NSHomeDirectory() as NSString).appendingPathComponent(".kanban-code")
         self.basePath = base
         self.dbPath = (base as NSString).appendingPathComponent("links.db")
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        self.encoder = encoder
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        self.decoder = decoder
     }
 
     /// Lazy initialization — called from within actor context on first use.
@@ -71,27 +58,13 @@ public actor CoordinationStore {
 
     // MARK: - Schema Migration
 
-    /// Detects current schema version and migrates as needed.
+    /// Ensures the relational schema exists, creating it if needed.
     private func migrateSchema() {
-        // Check if we have the new relational schema (session_paths table exists)
         let hasRelational = queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_paths'") ?? 0
-
-        if hasRelational > 0 {
-            // Already on relational schema — check for links.json migration
-            migrateFromJson()
-            return
-        }
-
-        // Check if old blob schema exists
-        let hasOldLinks = queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='links'") ?? 0
-
-        if hasOldLinks > 0 {
-            // Old blob schema exists — migrate to relational
-            migrateFromBlobSchema()
-        } else {
-            // Fresh install — create relational schema directly
+        if hasRelational == 0 {
+            // Drop any legacy tables
+            exec("DROP TABLE IF EXISTS links")
             createRelationalSchema()
-            migrateFromJson()
         }
     }
 
@@ -162,124 +135,6 @@ public actor CoordinationStore {
             )
         """)
         exec("CREATE INDEX IF NOT EXISTS idx_qp_link ON queued_prompts(link_id)")
-    }
-
-    /// Migrate from old blob schema to relational.
-    private func migrateFromBlobSchema() {
-        // Read all links from old blob schema
-        var oldLinks: [Link] = []
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT data FROM links", -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let blob = sqlite3_column_blob(stmt, 0) {
-                    let size = Int(sqlite3_column_bytes(stmt, 0))
-                    let data = Data(bytes: blob, count: size)
-                    if let link = try? decoder.decode(Link.self, from: data) {
-                        oldLinks.append(link)
-                    }
-                }
-            }
-        }
-        sqlite3_finalize(stmt)
-
-        if oldLinks.isEmpty {
-            // No data to migrate — just recreate
-            exec("DROP TABLE IF EXISTS links")
-            createRelationalSchema()
-            return
-        }
-
-        // Merge duplicate slugs before migration
-        var bySlug: [String: [Link]] = [:]
-        var noSlug: [Link] = []
-        for link in oldLinks {
-            if let slug = link.sessionLink?.slug, !slug.isEmpty {
-                bySlug[slug, default: []].append(link)
-            } else {
-                noSlug.append(link)
-            }
-        }
-        var mergedLinks: [Link] = noSlug
-        for (_, group) in bySlug {
-            if group.count == 1 {
-                mergedLinks.append(group[0])
-            } else {
-                // Merge: pick card with manual overrides, then most recent
-                let sorted = group.sorted { a, b in
-                    let aHas = a.manualOverrides.name || a.manualOverrides.column
-                    let bHas = b.manualOverrides.name || b.manualOverrides.column
-                    if aHas != bHas { return aHas }
-                    return (a.lastActivity ?? .distantPast) > (b.lastActivity ?? .distantPast)
-                }
-                var survivor = sorted[0]
-                for loser in sorted.dropFirst() {
-                    // Collect previous session paths
-                    if let path = loser.sessionLink?.sessionPath {
-                        var prev = survivor.sessionLink?.previousSessionPaths ?? []
-                        if !prev.contains(path) { prev.append(path) }
-                        survivor.sessionLink?.previousSessionPaths = prev
-                    }
-                    if let loserPrev = loser.sessionLink?.previousSessionPaths {
-                        var prev = survivor.sessionLink?.previousSessionPaths ?? []
-                        for p in loserPrev where !prev.contains(p) { prev.append(p) }
-                        survivor.sessionLink?.previousSessionPaths = prev
-                    }
-                    if survivor.tmuxLink == nil { survivor.tmuxLink = loser.tmuxLink }
-                    if let prompts = loser.queuedPrompts {
-                        survivor.queuedPrompts = (survivor.queuedPrompts ?? []) + prompts
-                    }
-                }
-                // Remove survivor's current path from previous
-                if let current = survivor.sessionLink?.sessionPath {
-                    survivor.sessionLink?.previousSessionPaths?.removeAll { $0 == current }
-                }
-                if survivor.sessionLink?.previousSessionPaths?.isEmpty == true {
-                    survivor.sessionLink?.previousSessionPaths = nil
-                }
-                mergedLinks.append(survivor)
-            }
-        }
-
-        // Drop old table, create new schema, insert migrated data
-        exec("DROP TABLE IF EXISTS links")
-        createRelationalSchema()
-
-        exec("BEGIN TRANSACTION")
-        for link in mergedLinks {
-            do {
-                try insertRelational(link)
-            } catch {
-                ClaudeBoardLog.warn("sqlite", "Migration insert failed for \(link.id): \(error)")
-            }
-        }
-        exec("COMMIT")
-        ClaudeBoardLog.info("sqlite", "Migrated \(oldLinks.count) blob links → \(mergedLinks.count) relational links")
-    }
-
-    /// One-time migration: import links.json into SQLite, then delete the JSON file.
-    private func migrateFromJson() {
-        let jsonPath = (basePath as NSString).appendingPathComponent("links.json")
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: jsonPath) else { return }
-        if let count = queryInt("SELECT COUNT(*) FROM links"), count > 0 { return }
-
-        do {
-            let data = try Data(contentsOf: URL(fileURLWithPath: jsonPath))
-            let container = try decoder.decode(LinksContainer.self, from: data)
-            exec("BEGIN TRANSACTION")
-            for link in container.links {
-                try insertRelational(link)
-            }
-            exec("COMMIT")
-            try fm.removeItem(atPath: jsonPath)
-            for suffix in [".bkp", ".tmp"] {
-                try? fm.removeItem(atPath: jsonPath + suffix)
-            }
-            ClaudeBoardLog.info("sqlite", "Migrated \(container.links.count) links from links.json")
-        } catch {
-            exec("ROLLBACK")
-            ClaudeBoardLog.warn("sqlite", "Migration from links.json failed: \(error)")
-        }
     }
 
     // MARK: - Public API
@@ -849,8 +704,3 @@ enum CoordinationStoreError: Error, LocalizedError {
     }
 }
 
-// MARK: - Legacy Migration Container
-
-private struct LinksContainer: Codable {
-    let links: [Link]
-}
