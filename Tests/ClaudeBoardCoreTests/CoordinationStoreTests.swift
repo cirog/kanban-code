@@ -239,6 +239,180 @@ struct CoordinationStoreTests {
         #expect(!FileManager.default.fileExists(atPath: jsonPath))
     }
 
+    // MARK: - Relational schema tests
+
+    @Test("Relational: link with session paths round-trips all fields")
+    func relationalFullRoundTrip() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        var link = Link(
+            id: "card-1",
+            name: "Test Card",
+            projectPath: "/test/project",
+            column: .inProgress,
+            manualOverrides: ManualOverrides(name: true, column: true),
+            manuallyArchived: false,
+            source: .manual,
+            promptBody: "Fix the bug",
+            todoistId: "todo-123",
+            sessionLink: SessionLink(
+                sessionId: "session-1",
+                sessionPath: "/path/to/s1.jsonl",
+                slug: "test-slug"
+            ),
+            assistant: .claude
+        )
+        link.tmuxLink = TmuxLink(sessionName: "tmux-primary", extraSessions: ["tmux-shell"])
+        link.queuedPrompts = [QueuedPrompt(id: "qp-1", body: "next task", sendAutomatically: true)]
+
+        try await store.upsertLink(link)
+
+        let loaded = try await store.readLinks()
+        #expect(loaded.count == 1)
+        let card = loaded[0]
+
+        // Card-level fields
+        #expect(card.id == "card-1")
+        #expect(card.name == "Test Card")
+        #expect(card.projectPath == "/test/project")
+        #expect(card.column == .inProgress)
+        #expect(card.manualOverrides.name == true)
+        #expect(card.manualOverrides.column == true)
+        #expect(card.source == .manual)
+        #expect(card.promptBody == "Fix the bug")
+        #expect(card.todoistId == "todo-123")
+        #expect(card.effectiveAssistant == .claude)
+
+        // Session data
+        #expect(card.sessionLink?.sessionId == "session-1")
+        #expect(card.sessionLink?.sessionPath == "/path/to/s1.jsonl")
+        #expect(card.sessionLink?.slug == "test-slug")
+
+        // Tmux data
+        #expect(card.tmuxLink?.sessionName == "tmux-primary")
+        #expect(card.tmuxLink?.extraSessions == ["tmux-shell"])
+
+        // Queued prompts
+        #expect(card.queuedPrompts?.count == 1)
+        #expect(card.queuedPrompts?[0].body == "next task")
+    }
+
+    @Test("Relational: session chaining via previousSessionPaths round-trips")
+    func relationalSessionChaining() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        let link = Link(
+            id: "card-1",
+            column: .done,
+            sessionLink: SessionLink(
+                sessionId: "session-3",
+                sessionPath: "/path/to/s3.jsonl",
+                slug: "my-slug",
+                previousSessionPaths: ["/path/to/s1.jsonl", "/path/to/s2.jsonl"]
+            )
+        )
+        try await store.upsertLink(link)
+
+        let loaded = try await store.readLinks()
+        #expect(loaded.count == 1)
+        let card = loaded[0]
+        #expect(card.sessionLink?.sessionId == "session-3")
+        #expect(card.sessionLink?.sessionPath == "/path/to/s3.jsonl")
+        #expect(card.sessionLink?.previousSessionPaths?.count == 2)
+        #expect(card.sessionLink?.previousSessionPaths?.contains("/path/to/s1.jsonl") == true)
+        #expect(card.sessionLink?.previousSessionPaths?.contains("/path/to/s2.jsonl") == true)
+    }
+
+    @Test("Relational: UNIQUE slug constraint prevents duplicate cards")
+    func relationalSlugUniqueness() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        var card1 = Link(id: "card-1", column: .done)
+        card1.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "same-slug")
+        var card2 = Link(id: "card-2", column: .done)
+        card2.sessionLink = SessionLink(sessionId: "s2", sessionPath: "/s2.jsonl", slug: "same-slug")
+
+        try await store.upsertLink(card1)
+        // Second card with same slug should throw
+        var threw = false
+        do {
+            try await store.upsertLink(card2)
+        } catch {
+            threw = true
+        }
+        #expect(threw, "Expected UNIQUE constraint violation for duplicate slug")
+    }
+
+    @Test("Relational: findBySlug returns correct card")
+    func relationalFindBySlug() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        var link = Link(id: "card-1", name: "Found", column: .done)
+        link.sessionLink = SessionLink(sessionId: "s1", slug: "my-slug")
+        try await store.upsertLink(link)
+
+        let found = try await store.findBySlug("my-slug")
+        #expect(found?.id == "card-1")
+        #expect(found?.name == "Found")
+
+        let notFound = try await store.findBySlug("nonexistent")
+        #expect(notFound == nil)
+    }
+
+    @Test("Relational: addSessionPath chains sessions and marks new as current")
+    func relationalAddSessionPath() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        var link = Link(id: "card-1", column: .done)
+        link.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "my-slug")
+        try await store.upsertLink(link)
+
+        // Chain a new session
+        try await store.addSessionPath(linkId: "card-1", sessionId: "s2", path: "/s2.jsonl")
+
+        let loaded = try await store.readLinks()
+        #expect(loaded.count == 1)
+        let card = loaded[0]
+        // New session is current
+        #expect(card.sessionLink?.sessionId == "s2")
+        #expect(card.sessionLink?.sessionPath == "/s2.jsonl")
+        // Old session is in previousSessionPaths
+        #expect(card.sessionLink?.previousSessionPaths == ["/s1.jsonl"])
+    }
+
+    @Test("Relational: CASCADE delete removes child rows")
+    func relationalCascadeDelete() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        var link = Link(id: "card-1", column: .done)
+        link.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "slug")
+        link.tmuxLink = TmuxLink(sessionName: "tmux-1")
+        link.queuedPrompts = [QueuedPrompt(body: "test")]
+        try await store.upsertLink(link)
+
+        try await store.removeLink(id: "card-1")
+        let links = try await store.readLinks()
+        #expect(links.isEmpty)
+        // Child rows should also be gone (CASCADE) — verified by re-inserting
+        // a card with same slug (would fail if old session_paths row still had the slug)
+        var link2 = Link(id: "card-2", column: .done)
+        link2.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "slug")
+        try await store.upsertLink(link2) // Should not throw
+        #expect(try await store.readLinks().count == 1)
+    }
+
     @Test("writeLinks replaces all links")
     func writeLinksReplaces() async throws {
         let dir = try makeTempDir()
