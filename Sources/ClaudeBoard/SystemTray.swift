@@ -143,7 +143,9 @@ final class SystemTray: NSObject, @unchecked Sendable {
     private func updateBadge() {
         guard let store else { return }
         let waitingCount = store.state.cardCount(in: .waiting)
-        statusItem?.button?.title = TrayBadge.badgeText(waitingCount: waitingCount)
+        let badge = TrayBadge.badgeText(waitingCount: waitingCount)
+        statusItem?.button?.title = badge
+        statusItem?.button?.imagePosition = badge.isEmpty ? .imageOnly : .imageLeading
     }
 
     /// Show tray icon when there are In Progress sessions, waiting cards, or within linger timeout.
