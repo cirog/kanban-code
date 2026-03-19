@@ -290,6 +290,60 @@ struct CardReconcilerTests {
         #expect(result.links.count == 2)
     }
 
+    @Test("Tmux fallback does NOT match when session slug matches an existing card")
+    func tmuxFallbackSkipsWhenSlugMatches() {
+        // Card A: has live tmux, same project path — would match via fallback
+        let cardA = Link(
+            id: "card-A",
+            projectPath: "/test",
+            column: .inProgress,
+            source: .discovered,
+            sessionLink: SessionLink(
+                sessionId: "old-session-id",
+                sessionPath: "/path/to/old.jsonl",
+                slug: "old-slug"
+            ),
+            tmuxLink: TmuxLink(sessionName: "claude-tmux")
+        )
+
+        // Card B: owns the slug "my-slug" — should win via slug match
+        let cardB = Link(
+            id: "card-B",
+            projectPath: "/test",
+            column: .waiting,
+            source: .discovered,
+            sessionLink: SessionLink(
+                sessionId: "other-session-id",
+                sessionPath: "/path/to/other.jsonl",
+                slug: "my-slug"
+            )
+        )
+
+        // New session has slug "my-slug" — should match card B, NOT card A
+        var newSession = Session(id: "new-session-id")
+        newSession.projectPath = "/test"
+        newSession.jsonlPath = "/path/to/new.jsonl"
+        newSession.slug = "my-slug"
+        newSession.messageCount = 5
+        newSession.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [newSession],
+            tmuxSessions: [TmuxSession(name: "claude-tmux", path: "/test", attached: false)],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [cardA, cardB], snapshot: snapshot)
+
+        // Session should chain to card B (slug match), not card A (tmux fallback)
+        let updatedB = result.links.first { $0.id == "card-B" }!
+        #expect(updatedB.sessionLink?.sessionId == "new-session-id")
+
+        // Card A should still have its original session
+        let updatedA = result.links.first { $0.id == "card-A" }!
+        #expect(updatedA.sessionLink?.sessionId == "old-session-id")
+    }
+
     // MARK: - Priority tests
 
     @Test("Exact sessionId match takes priority over slug match")

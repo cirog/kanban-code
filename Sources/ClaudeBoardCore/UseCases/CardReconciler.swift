@@ -227,7 +227,11 @@ public enum CardReconciler {
         // 2.5. Tmux fallback: session has projectPath matching a card with a LIVE tmux session
         //      (even if card already has a sessionLink with a different sessionId/slug).
         //      Defends against Claude Code breaking its slug contract during plan mode exit.
-        if let projectPath = session.projectPath {
+        //      GUARD: Only fire when the session's slug does NOT match any existing card.
+        //      Without this guard, sessions with valid slugs get swallowed by the first
+        //      card that shares the same projectPath + live tmux.
+        let slugHasMatch = session.slug.map { !$0.isEmpty && cardIdBySlug[$0] != nil } ?? false
+        if !slugHasMatch, let projectPath = session.projectPath {
             for (_, link) in linksById {
                 if let tmux = link.tmuxLink,
                    link.sessionLink != nil,
