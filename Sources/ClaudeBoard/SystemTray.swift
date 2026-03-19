@@ -139,13 +139,12 @@ final class SystemTray: NSObject, @unchecked Sendable {
         NSApp.windows.first?.makeKeyAndOrderFront(nil)
     }
 
-    /// Update the badge text on the menu bar icon.
+    /// Update the waiting-count badge on the dock icon.
     private func updateBadge() {
         guard let store else { return }
         let waitingCount = store.state.globalCardCount(in: .waiting)
         let badge = TrayBadge.badgeText(waitingCount: waitingCount)
-        statusItem?.button?.title = badge
-        statusItem?.button?.imagePosition = badge.isEmpty ? .imageOnly : .imageLeading
+        NSApp.dockTile.badgeLabel = badge.isEmpty ? nil : badge
     }
 
     /// Show tray icon when there are In Progress sessions, waiting cards, or within linger timeout.
