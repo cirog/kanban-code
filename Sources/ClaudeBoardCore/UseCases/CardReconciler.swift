@@ -28,10 +28,9 @@ public enum CardReconciler {
         }
     }
 
-    /// Result of reconciliation, including merged links and IDs of cards removed by slug merge.
+    /// Result of reconciliation.
     public struct ReconcileResult: Sendable {
         public let links: [Link]
-        public let mergedAwayCardIds: Set<String>
     }
 
     /// Reconcile existing cards with discovered resources.
@@ -144,10 +143,7 @@ public enum CardReconciler {
             }
         }
 
-        // B. Merge cards that share the same slug (handles sessions discovered in same batch)
-        let mergedAwayIds = mergeDuplicateSlugs(&linksById)
-
-        // C. Clear dead tmux links
+        // B. Clear dead tmux links
         let liveTmuxNames = Set(snapshot.tmuxSessions.map(\.name))
         let didScanTmux = snapshot.didScanTmux
 
@@ -192,74 +188,7 @@ public enum CardReconciler {
             }
         }
 
-        return ReconcileResult(links: Array(linksById.values), mergedAwayCardIds: mergedAwayIds)
-    }
-
-    // MARK: - Slug Merge
-
-    /// Merge cards that ended up with the same slug on separate cards.
-    /// This happens when multiple context-continued sessions are discovered in the same batch —
-    /// each gets its own card via sessionId match, but they logically belong together.
-    @discardableResult
-    private static func mergeDuplicateSlugs(_ linksById: inout [String: Link]) -> Set<String> {
-        var removedIds: Set<String> = []
-        // Group non-archived cards by slug
-        var cardsBySlug: [String: [String]] = [:] // slug → [cardId]
-        for (id, link) in linksById {
-            guard !link.manuallyArchived,
-                  let slug = link.sessionLink?.slug, !slug.isEmpty else { continue }
-            cardsBySlug[slug, default: []].append(id)
-        }
-
-        for (slug, cardIds) in cardsBySlug where cardIds.count > 1 {
-            // Pick survivor: prefer card with manual overrides (name, column), then most recent activity
-            let sorted = cardIds.compactMap { linksById[$0] }.sorted { a, b in
-                let aHasOverrides = a.manualOverrides.name || a.manualOverrides.column
-                let bHasOverrides = b.manualOverrides.name || b.manualOverrides.column
-                if aHasOverrides != bHasOverrides { return aHasOverrides }
-                return (a.lastActivity ?? .distantPast) > (b.lastActivity ?? .distantPast)
-            }
-
-            guard var survivor = sorted.first else { continue }
-            let losers = sorted.dropFirst()
-
-            // Collect all session paths from losers into previousSessionPaths (deduplicated)
-            var pathSet = Set(survivor.sessionLink?.previousSessionPaths ?? [])
-            for loser in losers {
-                if let path = loser.sessionLink?.sessionPath {
-                    pathSet.insert(path)
-                }
-                if let loserPrev = loser.sessionLink?.previousSessionPaths {
-                    pathSet.formUnion(loserPrev)
-                }
-                // Absorb tmuxLink if survivor doesn't have one
-                if survivor.tmuxLink == nil, let tmux = loser.tmuxLink {
-                    survivor.tmuxLink = tmux
-                }
-                // Absorb queued prompts
-                if let prompts = loser.queuedPrompts {
-                    survivor.queuedPrompts = (survivor.queuedPrompts ?? []) + prompts
-                }
-                // Remove loser
-                linksById.removeValue(forKey: loser.id)
-                removedIds.insert(loser.id)
-            }
-
-            // Don't include the survivor's own current session path
-            if let currentPath = survivor.sessionLink?.sessionPath {
-                pathSet.remove(currentPath)
-            }
-            let dedupedPaths = pathSet.sorted()
-            survivor.sessionLink?.previousSessionPaths = dedupedPaths.isEmpty ? nil : dedupedPaths
-            // Update activity to most recent across all merged cards
-            if let newestActivity = sorted.compactMap(\.lastActivity).max() {
-                survivor.lastActivity = newestActivity
-            }
-            linksById[survivor.id] = survivor
-
-            ClaudeBoardLog.info("reconciler", "Merged \(cardIds.count) cards with slug=\(slug) → survivor=\(survivor.id.prefix(12))")
-        }
-        return removedIds
+        return ReconcileResult(links: Array(linksById.values))
     }
 
     // MARK: - Private

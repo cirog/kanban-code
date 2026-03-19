@@ -215,7 +215,6 @@ public enum Action: Sendable {
 /// Bundles the result of a full background reconciliation cycle.
 public struct ReconciliationResult: Sendable {
     public let links: [Link]
-    public let mergedAwayCardIds: Set<String>
     public let sessions: [Session]
     public let activityMap: [String: ActivityState]
     public let tmuxSessions: Set<String>
@@ -224,7 +223,6 @@ public struct ReconciliationResult: Sendable {
     public let discoveredProjectPaths: [String]
     public init(
         links: [Link],
-        mergedAwayCardIds: Set<String> = [],
         sessions: [Session],
         activityMap: [String: ActivityState],
         tmuxSessions: Set<String>,
@@ -233,7 +231,6 @@ public struct ReconciliationResult: Sendable {
         discoveredProjectPaths: [String] = []
     ) {
         self.links = links
-        self.mergedAwayCardIds = mergedAwayCardIds
         self.sessions = sessions
         self.activityMap = activityMap
         self.tmuxSessions = tmuxSessions
@@ -270,24 +267,6 @@ public enum Effect: Sendable {
 /// Pure function: (state, action) → (state', effects).
 /// No async. No side effects. Fully testable.
 public enum Reducer {
-    /// Propagate discovery-derived session metadata (slug, sessionPath, previousSessionPaths)
-    /// from a reconciled link onto a preserved link, without overwriting existing values.
-    /// Returns true if any field was actually updated.
-    /// Note: sessionNumber is intentionally excluded — it's derived from the filename, not discovery.
-    @discardableResult
-    private static func propagateSessionMetadata(from source: SessionLink, to link: inout Link) -> Bool {
-        guard var sl = link.sessionLink else {
-            link.sessionLink = source
-            return true
-        }
-        var changed = false
-        if sl.slug == nil, let slug = source.slug { sl.slug = slug; changed = true }
-        if sl.sessionPath == nil, let path = source.sessionPath { sl.sessionPath = path; changed = true }
-        if sl.previousSessionPaths == nil, let paths = source.previousSessionPaths { sl.previousSessionPaths = paths; changed = true }
-        if changed { link.sessionLink = sl }
-        return changed
-    }
-
     public static func reduce(state: inout AppState, action: Action) -> [Effect] {
         switch action {
 
@@ -833,14 +812,6 @@ public enum Reducer {
             )
             state.activityMap = result.activityMap
 
-            // Remove cards that were merged away by slug dedup
-            if !result.mergedAwayCardIds.isEmpty {
-                for id in result.mergedAwayCardIds {
-                    state.links.removeValue(forKey: id)
-                }
-                ClaudeBoardLog.info("store", "Removed \(result.mergedAwayCardIds.count) merged-away card(s)")
-            }
-
             // Merge reconciled links using last-writer-wins on updatedAt.
             // Reconciliation takes seconds of async work. Any in-memory changes
             // made during that window (launch, create terminal, move card) have a
@@ -885,14 +856,6 @@ public enum Reducer {
                         shouldPreserve = true
                     }
                     if shouldPreserve {
-                        // Propagate discovery-derived session metadata (slug, paths) even on
-                        // preserved cards — these are orthogonal to user state.
-                        if let reconciledSession = link.sessionLink {
-                            var updated = existing
-                            if Self.propagateSessionMetadata(from: reconciledSession, to: &updated) {
-                                mergedLinks[link.id] = updated
-                            }
-                        }
                         preservedIds.insert(link.id)
                         continue
                     }
@@ -1331,8 +1294,7 @@ public final class BoardStore: @unchecked Sendable {
             )
             let reconcileResult = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
             let mergedLinks = reconcileResult.links
-            let mergedAwayCardIds = reconcileResult.mergedAwayCardIds
-            ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) merged, \(mergedAwayCardIds.count) merged away)")
+            ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) reconciled)")
 
             // Build activity map
             let t4 = ContinuousClock.now
@@ -1357,7 +1319,6 @@ public final class BoardStore: @unchecked Sendable {
             let t5 = ContinuousClock.now
             let result = ReconciliationResult(
                 links: mergedLinks,
-                mergedAwayCardIds: mergedAwayCardIds,
                 sessions: sessions,
                 activityMap: activityMap,
                 tmuxSessions: Set(tmuxSessions.map(\.name)),

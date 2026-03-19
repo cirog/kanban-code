@@ -388,8 +388,7 @@ public final class BoardState: @unchecked Sendable {
             )
             let reconcileResult = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
             var mergedLinks = reconcileResult.links
-            let mergedAwayCardIds = reconcileResult.mergedAwayCardIds
-            ClaudeBoardLog.info("refresh", "Reconciled: \(existingLinks.count) existing → \(mergedLinks.count) merged (\(sessions.count) sessions, \(mergedAwayCardIds.count) merged away)")
+            ClaudeBoardLog.info("refresh", "Reconciled: \(existingLinks.count) existing → \(mergedLinks.count) reconciled (\(sessions.count) sessions)")
 
             // Recalculate columns: f(state) = column
             var newCards: [ClaudeBoardCard] = []
@@ -429,10 +428,6 @@ public final class BoardState: @unchecked Sendable {
             // Persist recalculated columns + merged links (atomic merge to avoid overwriting concurrent additions)
             let mergedById = Dictionary(mergedLinks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             try? await coordinationStore.modifyLinks { freshLinks in
-                // Remove cards that were merged away by slug dedup
-                if !mergedAwayCardIds.isEmpty {
-                    freshLinks.removeAll { mergedAwayCardIds.contains($0.id) }
-                }
                 // Update existing links with reconciled data
                 for i in freshLinks.indices {
                     if let merged = mergedById[freshLinks[i].id] {
