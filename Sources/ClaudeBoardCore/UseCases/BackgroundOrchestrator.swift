@@ -137,6 +137,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                     ClaudeBoardLog.info("notify", "Stop event for session \(event.sessionId.prefix(8)) at \(event.timestamp)")
                     let stopTime = event.timestamp
                     let sessionId = event.sessionId
+                    let transcriptPath = event.transcriptPath
                     Task { [weak self] in
                         try? await Task.sleep(for: .milliseconds(500))
                         guard let self else {
@@ -152,7 +153,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                             return
                         }
                         // Send directly — no dedup for Stop events (matches claude-pushover)
-                        await self.doNotify(sessionId: sessionId)
+                        await self.doNotify(sessionId: sessionId, transcriptPath: transcriptPath)
 
                         // Auto-send queued prompt: wait 0.5 more seconds (1s total from Stop),
                         // re-check that user hasn't prompted, then send first auto prompt.
@@ -164,7 +165,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                             ClaudeBoardLog.info("notify", "Auto-send skipped: user prompted after stop")
                             return
                         }
-                        await self.autoSendQueuedPrompt(sessionId: sessionId)
+                        await self.autoSendQueuedPrompt(sessionId: sessionId, transcriptPath: transcriptPath)
                     }
 
                 case "Notification":
@@ -172,6 +173,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                     ClaudeBoardLog.info("notify", "Notification event for session \(event.sessionId.prefix(8)) at \(event.timestamp)")
                     let sessionId = event.sessionId
                     let eventTime = event.timestamp
+                    let notifTranscriptPath = event.transcriptPath
                     Task { [weak self] in
                         // Notification events go through 62s dedup
                         let shouldNotify = await self?.notificationDedup.shouldNotify(
@@ -181,7 +183,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                             ClaudeBoardLog.info("notify", "Notification deduped for \(sessionId.prefix(8))")
                             return
                         }
-                        await self?.doNotify(sessionId: sessionId)
+                        await self?.doNotify(sessionId: sessionId, transcriptPath: notifTranscriptPath)
                     }
 
                 case "UserPromptSubmit":
@@ -201,13 +203,17 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
 
     /// Send notification — no dedup check, just format and send.
     /// Mirrors claude-pushover's do_notify() exactly.
-    private func doNotify(sessionId: String) async {
+    private func doNotify(sessionId: String, transcriptPath: String? = nil) async {
         guard let notifier else {
             ClaudeBoardLog.info("notify", "Notification skipped: notifier is nil")
             return
         }
 
-        let link = try? await coordinationStore.linkForSession(sessionId)
+        let link = try? await Self.resolveLink(
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            coordinationStore: coordinationStore
+        )
         let title = link?.displayTitle ?? "Session done"
 
         // Mirrors claude-pushover's do_notify() exactly:
@@ -259,9 +265,13 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     }
 
     /// Auto-send the first queued prompt with sendAutomatically=true for a session.
-    private func autoSendQueuedPrompt(sessionId: String) async {
+    private func autoSendQueuedPrompt(sessionId: String, transcriptPath: String? = nil) async {
         do {
-            guard let link = try await coordinationStore.linkForSession(sessionId) else {
+            guard let link = try await Self.resolveLink(
+                sessionId: sessionId,
+                transcriptPath: transcriptPath,
+                coordinationStore: coordinationStore
+            ) else {
                 return
             }
             guard let prompts = link.queuedPrompts,
@@ -292,6 +302,35 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     /// Column updates and PR tracking are now handled by BoardStore.reconcile().
     private func backgroundTick() async {
         await updateActivityStates()
+    }
+
+    // MARK: - Session resolution
+
+    /// Resolve a session ID to a Link. Fast path: exact DB match.
+    /// Fallback: read slug from .jsonl transcript, find card by slug, eagerly register session.
+    static func resolveLink(
+        sessionId: String,
+        transcriptPath: String?,
+        coordinationStore: CoordinationStore
+    ) async throws -> Link? {
+        // Fast path: session already registered
+        if let link = try await coordinationStore.linkForSession(sessionId) {
+            return link
+        }
+
+        // Fallback: read slug from transcript, find card by slug
+        guard let path = transcriptPath,
+              let metadata = try await JsonlParser.extractMetadata(from: path),
+              let slug = metadata.slug,
+              let link = try await coordinationStore.findBySlug(slug) else {
+            return nil
+        }
+
+        // Eagerly register so future lookups hit the fast path
+        ClaudeBoardLog.info("reconciler", "Hook resolution: session \(sessionId.prefix(8)) → card \(link.id.prefix(12)) via slug \(slug)")
+        try await coordinationStore.addSessionPath(linkId: link.id, sessionId: sessionId, path: path)
+        // Re-read to get updated session link
+        return try await coordinationStore.linkById(link.id)
     }
 
     private func updateActivityStates() async {
