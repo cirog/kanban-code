@@ -1049,7 +1049,8 @@ struct CardDetailView: View {
     }
 
     private func loadPrompts() async {
-        guard let sessionPath = card.link.sessionLink?.sessionPath else {
+        let paths = allSessionPaths
+        guard !paths.isEmpty else {
             promptTurns = []
             return
         }
@@ -1057,19 +1058,16 @@ struct CardDetailView: View {
         isLoadingPrompts = true
         promptsCardId = card.id
 
-        let allTurns = await {
-            var turns: [ConversationTurn] = []
-            for await turn in TranscriptReader.streamAllTurns(from: sessionPath) {
-                turns.append(turn)
+        var allTurns: [ConversationTurn] = []
+        for path in paths {
+            for await turn in TranscriptReader.streamAllTurns(from: path) {
+                allTurns.append(turn)
             }
-            return turns
-        }()
-
-        let userPrompts = allTurns.filter { turn in
-            turn.role == "user" && !turn.textPreview.hasPrefix("[tool result")
         }
 
-        promptTurns = userPrompts
+        promptTurns = allTurns.filter { turn in
+            turn.role == "user" && !turn.textPreview.hasPrefix("[tool result")
+        }
         isLoadingPrompts = false
     }
 
@@ -1435,6 +1433,20 @@ struct CardDetailView: View {
 
     // MARK: - History loading
 
+    /// All session paths in chronological order (previous sessions + current).
+    private var allSessionPaths: [String] {
+        var paths = card.link.sessionLink?.previousSessionPaths ?? []
+        if let current = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath {
+            paths.append(current)
+        }
+        return paths
+    }
+
+    /// Whether this card has chained sessions (slug continuation via --resume).
+    private var hasChainedSessions: Bool {
+        !(card.link.sessionLink?.previousSessionPaths ?? []).isEmpty
+    }
+
     private static let pageSize = 80
 
     private func loadFullHistory() async {
@@ -1467,6 +1479,11 @@ struct CardDetailView: View {
     }
 
     private func loadHistory() async {
+        // Chained sessions: always use full load (re-indexes across files)
+        if hasChainedSessions {
+            await loadFullHistory()
+            return
+        }
         guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
         if turns.isEmpty { isLoadingHistory = true }
         // Preserve expanded window: if user loaded more than pageSize, keep that many
@@ -1493,6 +1510,7 @@ struct CardDetailView: View {
     }
 
     private func loadMoreHistory() async {
+        guard !hasChainedSessions else { return } // Full history already loaded
         guard hasMoreTurns, !isLoadingMore else { return }
         guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
         guard let firstTurn = turns.first else { return }
@@ -1514,6 +1532,7 @@ struct CardDetailView: View {
     /// Load turns around a specific turn index (for search match navigation).
     /// Loads a page-sized chunk around the target, merging with existing turns.
     private func loadAroundTurn(_ targetIndex: Int) async {
+        guard !hasChainedSessions else { return } // Full history already loaded
         guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
         isLoadingMore = true
 
