@@ -292,6 +292,11 @@ public enum Reducer {
             guard var link = state.links[cardId] else { return [] }
             let projectName = (projectPath as NSString).lastPathComponent
             let tmuxName = "\(projectName)-\(cardId)"
+            // Store projectPath if not already set — enables reconciler Step 2 matching
+            // for name-only TASK cards that launch without a projectPath
+            if link.projectPath == nil {
+                link.projectPath = projectPath
+            }
             // Preserve existing shell sessions as extras
             var extras = link.tmuxLink?.extraSessions ?? []
             if link.tmuxLink?.isShellOnly == true, let oldPrimary = link.tmuxLink?.sessionName {

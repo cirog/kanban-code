@@ -71,7 +71,8 @@ public enum CardReconciler {
                 cardIdBySessionId: cardIdBySessionId,
                 cardIdBySlug: cardIdBySlug,
                 cardIdByTmuxName: cardIdByTmuxName,
-                linksById: linksById
+                linksById: linksById,
+                tmuxSessions: snapshot.tmuxSessions
             )
 
             if let cardId, var link = linksById[cardId] {
@@ -261,25 +262,56 @@ public enum CardReconciler {
         cardIdBySessionId: [String: String],
         cardIdBySlug: [String: String],
         cardIdByTmuxName: [String: String],
-        linksById: [String: Link]
+        linksById: [String: Link],
+        tmuxSessions: [TmuxSession] = []
     ) -> String? {
+        let sid = session.id.prefix(8)
+
         // 1. Exact match by sessionId
         if let cardId = cardIdBySessionId[session.id] {
-            ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by sessionId → card=\(cardId.prefix(12))")
+            ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by sessionId → card=\(cardId.prefix(12))")
             return cardId
         }
 
-        // 2. Match by project path + tmux (card has tmuxLink, same project, no sessionLink yet)
-        //    Skip cards mid-launch — the launch flow will set sessionLink via launchCompleted
+        // 2. Match by tmux + project path (card has tmuxLink, no sessionLink yet)
+        //    Skip cards mid-launch — the launch flow will set sessionLink via launchCompleted.
+        //    Uses solo-match guard: only match when exactly one candidate remains.
+        //    When card.projectPath is nil, falls back to tmux session path for comparison.
         if let projectPath = session.projectPath {
-            for (_, link) in linksById {
-                if link.tmuxLink != nil,
-                   link.sessionLink == nil,
-                   link.isLaunching != true,
-                   link.projectPath == projectPath {
-                    ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by projectPath+tmux → card=\(link.id.prefix(12)) (tmux=\(link.tmuxLink?.sessionName ?? "?"))")
-                    return link.id
+            // Build tmux path lookup for disambiguation
+            let tmuxPathByName = Dictionary(tmuxSessions.map { ($0.name, $0.path) }, uniquingKeysWith: { a, _ in a })
+
+            let candidates = linksById.values.filter { link in
+                guard link.tmuxLink != nil,
+                      link.sessionLink == nil,
+                      link.isLaunching != true else { return false }
+                // Match by card's projectPath if set, otherwise by tmux session's path
+                if let cardPath = link.projectPath {
+                    return cardPath == projectPath
                 }
+                // Card has no projectPath — check if its tmux session path matches
+                if let tmuxName = link.tmuxLink?.sessionName,
+                   let tmuxPath = tmuxPathByName[tmuxName] {
+                    return tmuxPath == projectPath
+                }
+                return false
+            }
+
+            if candidates.count == 1, let match = candidates.first {
+                ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by projectPath+tmux → card=\(match.id.prefix(12)) (tmux=\(match.tmuxLink?.sessionName ?? "?"), cardPath=\(match.projectPath ?? "nil"))")
+                return match.id
+            } else if candidates.count > 1 {
+                // Disambiguation: filter candidates whose tmux session path matches the session's projectPath
+                let narrowed = candidates.filter { link in
+                    guard let tmuxName = link.tmuxLink?.sessionName,
+                          let tmuxPath = tmuxPathByName[tmuxName] else { return false }
+                    return tmuxPath == projectPath
+                }
+                if narrowed.count == 1, let match = narrowed.first {
+                    ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) disambiguated by tmux path → card=\(match.id.prefix(12)) (tmux=\(match.tmuxLink?.sessionName ?? "?"), from \(candidates.count) candidates)")
+                    return match.id
+                }
+                ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) projectPath=\(projectPath) → \(candidates.count) tmux candidates (\(narrowed.count) with matching tmux path, ambiguous): \(candidates.map { "\($0.id.prefix(12)):\($0.tmuxLink?.sessionName ?? "?")" }.joined(separator: ", "))")
             }
         }
 
@@ -292,7 +324,7 @@ public enum CardReconciler {
                    link.source == .manual,
                    let prompt = link.promptBody,
                    prompt == firstPrompt {
-                    ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by promptBody → card=\(link.id.prefix(12))")
+                    ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by promptBody → card=\(link.id.prefix(12))")
                     return link.id
                 }
             }
@@ -307,7 +339,7 @@ public enum CardReconciler {
                    (link.source == .manual || link.source == .todoist),
                    let name = link.name, !name.isEmpty,
                    slugify(name) == normalizedSlug {
-                    ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by name-to-slug '\(name)' → card=\(link.id.prefix(12))")
+                    ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by name-to-slug '\(name)' → card=\(link.id.prefix(12))")
                     return link.id
                 }
             }
@@ -324,18 +356,23 @@ public enum CardReconciler {
                 $0.projectPath == projectPath
             }
             if candidates.count == 1, let match = candidates.first {
-                ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by solo projectPath → card=\(match.id.prefix(12))")
+                ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by solo projectPath → card=\(match.id.prefix(12))")
                 return match.id
             }
         }
 
         // 4. Match by slug (context-continued session shares same conversation slug)
         if let slug = session.slug, !slug.isEmpty, let cardId = cardIdBySlug[slug] {
-            ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by slug=\(slug) → card=\(cardId.prefix(12))")
+            ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by slug=\(slug) → card=\(cardId.prefix(12))")
             return cardId
         }
 
-        ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) projectPath=\(session.projectPath ?? "nil") → NO MATCH")
+        // Detailed no-match logging to diagnose reconciler misses
+        let tmuxCandidates = linksById.values.filter { $0.tmuxLink != nil && $0.sessionLink == nil && $0.isLaunching != true }
+        let tmuxInfo = tmuxCandidates.isEmpty ? "none" : tmuxCandidates.map {
+            "\($0.id.prefix(12))(src=\($0.source),path=\($0.projectPath ?? "nil"),tmux=\($0.tmuxLink?.sessionName ?? "?"))"
+        }.joined(separator: ", ")
+        ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) slug=\(session.slug ?? "nil") projectPath=\(session.projectPath ?? "nil") → NO MATCH. Unlinked tmux cards: [\(tmuxInfo)]")
         return nil
     }
 

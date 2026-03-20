@@ -109,9 +109,27 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
 
             if !didInitialLoad {
                 // First call: consume all old events without notifying.
+                // Also resolve SessionStart links — survives app restarts by re-linking
+                // sessions to their cards via tmux session name before reconciler runs.
                 ClaudeBoardLog.info("notify", "Initial load: consuming \(events.count) old events")
+                var resolvedCount = 0
                 for event in events {
                     await activityDetector.handleHookEvent(event)
+                    // Resolve links for SessionStart events (defense against app restart)
+                    let normalized = HookManager.normalizeEventName(event.eventName)
+                    if normalized == "SessionStart",
+                       let tmuxName = event.tmuxSessionName, !tmuxName.isEmpty {
+                        let link = try? await Self.resolveLink(
+                            sessionId: event.sessionId,
+                            transcriptPath: event.transcriptPath,
+                            tmuxSessionName: tmuxName,
+                            coordinationStore: coordinationStore
+                        )
+                        if link != nil { resolvedCount += 1 }
+                    }
+                }
+                if resolvedCount > 0 {
+                    ClaudeBoardLog.info("notify", "Initial load: resolved \(resolvedCount) session→card links from old SessionStart events")
                 }
                 let _ = await activityDetector.resolvePendingStops()
                 await notificationDedup.clearAllPending()

@@ -108,6 +108,40 @@ struct ReducerTests {
         #expect(state.selectedCardId == "card_l1")
     }
 
+    @Test("launchCard stores projectPath on link when not already set")
+    func launchCardStoresProjectPath() {
+        // Card created without projectPath (name-only TASK card)
+        let link = Link(
+            id: "card_pp1",
+            name: "CB",
+            column: .backlog,
+            source: .manual
+        )
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .launchCard(
+            cardId: "card_pp1", prompt: "", projectPath: "/Users/ciro",
+            commandOverride: nil
+        ))
+
+        #expect(state.links["card_pp1"]?.projectPath == "/Users/ciro")
+    }
+
+    @Test("launchCard does not overwrite existing projectPath")
+    func launchCardPreservesExistingProjectPath() {
+        let link = makeLink(id: "card_pp2", column: .backlog)
+        // makeLink sets projectPath to "/test/project"
+        var state = stateWith([link])
+
+        let _ = Reducer.reduce(state: &state, action: .launchCard(
+            cardId: "card_pp2", prompt: "test", projectPath: "/different/path",
+            commandOverride: nil
+        ))
+
+        // Should keep existing projectPath
+        #expect(state.links["card_pp2"]?.projectPath == "/test/project")
+    }
+
     // MARK: - Resume Card
 
     @Test("resumeCard sets column to inProgress and isLaunching")

@@ -714,6 +714,156 @@ struct CardReconcilerTests {
         #expect(result.links.count == 2)
     }
 
+    // MARK: - Step 2: projectPath+tmux matching with nil projectPath
+
+    @Test("Step 2 matches name-only TASK card (nil projectPath) via tmux when solo candidate")
+    func step2NilProjectPathSoloTmux() {
+        // Name-only TASK card: has tmuxLink, no sessionLink, nil projectPath
+        let taskCard = Link(
+            id: "task-cb",
+            name: "CB",
+            column: .waiting,
+            source: .manual,
+            tmuxLink: TmuxLink(sessionName: "ciro-task-cb")
+        )
+
+        var session = Session(id: "session-899fc")
+        session.projectPath = "/Users/ciro"
+        session.slug = "imperative-coalescing-hearth"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [TmuxSession(name: "ciro-task-cb", path: "/Users/ciro", attached: false)],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        // Should match — solo candidate with tmuxLink whose tmux path matches session projectPath
+        #expect(result.links.count == 1)
+        #expect(result.links.first?.id == "task-cb")
+        #expect(result.links.first?.sessionLink?.sessionId == "session-899fc")
+    }
+
+    @Test("Step 2 does not match when two tmux cards share same projectPath (ambiguous)")
+    func step2AmbiguousTmuxCards() {
+        // Two name-only TASK cards, both with tmuxLink, no sessionLink, nil projectPath
+        let card1 = Link(
+            id: "task-cb",
+            name: "CB",
+            column: .waiting,
+            source: .manual,
+            tmuxLink: TmuxLink(sessionName: "ciro-task-cb")
+        )
+        let card2 = Link(
+            id: "task-sync",
+            name: "sync meetings",
+            column: .waiting,
+            source: .manual,
+            tmuxLink: TmuxLink(sessionName: "ciro-task-sync")
+        )
+
+        var session = Session(id: "session-1")
+        session.projectPath = "/Users/ciro"
+        session.slug = "some-slug"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [
+                TmuxSession(name: "ciro-task-cb", path: "/Users/ciro", attached: false),
+                TmuxSession(name: "ciro-task-sync", path: "/Users/ciro", attached: false),
+            ],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [card1, card2], snapshot: snapshot)
+
+        // Should NOT match either — ambiguous, both have nil projectPath + tmux at same path
+        // Falls through to later steps or creates new card
+        #expect(result.links.count == 3) // 2 existing + 1 new discovered
+    }
+
+    @Test("Step 2 matches via tmux path when card has projectPath set")
+    func step2WithProjectPathStillWorks() {
+        // Card has projectPath set (the fix-1 case, after launchCard stores it)
+        let taskCard = Link(
+            id: "task-1",
+            name: "CB",
+            projectPath: "/Users/ciro",
+            column: .waiting,
+            source: .manual,
+            tmuxLink: TmuxLink(sessionName: "ciro-task-1")
+        )
+
+        var session = Session(id: "session-1")
+        session.projectPath = "/Users/ciro"
+        session.slug = "random-slug"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [TmuxSession(name: "ciro-task-1", path: "/Users/ciro", attached: false)],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        #expect(result.links.count == 1)
+        #expect(result.links.first?.id == "task-1")
+    }
+
+    @Test("Step 2 disambiguates by tmux path when two cards have same projectPath")
+    func step2DisambiguatesByTmuxPath() {
+        // Two cards with same projectPath but different tmux sessions at different paths
+        let card1 = Link(
+            id: "task-a",
+            name: "task A",
+            projectPath: "/Users/ciro",
+            column: .waiting,
+            source: .manual,
+            tmuxLink: TmuxLink(sessionName: "ciro-task-a")
+        )
+        let card2 = Link(
+            id: "task-b",
+            name: "task B",
+            projectPath: "/Users/ciro",
+            column: .waiting,
+            source: .manual,
+            tmuxLink: TmuxLink(sessionName: "ciro-task-b")
+        )
+
+        var session = Session(id: "session-1")
+        session.projectPath = "/Users/ciro"
+        session.slug = "some-slug"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        // Only card1's tmux has matching path
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [
+                TmuxSession(name: "ciro-task-a", path: "/Users/ciro", attached: false),
+                TmuxSession(name: "ciro-task-b", path: "/different/project", attached: false),
+            ],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [card1, card2], snapshot: snapshot)
+
+        // card1's tmux path matches, card2's doesn't → solo match
+        // This depends on implementation — if ambiguity check uses tmux path too
+        // With both having projectPath=/Users/ciro but only card1's tmux at /Users/ciro,
+        // we'd expect card1 to match
+        #expect(result.links.count == 2) // card1 matched, card2 stays
+        let matched = result.links.first(where: { $0.sessionLink?.sessionId == "session-1" })
+        #expect(matched?.id == "task-a")
+    }
+
     // MARK: - Priority tests
 
     @Test("Exact sessionId match takes priority over slug match")
