@@ -8,7 +8,7 @@ struct NewTaskDialog: View {
     /// (prompt, projectPath, title, startImmediately, images)
     var onCreate: (String, String?, String?, Bool, [ImageAttachment]) -> Void = { _, _, _, _, _ in }
 
-    @State private var prompt = ""
+    @State private var cardName = ""
     @State private var selectedProjectPath: String = ""
     @AppStorage("lastSelectedProjectPath") private var lastSelectedProjectPath = ""
 
@@ -21,7 +21,7 @@ struct NewTaskDialog: View {
                 .fontWeight(.semibold)
 
             // Title / prompt
-            TextField("What needs to be done?", text: $prompt)
+            TextField("Card name", text: $cardName)
                 .textFieldStyle(.roundedBorder)
                 .font(.app(.callout))
                 .onSubmit { submitForm() }
@@ -46,7 +46,7 @@ struct NewTaskDialog: View {
 
                 Button("Create", action: submitForm)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(cardName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .buttonStyle(.borderedProminent)
             }
         }
@@ -68,10 +68,10 @@ struct NewTaskDialog: View {
     // MARK: - Actions
 
     private func submitForm() {
-        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !cardName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let proj = selectedProjectPath.isEmpty ? nil : selectedProjectPath
         if let proj { lastSelectedProjectPath = proj }
-        onCreate(prompt, proj, nil, true, [])
+        onCreate(cardName, proj, nil, true, [])
         isPresented = false
     }
 }
