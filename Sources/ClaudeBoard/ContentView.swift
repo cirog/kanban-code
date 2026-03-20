@@ -401,8 +401,8 @@ struct ContentView: View {
                     isPresented: $showNewTask,
                     projects: store.state.configuredProjects,
                     defaultProjectPath: store.state.selectedProjectPath,
-                    onCreate: { prompt, projectPath, title, startImmediately, images in
-                        createManualTask(prompt: prompt, projectPath: projectPath, title: title, startImmediately: startImmediately, images: images)
+                    onCreate: { cardName, projectPath, title, startImmediately, images in
+                        createManualTask(cardName: cardName, projectPath: projectPath, title: title, startImmediately: startImmediately, images: images)
                     }
                 )
             }
@@ -1446,8 +1446,8 @@ struct ContentView: View {
         presentNewTask()
     }
 
-    private func createManualTask(prompt: String, projectPath: String?, title: String? = nil, startImmediately: Bool = false, images: [ImageAttachment] = []) {
-        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func createManualTask(cardName: String, projectPath: String?, title: String? = nil, startImmediately: Bool = false, images: [ImageAttachment] = []) {
+        let trimmed = cardName.trimmingCharacters(in: .whitespacesAndNewlines)
         let name: String
         if let title, !title.isEmpty {
             name = String(title.prefix(100))

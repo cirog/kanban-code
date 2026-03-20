@@ -5,7 +5,7 @@ struct NewTaskDialog: View {
     @Binding var isPresented: Bool
     var projects: [Project] = []
     var defaultProjectPath: String?
-    /// (prompt, projectPath, title, startImmediately, images)
+    /// (cardName, projectPath, title, startImmediately, images)
     var onCreate: (String, String?, String?, Bool, [ImageAttachment]) -> Void = { _, _, _, _, _ in }
 
     @State private var cardName = ""
