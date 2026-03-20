@@ -255,7 +255,7 @@ public enum CardReconciler {
     // MARK: - Private
 
     /// Find an existing card that should own this session.
-    /// Match priority: exact sessionId → project path + tmux (no session) → promptBody → slug.
+    /// Match priority: exact sessionId → project path + tmux (no session) → promptBody → name-to-slug → solo project path → slug.
     private static func findCardForSession(
         session: Session,
         cardIdBySessionId: [String: String],
@@ -298,6 +298,37 @@ public enum CardReconciler {
             }
         }
 
+        // 3.5. Match by card name → session slug (manual/todoist cards with no sessionLink)
+        if let sessionSlug = session.slug, !sessionSlug.isEmpty {
+            let normalizedSlug = slugify(sessionSlug)
+            for (_, link) in linksById {
+                if link.sessionLink == nil,
+                   link.isLaunching != true,
+                   (link.source == .manual || link.source == .todoist),
+                   let name = link.name, !name.isEmpty,
+                   slugify(name) == normalizedSlug {
+                    ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by name-to-slug '\(name)' → card=\(link.id.prefix(12))")
+                    return link.id
+                }
+            }
+        }
+
+        // 3.6. Match by solo project path (manual/todoist card, no sessionLink, no tmuxLink,
+        //      exactly one candidate for this project — avoids ambiguity)
+        if let projectPath = session.projectPath {
+            let candidates = linksById.values.filter {
+                $0.sessionLink == nil &&
+                $0.tmuxLink == nil &&
+                $0.isLaunching != true &&
+                ($0.source == .manual || $0.source == .todoist) &&
+                $0.projectPath == projectPath
+            }
+            if candidates.count == 1, let match = candidates.first {
+                ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by solo projectPath → card=\(match.id.prefix(12))")
+                return match.id
+            }
+        }
+
         // 4. Match by slug (context-continued session shares same conversation slug)
         if let slug = session.slug, !slug.isEmpty, let cardId = cardIdBySlug[slug] {
             ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by slug=\(slug) → card=\(cardId.prefix(12))")
@@ -306,5 +337,15 @@ public enum CardReconciler {
 
         ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) projectPath=\(session.projectPath ?? "nil") → NO MATCH")
         return nil
+    }
+
+    /// Normalize a string to slug form for comparison.
+    /// "Sync Meetings!" → "sync-meetings"
+    internal static func slugify(_ name: String) -> String {
+        let lowered = name.lowercased()
+        let replaced = lowered.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : Character("-") }
+        let joined = String(replaced)
+        let collapsed = joined.replacing(/\-+/, with: "-")
+        return collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 }

@@ -421,6 +421,299 @@ struct CardReconcilerTests {
         #expect(result.links.count == 2)
     }
 
+    // MARK: - Name-to-slug matching (step 3.5)
+
+    @Test("Manual TASK card matched to session by name-to-slug")
+    func nameToSlugMatch() {
+        // Manual card with name "sync meetings", no session/tmux/prompt
+        let taskCard = Link(
+            id: "task-1",
+            name: "sync meetings",
+            column: .backlog,
+            source: .manual
+        )
+
+        // Discovered session with slug "sync-meetings"
+        var session = Session(id: "session-1")
+        session.projectPath = "/Users/ciro"
+        session.jsonlPath = "/path/to/session-1.jsonl"
+        session.slug = "sync-meetings"
+        session.messageCount = 5
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        // Should link session to existing TASK card, not create a new one
+        #expect(result.links.count == 1)
+        let card = result.links.first!
+        #expect(card.id == "task-1")
+        #expect(card.sessionLink?.sessionId == "session-1")
+    }
+
+    @Test("Name-to-slug normalizes casing and punctuation")
+    func nameToSlugNormalization() {
+        let taskCard = Link(
+            id: "task-1",
+            name: "Sync Meetings!",
+            column: .backlog,
+            source: .manual
+        )
+
+        var session = Session(id: "session-1")
+        session.slug = "sync-meetings"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        #expect(result.links.count == 1)
+        #expect(result.links.first?.id == "task-1")
+        #expect(result.links.first?.sessionLink?.sessionId == "session-1")
+    }
+
+    @Test("Name-to-slug does not match when slugs differ")
+    func nameToSlugNoFalsePositive() {
+        let taskCard = Link(
+            id: "task-1",
+            name: "sync meetings",
+            column: .backlog,
+            source: .manual
+        )
+
+        var session = Session(id: "session-1")
+        session.slug = "claudeboard-reconciler-fix"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        // Should create a new card — slugs don't match
+        #expect(result.links.count == 2)
+    }
+
+    @Test("Name-to-slug skips cards that already have a sessionLink")
+    func nameToSlugSkipsLinkedCards() {
+        let taskCard = Link(
+            id: "task-1",
+            name: "sync meetings",
+            column: .waiting,
+            source: .manual,
+            sessionLink: SessionLink(sessionId: "existing-session")
+        )
+
+        var session = Session(id: "new-session")
+        session.slug = "sync-meetings"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        // Should create new card — existing card already has a session
+        #expect(result.links.count == 2)
+    }
+
+    @Test("Name-to-slug works for todoist cards too")
+    func nameToSlugTodoist() {
+        let todoistCard = Link(
+            id: "todoist-1",
+            name: "review PRs",
+            column: .backlog,
+            source: .todoist,
+            todoistId: "123"
+        )
+
+        var session = Session(id: "session-1")
+        session.slug = "review-prs"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [todoistCard], snapshot: snapshot)
+
+        #expect(result.links.count == 1)
+        #expect(result.links.first?.id == "todoist-1")
+    }
+
+    @Test("Name-to-slug skips discovered cards (only manual/todoist)")
+    func nameToSlugSkipsDiscovered() {
+        let discoveredCard = Link(
+            id: "disc-1",
+            name: "sync meetings",
+            column: .done,
+            source: .discovered
+        )
+
+        var session = Session(id: "session-1")
+        session.slug = "sync-meetings"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [discoveredCard], snapshot: snapshot)
+
+        // Should create new card — discovered cards don't use name matching
+        #expect(result.links.count == 2)
+    }
+
+    // MARK: - Solo project-path matching (step 3.6)
+
+    @Test("Solo manual card matched by project path when only one exists")
+    func soloProjectPathMatch() {
+        let taskCard = Link(
+            id: "task-1",
+            name: "do stuff",
+            projectPath: "/Users/ciro/myproject",
+            column: .backlog,
+            source: .manual
+        )
+
+        var session = Session(id: "session-1")
+        session.projectPath = "/Users/ciro/myproject"
+        session.slug = "completely-different-slug"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        #expect(result.links.count == 1)
+        #expect(result.links.first?.id == "task-1")
+        #expect(result.links.first?.sessionLink?.sessionId == "session-1")
+    }
+
+    @Test("Ambiguous project path does not match when multiple manual cards exist")
+    func ambiguousProjectPathNoMatch() {
+        let task1 = Link(
+            id: "task-1",
+            name: "task A",
+            projectPath: "/Users/ciro/myproject",
+            column: .backlog,
+            source: .manual
+        )
+        let task2 = Link(
+            id: "task-2",
+            name: "task B",
+            projectPath: "/Users/ciro/myproject",
+            column: .backlog,
+            source: .manual
+        )
+
+        var session = Session(id: "session-1")
+        session.projectPath = "/Users/ciro/myproject"
+        session.slug = "something-unrelated"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [task1, task2], snapshot: snapshot)
+
+        // Should create new card — ambiguous, can't pick between task-1 and task-2
+        #expect(result.links.count == 3)
+    }
+
+    @Test("Solo project match skips cards with tmuxLink")
+    func soloProjectSkipsTmuxCards() {
+        // Card has a tmux session already — step 2 (projectPath+tmux) should handle it, not step 3.6
+        let taskCard = Link(
+            id: "task-1",
+            name: "do stuff",
+            projectPath: "/Users/ciro/myproject",
+            column: .waiting,
+            source: .manual,
+            tmuxLink: TmuxLink(sessionName: "test-tmux")
+        )
+
+        var session = Session(id: "session-1")
+        session.projectPath = "/Users/ciro/myproject"
+        session.slug = "different-slug"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [TmuxSession(name: "test-tmux", path: "/Users/ciro/myproject", attached: false)],
+            didScanTmux: true
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        // Step 2 (projectPath+tmux) should match, not step 3.6
+        #expect(result.links.count == 1)
+        #expect(result.links.first?.id == "task-1")
+    }
+
+    @Test("Solo project match requires matching projectPath")
+    func soloProjectDifferentPath() {
+        let taskCard = Link(
+            id: "task-1",
+            name: "do stuff",
+            projectPath: "/Users/ciro/project-a",
+            column: .backlog,
+            source: .manual
+        )
+
+        var session = Session(id: "session-1")
+        session.projectPath = "/Users/ciro/project-b"
+        session.slug = "different-slug"
+        session.messageCount = 1
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session],
+            tmuxSessions: [],
+            didScanTmux: false
+        )
+
+        let result = CardReconciler.reconcile(existing: [taskCard], snapshot: snapshot)
+
+        // Different project paths — no match
+        #expect(result.links.count == 2)
+    }
+
     // MARK: - Priority tests
 
     @Test("Exact sessionId match takes priority over slug match")
