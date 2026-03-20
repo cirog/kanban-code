@@ -131,6 +131,20 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                 // behave identically to claude-pushover's one-event-per-process model.
                 let eventName = HookManager.normalizeEventName(event.eventName)
                 switch eventName {
+                case "SessionStart":
+                    // Eagerly resolve the new session to its card via tmux.
+                    // This chains the session BEFORE the next reconciliation cycle,
+                    // preventing duplicate card creation.
+                    if let tmuxName = event.tmuxSessionName, !tmuxName.isEmpty {
+                        ClaudeBoardLog.info("notify", "SessionStart for \(event.sessionId.prefix(8)) in tmux \(tmuxName)")
+                        let _ = try? await Self.resolveLink(
+                            sessionId: event.sessionId,
+                            transcriptPath: event.transcriptPath,
+                            tmuxSessionName: tmuxName,
+                            coordinationStore: coordinationStore
+                        )
+                    }
+
                 case "Stop":
                     // claude-pushover: sleep 0.5s, check if user prompted, send if not.
                     // NO 62s dedup — Stop always sends (dedup only applies to Notification events).
@@ -138,6 +152,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                     let stopTime = event.timestamp
                     let sessionId = event.sessionId
                     let transcriptPath = event.transcriptPath
+                    let tmuxName = event.tmuxSessionName
                     Task { [weak self] in
                         try? await Task.sleep(for: .milliseconds(500))
                         guard let self else {
@@ -153,7 +168,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                             return
                         }
                         // Send directly — no dedup for Stop events (matches claude-pushover)
-                        await self.doNotify(sessionId: sessionId, transcriptPath: transcriptPath)
+                        await self.doNotify(sessionId: sessionId, transcriptPath: transcriptPath, tmuxSessionName: tmuxName)
 
                         // Auto-send queued prompt: wait 0.5 more seconds (1s total from Stop),
                         // re-check that user hasn't prompted, then send first auto prompt.
@@ -165,7 +180,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                             ClaudeBoardLog.info("notify", "Auto-send skipped: user prompted after stop")
                             return
                         }
-                        await self.autoSendQueuedPrompt(sessionId: sessionId, transcriptPath: transcriptPath)
+                        await self.autoSendQueuedPrompt(sessionId: sessionId, transcriptPath: transcriptPath, tmuxSessionName: tmuxName)
                     }
 
                 case "Notification":
@@ -174,6 +189,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                     let sessionId = event.sessionId
                     let eventTime = event.timestamp
                     let notifTranscriptPath = event.transcriptPath
+                    let notifTmuxName = event.tmuxSessionName
                     Task { [weak self] in
                         // Notification events go through 62s dedup
                         let shouldNotify = await self?.notificationDedup.shouldNotify(
@@ -183,7 +199,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                             ClaudeBoardLog.info("notify", "Notification deduped for \(sessionId.prefix(8))")
                             return
                         }
-                        await self?.doNotify(sessionId: sessionId, transcriptPath: notifTranscriptPath)
+                        await self?.doNotify(sessionId: sessionId, transcriptPath: notifTranscriptPath, tmuxSessionName: notifTmuxName)
                     }
 
                 case "UserPromptSubmit":
@@ -203,7 +219,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
 
     /// Send notification — no dedup check, just format and send.
     /// Mirrors claude-pushover's do_notify() exactly.
-    private func doNotify(sessionId: String, transcriptPath: String? = nil) async {
+    private func doNotify(sessionId: String, transcriptPath: String? = nil, tmuxSessionName: String? = nil) async {
         guard let notifier else {
             ClaudeBoardLog.info("notify", "Notification skipped: notifier is nil")
             return
@@ -212,6 +228,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         let link = try? await Self.resolveLink(
             sessionId: sessionId,
             transcriptPath: transcriptPath,
+            tmuxSessionName: tmuxSessionName,
             coordinationStore: coordinationStore
         )
         let title = link?.displayTitle ?? "Session done"
@@ -265,11 +282,12 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     }
 
     /// Auto-send the first queued prompt with sendAutomatically=true for a session.
-    private func autoSendQueuedPrompt(sessionId: String, transcriptPath: String? = nil) async {
+    private func autoSendQueuedPrompt(sessionId: String, transcriptPath: String? = nil, tmuxSessionName: String? = nil) async {
         do {
             guard let link = try await Self.resolveLink(
                 sessionId: sessionId,
                 transcriptPath: transcriptPath,
+                tmuxSessionName: tmuxSessionName,
                 coordinationStore: coordinationStore
             ) else {
                 return
@@ -307,10 +325,12 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     // MARK: - Session resolution
 
     /// Resolve a session ID to a Link. Fast path: exact DB match.
-    /// Fallback: read slug from .jsonl transcript, find card by slug, eagerly register session.
+    /// Fallback 1: read slug from .jsonl transcript, find card by slug.
+    /// Fallback 2: tmux session name → card (most reliable for context resets).
     static func resolveLink(
         sessionId: String,
         transcriptPath: String?,
+        tmuxSessionName: String? = nil,
         coordinationStore: CoordinationStore
     ) async throws -> Link? {
         // Fast path: session already registered
@@ -318,19 +338,25 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
             return link
         }
 
-        // Fallback: read slug from transcript, find card by slug
-        guard let path = transcriptPath,
-              let metadata = try await JsonlParser.extractMetadata(from: path),
-              let slug = metadata.slug,
-              let link = try await coordinationStore.findBySlug(slug) else {
-            return nil
+        // Fallback 1: read slug from transcript, find card by slug
+        if let path = transcriptPath,
+           let metadata = try await JsonlParser.extractMetadata(from: path),
+           let slug = metadata.slug,
+           let link = try await coordinationStore.findBySlug(slug) {
+            ClaudeBoardLog.info("reconciler", "Hook resolution: session \(sessionId.prefix(8)) → card \(link.id.prefix(12)) via slug \(slug)")
+            try await coordinationStore.addSessionPath(linkId: link.id, sessionId: sessionId, path: path)
+            return try await coordinationStore.linkById(link.id)
         }
 
-        // Eagerly register so future lookups hit the fast path
-        ClaudeBoardLog.info("reconciler", "Hook resolution: session \(sessionId.prefix(8)) → card \(link.id.prefix(12)) via slug \(slug)")
-        try await coordinationStore.addSessionPath(linkId: link.id, sessionId: sessionId, path: path)
-        // Re-read to get updated session link
-        return try await coordinationStore.linkById(link.id)
+        // Fallback 2: tmux session name → card (most reliable for context resets)
+        if let tmuxName = tmuxSessionName, !tmuxName.isEmpty,
+           let link = try await coordinationStore.findByTmuxSessionName(tmuxName) {
+            ClaudeBoardLog.info("reconciler", "Hook resolution: session \(sessionId.prefix(8)) → card \(link.id.prefix(12)) via tmux \(tmuxName)")
+            try await coordinationStore.addSessionPath(linkId: link.id, sessionId: sessionId, path: transcriptPath)
+            return try await coordinationStore.linkById(link.id)
+        }
+
+        return nil
     }
 
     private func updateActivityStates() async {

@@ -6,6 +6,7 @@ public struct HookEvent: Sendable {
     public let eventName: String // UserPromptSubmit, Stop, Notification, PreToolUse, etc.
     public let transcriptPath: String?
     public let notificationType: String?
+    public let tmuxSessionName: String?  // tmux session name from hook environment
     public let timestamp: Date
 
     public init(
@@ -13,12 +14,14 @@ public struct HookEvent: Sendable {
         eventName: String,
         transcriptPath: String? = nil,
         notificationType: String? = nil,
+        tmuxSessionName: String? = nil,
         timestamp: Date = .now
     ) {
         self.sessionId = sessionId
         self.eventName = eventName
         self.transcriptPath = transcriptPath
         self.notificationType = notificationType
+        self.tmuxSessionName = tmuxSessionName
         self.timestamp = timestamp
     }
 }

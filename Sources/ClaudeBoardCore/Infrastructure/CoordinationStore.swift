@@ -236,6 +236,18 @@ public actor CoordinationStore {
         return try linkById(linkId)
     }
 
+    /// Find a link by its tmux session name.
+    public func findByTmuxSessionName(_ name: String) throws -> Link? {
+        ensureInitialized()
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT link_id FROM tmux_sessions WHERE session_name = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        let linkId = String(cString: sqlite3_column_text(stmt, 0))
+        return try linkById(linkId)
+    }
+
     /// Find a link by its slug.
     public func findBySlug(_ slug: String) throws -> Link? {
         ensureInitialized()
