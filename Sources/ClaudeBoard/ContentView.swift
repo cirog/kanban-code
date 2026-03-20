@@ -1546,9 +1546,11 @@ struct ContentView: View {
         Task {
             let settings = try? await settingsStore.read()
             let project = settings?.projects.first(where: { $0.path == effectivePath })
-            var prompt = PromptBuilder.buildPrompt(card: card.link, project: project, settings: settings)
-            if prompt.isEmpty {
-                prompt = card.link.promptBody ?? card.link.name ?? ""
+            let prompt: String
+            if card.link.promptBody != nil {
+                prompt = PromptBuilder.buildPrompt(card: card.link, project: project, settings: settings)
+            } else {
+                prompt = ""
             }
 
             let imageAttachments: [Any] = (card.link.promptImagePaths ?? []).compactMap { ImageAttachment.fromPath($0) }
