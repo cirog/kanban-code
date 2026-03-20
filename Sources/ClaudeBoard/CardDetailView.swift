@@ -1295,6 +1295,9 @@ struct CardDetailView: View {
                 if let sessionId = card.link.sessionLink?.sessionId {
                     SessionIdRow(sessionId: sessionId, assistant: card.link.effectiveAssistant)
                 }
+                if let slug = card.link.sessionLink?.slug {
+                    copyableRow(icon: "link", text: slug)
+                }
             }
         }
         .padding(16)
