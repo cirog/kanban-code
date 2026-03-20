@@ -48,6 +48,13 @@ struct PromptBuilderTests {
         #expect(prompt.isEmpty)
     }
 
+    @Test("Name-only card returns name from buildPrompt — caller decides whether to send")
+    func nameOnlyCardReturnsName() {
+        let link = Link(name: "My Task", source: .manual)
+        let prompt = PromptBuilder.buildPrompt(card: link)
+        #expect(prompt == "My Task")
+    }
+
     @Test("Prompt template without placeholder prepends to prompt")
     func promptTemplateWithoutPlaceholder() {
         let link = Link(
