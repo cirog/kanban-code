@@ -144,7 +144,68 @@ public enum CardReconciler {
             }
         }
 
-        // B. Clear dead tmux links
+        // B. Slug-based dedup — merge cards that share the same slug.
+        // This catches duplicates from context continuations where the slug wasn't
+        // available on the first discovery pass, creating an orphan card that
+        // sessionId matching then permanently prevents from merging.
+        var slugGroups: [String: [String]] = [:]
+        for (id, link) in linksById {
+            if let slug = link.sessionLink?.slug, !slug.isEmpty, link.isLaunching != true {
+                slugGroups[slug, default: []].append(id)
+            }
+        }
+        for (slug, cardIds) in slugGroups where cardIds.count > 1 {
+            // Pick survivor: prefer card with tmuxLink, then oldest by id (stable tiebreak)
+            let sorted = cardIds.sorted { a, b in
+                let linkA = linksById[a]!
+                let linkB = linksById[b]!
+                let hasTmuxA = linkA.tmuxLink != nil
+                let hasTmuxB = linkB.tmuxLink != nil
+                if hasTmuxA != hasTmuxB { return hasTmuxA }
+                return a < b  // stable tiebreak
+            }
+            let survivorId = sorted[0]
+            var survivor = linksById[survivorId]!
+
+            // Find the newest sessionId among all duplicates
+            let newest = cardIds
+                .compactMap { linksById[$0] }
+                .max(by: { ($0.lastActivity ?? .distantPast) < ($1.lastActivity ?? .distantPast) })!
+
+            // Collect all session paths from all duplicates
+            var allPaths: Set<String> = []
+            for cardId in cardIds {
+                guard let link = linksById[cardId] else { continue }
+                if let path = link.sessionLink?.sessionPath {
+                    allPaths.insert(path)
+                }
+                for prev in link.sessionLink?.previousSessionPaths ?? [] {
+                    allPaths.insert(prev)
+                }
+            }
+            // Remove the newest session's own path from previous
+            if let currentPath = newest.sessionLink?.sessionPath {
+                allPaths.remove(currentPath)
+            }
+
+            // Update survivor with newest session, preserving all history
+            survivor.sessionLink = SessionLink(
+                sessionId: newest.sessionLink!.sessionId,
+                sessionPath: newest.sessionLink?.sessionPath,
+                slug: slug,
+                previousSessionPaths: allPaths.isEmpty ? nil : allPaths.sorted()
+            )
+            survivor.lastActivity = newest.lastActivity
+            linksById[survivorId] = survivor
+
+            // Remove losers
+            for cardId in sorted.dropFirst() {
+                ClaudeBoardLog.info("reconciler", "Slug dedup: merging card=\(cardId.prefix(12)) into survivor=\(survivorId.prefix(12)) (slug=\(slug))")
+                linksById.removeValue(forKey: cardId)
+            }
+        }
+
+        // C. Clear dead tmux links
         let didScanTmux = snapshot.didScanTmux
 
         for (id, var link) in linksById {
