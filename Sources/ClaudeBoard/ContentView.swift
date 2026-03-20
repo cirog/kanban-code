@@ -1464,7 +1464,7 @@ struct ContentView: View {
             projectPath: projectPath,
             column: startImmediately ? .inProgress : .backlog,
             source: .manual,
-            promptBody: trimmed,
+            promptBody: nil,
             promptImagePaths: imagePaths
         )
 
