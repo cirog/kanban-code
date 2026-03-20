@@ -71,8 +71,7 @@ public enum CardReconciler {
                 cardIdBySessionId: cardIdBySessionId,
                 cardIdBySlug: cardIdBySlug,
                 cardIdByTmuxName: cardIdByTmuxName,
-                linksById: linksById,
-                liveTmuxNames: liveTmuxNames
+                linksById: linksById
             )
 
             if let cardId, var link = linksById[cardId] {
@@ -195,14 +194,13 @@ public enum CardReconciler {
     // MARK: - Private
 
     /// Find an existing card that should own this session.
-    /// Match priority: exact sessionId → project path + tmux (no session) → project path + live tmux (has session) → promptBody → slug.
+    /// Match priority: exact sessionId → project path + tmux (no session) → promptBody → slug.
     private static func findCardForSession(
         session: Session,
         cardIdBySessionId: [String: String],
         cardIdBySlug: [String: String],
         cardIdByTmuxName: [String: String],
-        linksById: [String: Link],
-        liveTmuxNames: Set<String> = []
+        linksById: [String: Link]
     ) -> String? {
         // 1. Exact match by sessionId
         if let cardId = cardIdBySessionId[session.id] {
@@ -219,27 +217,6 @@ public enum CardReconciler {
                    link.isLaunching != true,
                    link.projectPath == projectPath {
                     ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by projectPath+tmux → card=\(link.id.prefix(12)) (tmux=\(link.tmuxLink?.sessionName ?? "?"))")
-                    return link.id
-                }
-            }
-        }
-
-        // 2.5. Tmux fallback: session has projectPath matching a card with a LIVE tmux session
-        //      (even if card already has a sessionLink with a different sessionId/slug).
-        //      Defends against Claude Code breaking its slug contract during plan mode exit.
-        //      GUARD: Only fire when the session's slug does NOT match any existing card.
-        //      Without this guard, sessions with valid slugs get swallowed by the first
-        //      card that shares the same projectPath + live tmux.
-        let slugHasMatch = session.slug.map { !$0.isEmpty && cardIdBySlug[$0] != nil } ?? false
-        if !slugHasMatch, let projectPath = session.projectPath {
-            for (_, link) in linksById {
-                if let tmux = link.tmuxLink,
-                   link.sessionLink != nil,
-                   link.sessionLink?.sessionId != session.id,
-                   link.isLaunching != true,
-                   link.projectPath == projectPath,
-                   liveTmuxNames.contains(tmux.sessionName) {
-                    ClaudeBoardLog.info("reconciler", "findCard: session=\(session.id.prefix(8)) matched by projectPath+liveTmux (fallback) → card=\(link.id.prefix(12)) (tmux=\(tmux.sessionName))")
                     return link.id
                 }
             }
