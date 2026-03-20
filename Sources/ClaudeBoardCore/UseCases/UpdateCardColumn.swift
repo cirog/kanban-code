@@ -7,11 +7,13 @@ public enum UpdateCardColumn {
     /// Update a single link's column assignment.
     public static func update(
         link: inout Link,
-        activityState: ActivityState?
+        activityState: ActivityState?,
+        hasLiveTmux: Bool = false
     ) {
         let newColumn = AssignColumn.assign(
             link: link,
-            activityState: activityState
+            activityState: activityState,
+            hasLiveTmux: hasLiveTmux
         )
 
         // If an archived card becomes actively working, clear the archive flag

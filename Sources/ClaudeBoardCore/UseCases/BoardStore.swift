@@ -876,26 +876,26 @@ public enum Reducer {
             let liveTmuxNames = result.tmuxSessions
             for (id, var link) in mergedLinks where link.isLaunching != true && !preservedIds.contains(id) {
                 let activity = result.activityMap[link.sessionLink?.sessionId ?? ""]
+                let hasLiveTmux = link.tmuxLink.map { tmux in
+                    guard tmux.isShellOnly != true else { return false }
+                    return tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
+                } ?? false
+
                 // Clear manual column override when we have definitive data.
                 // Backlog is sticky — the user explicitly parked this card.
                 if link.manualOverrides.column && link.column != .backlog {
                     if activity != nil && activity != .stale {
                         link.manualOverrides.column = false
-                    } else if link.tmuxLink != nil {
-                        let hasTmux = link.tmuxLink.map { tmux in
-                            guard tmux.isShellOnly != true else { return false }
-                            return tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
-                        } ?? false
-                        if !hasTmux {
-                            link.tmuxLink = nil
-                            link.manualOverrides.column = false
-                        }
+                    } else if link.tmuxLink != nil && !hasLiveTmux {
+                        link.tmuxLink = nil
+                        link.manualOverrides.column = false
                     }
                 }
 
                 UpdateCardColumn.update(
                     link: &link,
-                    activityState: activity
+                    activityState: activity,
+                    hasLiveTmux: hasLiveTmux
                 )
 
                 // Copy session's firstPrompt into link.promptBody
@@ -932,7 +932,11 @@ public enum Reducer {
                 if activity == .activelyWorking && link.manualOverrides.column && link.column == .backlog {
                     link.manualOverrides.column = false
                 }
-                UpdateCardColumn.update(link: &link, activityState: activity)
+                let hasLiveTmux = link.tmuxLink.map { tmux in
+                    guard tmux.isShellOnly != true else { return false }
+                    return tmux.allSessionNames.contains(where: { state.tmuxSessions.contains($0) })
+                } ?? false
+                UpdateCardColumn.update(link: &link, activityState: activity, hasLiveTmux: hasLiveTmux)
                 if link.column != oldColumn {
                     state.links[id] = link
                     changed = true

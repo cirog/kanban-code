@@ -12,11 +12,18 @@ struct CardLifecycleTests {
         #expect(link.column == .inProgress)
     }
 
-    @Test("Stop with no follow-up moves to waiting")
+    @Test("Stop with live tmux moves to waiting")
     func stopToRequiresAttention() {
         var link = Link(column: .inProgress, sessionLink: SessionLink(sessionId: "s1"))
-        UpdateCardColumn.update(link: &link, activityState: .needsAttention)
+        UpdateCardColumn.update(link: &link, activityState: .needsAttention, hasLiveTmux: true)
         #expect(link.column == .waiting)
+    }
+
+    @Test("Stop without live tmux moves to done")
+    func stopWithoutTmuxToDone() {
+        var link = Link(column: .inProgress, sessionLink: SessionLink(sessionId: "s1"))
+        UpdateCardColumn.update(link: &link, activityState: .needsAttention, hasLiveTmux: false)
+        #expect(link.column == .done)
     }
 
     @Test("Actively working overrides manual column to inProgress")
@@ -65,8 +72,8 @@ struct CardLifecycleTests {
         UpdateCardColumn.update(link: &link, activityState: .activelyWorking)
         #expect(link.column == .inProgress)
         #expect(link.manuallyArchived == false)
-        // Then: work stops → goes to waiting (not back to done)
-        UpdateCardColumn.update(link: &link, activityState: .needsAttention)
+        // Then: work stops but process still alive → goes to waiting (not back to done)
+        UpdateCardColumn.update(link: &link, activityState: .needsAttention, hasLiveTmux: true)
         #expect(link.column == .waiting)
     }
 
