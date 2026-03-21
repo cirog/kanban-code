@@ -263,28 +263,6 @@ struct CoordinationStoreTests {
         #expect(card.queuedPrompts?[0].body == "next task")
     }
 
-    @Test("Relational: UNIQUE slug constraint prevents duplicate cards")
-    func relationalSlugUniqueness() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-        let store = CoordinationStore(basePath: dir)
-
-        var card1 = Link(id: "card-1", column: .done)
-        card1.slug = "same-slug"
-        var card2 = Link(id: "card-2", column: .done)
-        card2.slug = "same-slug"
-
-        try await store.upsertLink(card1)
-        // Second card with same slug should throw
-        var threw = false
-        do {
-            try await store.upsertLink(card2)
-        } catch {
-            threw = true
-        }
-        #expect(threw, "Expected UNIQUE constraint violation for duplicate slug")
-    }
-
     @Test("Relational: findBySlug returns correct card")
     func relationalFindBySlug() async throws {
         let dir = try makeTempDir()

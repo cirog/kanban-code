@@ -74,13 +74,37 @@ public actor CoordinationStore {
             exec("DROP INDEX IF EXISTS idx_sp_current")
             createSessionLinksTable()
         }
+
+        // Migration: remove UNIQUE constraint on slug (no longer an association key)
+        migrateSlugDropUnique()
     }
 
-    private func createRelationalSchema() {
+    /// Remove the UNIQUE constraint on slug by rebuilding the links table.
+    /// SQLite doesn't support ALTER COLUMN, so we use the rename-recreate pattern.
+    private func migrateSlugDropUnique() {
+        // Check if the auto-index still exists (indicates UNIQUE constraint)
+        let hasUniqueSlug = queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='sqlite_autoindex_links_2'") ?? 0
+        guard hasUniqueSlug > 0 else { return }
+
+        ClaudeBoardLog.info("migration", "Removing UNIQUE constraint from slug column")
+        // Disable FK checks during migration to avoid CASCADE issues
+        exec("PRAGMA foreign_keys=OFF")
+        exec("BEGIN TRANSACTION")
+        exec("ALTER TABLE links RENAME TO links_old")
+        createLinksTable()
+        exec("""
+            INSERT INTO links SELECT * FROM links_old
+        """)
+        exec("DROP TABLE links_old")
+        exec("COMMIT")
+        exec("PRAGMA foreign_keys=ON")
+    }
+
+    private func createLinksTable() {
         exec("""
             CREATE TABLE IF NOT EXISTS links (
                 id                TEXT PRIMARY KEY,
-                slug              TEXT UNIQUE,
+                slug              TEXT,
                 name              TEXT,
                 project_path      TEXT,
                 "column"          TEXT NOT NULL DEFAULT 'done',
@@ -109,6 +133,10 @@ public actor CoordinationStore {
                 override_column   INTEGER NOT NULL DEFAULT 0
             )
         """)
+    }
+
+    private func createRelationalSchema() {
+        createLinksTable()
         createSessionLinksTable()
         exec("""
             CREATE TABLE IF NOT EXISTS tmux_sessions (
@@ -215,23 +243,8 @@ public actor CoordinationStore {
     }
 
     /// Upsert a link: insert or replace by id. Touches only one row + child tables.
-    /// Throws if slug conflicts with a DIFFERENT card (UNIQUE constraint).
     public func upsertLink(_ link: Link) throws {
         ensureInitialized()
-        // Check for slug conflict with a different card BEFORE modifying anything
-        if let slug = link.slug, !slug.isEmpty {
-            var checkStmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, "SELECT id FROM links WHERE slug = ? AND id != ?", -1, &checkStmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(checkStmt, 1, (slug as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(checkStmt, 2, (link.id as NSString).utf8String, -1, nil)
-                let hasConflict = sqlite3_step(checkStmt) == SQLITE_ROW
-                sqlite3_finalize(checkStmt)
-                if hasConflict {
-                    throw CoordinationStoreError.slugConflict(slug)
-                }
-            }
-        }
-
         exec("BEGIN TRANSACTION")
         do {
             // Delete existing child rows (if updating)
@@ -706,13 +719,11 @@ public actor CoordinationStore {
 enum CoordinationStoreError: Error, LocalizedError {
     case prepareError(String)
     case stepError(String)
-    case slugConflict(String)
 
     var errorDescription: String? {
         switch self {
         case .prepareError(let msg): "SQLite prepare failed: \(msg)"
         case .stepError(let msg): "SQLite step failed: \(msg)"
-        case .slugConflict(let slug): "Slug '\(slug)' already belongs to another card"
         }
     }
 }
