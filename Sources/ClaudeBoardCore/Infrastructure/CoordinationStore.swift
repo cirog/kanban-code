@@ -308,51 +308,6 @@ public actor CoordinationStore {
         guard sqlite3_step(stmt) == SQLITE_DONE else { throw CoordinationStoreError.stepError(lastError) }
     }
 
-    /// Get the current session ID for a card.
-    public func currentSessionId(forLink linkId: String) throws -> String? {
-        ensureInitialized()
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT session_id FROM session_links WHERE link_id = ? AND is_current = 1 LIMIT 1", -1, &stmt, nil) == SQLITE_OK else { return nil }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (linkId as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return String(cString: sqlite3_column_text(stmt, 0))
-    }
-
-    /// Get the card ID that owns a session.
-    public func cardIdForSession(_ sessionId: String) throws -> String? {
-        ensureInitialized()
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT link_id FROM session_links WHERE session_id = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK else { return nil }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return String(cString: sqlite3_column_text(stmt, 0))
-    }
-
-    /// Mark the latest session as current for a card, clearing others.
-    public func setCurrentSession(sessionId: String, forLink linkId: String) throws {
-        ensureInitialized()
-        exec("BEGIN TRANSACTION")
-        execParam("UPDATE session_links SET is_current = 0 WHERE link_id = ?", bindings: [linkId])
-        execParam("UPDATE session_links SET is_current = 1 WHERE session_id = ? AND link_id = ?", bindings: [sessionId, linkId])
-        exec("COMMIT")
-    }
-
-    /// Get all session IDs linked to a card.
-    public func sessionIds(forLink linkId: String) throws -> [String] {
-        ensureInitialized()
-        var result: [String] = []
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT session_id FROM session_links WHERE link_id = ? ORDER BY created_at", -1, &stmt, nil) == SQLITE_OK else { return [] }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (linkId as NSString).utf8String, -1, nil)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            result.append(String(cString: sqlite3_column_text(stmt, 0)))
-        }
-        return result
-    }
-
     /// Get all session→card mappings (sessionId, linkId, path).
     public func allSessionLinkMappings() throws -> [(sessionId: String, cardId: String, path: String?)] {
         ensureInitialized()
@@ -365,19 +320,6 @@ public actor CoordinationStore {
             let cardId = String(cString: sqlite3_column_text(stmt, 1))
             let path = columnText(stmt, 2)
             result.append((sessionId: sessionId, cardId: cardId, path: path))
-        }
-        return result
-    }
-
-    /// Get all owned session IDs (for reconciler to check what's already assigned).
-    public func allOwnedSessionIds() throws -> Set<String> {
-        ensureInitialized()
-        var result: Set<String> = []
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT session_id FROM session_links", -1, &stmt, nil) == SQLITE_OK else { return [] }
-        defer { sqlite3_finalize(stmt) }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            result.insert(String(cString: sqlite3_column_text(stmt, 0)))
         }
         return result
     }
@@ -538,21 +480,6 @@ public actor CoordinationStore {
                 try insertQueuedPrompt(linkId: link.id, prompt: prompt, sortOrder: idx)
             }
         }
-    }
-
-    private func linkSessionInternal(sessionId: String, linkId: String, matchedBy: String, path: String?) throws {
-        var stmt: OpaquePointer?
-        let sql = "INSERT OR REPLACE INTO session_links (session_id, link_id, matched_by, is_current, path, created_at) VALUES (?, ?, ?, 1, ?, ?)"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            throw CoordinationStoreError.prepareError(lastError)
-        }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (linkId as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 3, (matchedBy as NSString).utf8String, -1, nil)
-        if let path { sqlite3_bind_text(stmt, 4, (path as NSString).utf8String, -1, nil) } else { sqlite3_bind_null(stmt, 4) }
-        sqlite3_bind_text(stmt, 5, (dateToText(.now) as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_DONE else { throw CoordinationStoreError.stepError(lastError) }
     }
 
     private func insertTmuxSession(linkId: String, name: String, isPrimary: Bool, isDead: Bool, isShellOnly: Bool, tabName: String?) throws {

@@ -303,36 +303,6 @@ struct CoordinationStoreTests {
         #expect(notFound == nil)
     }
 
-    @Test("Relational: linkSession links sessions and setCurrentSession marks current")
-    func relationalLinkSession() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-        let store = CoordinationStore(basePath: dir)
-
-        var link = Link(id: "card-1", column: .done)
-        link.slug = "my-slug"
-        try await store.upsertLink(link)
-
-        // Link first session
-        try await store.linkSession(sessionId: "s1", linkId: "card-1", matchedBy: "slug", path: "/s1.jsonl")
-
-        // Link a new session to the same card
-        try await store.linkSession(sessionId: "s2", linkId: "card-1", matchedBy: "slug", path: "/s2.jsonl")
-        try await store.setCurrentSession(sessionId: "s2", forLink: "card-1")
-
-        // s2 is now current
-        let currentId = try await store.currentSessionId(forLink: "card-1")
-        #expect(currentId == "s2")
-        // Both sessions are linked to card-1
-        let sessions = try await store.sessionIds(forLink: "card-1")
-        #expect(sessions.count == 2)
-        #expect(sessions.contains("s1"))
-        #expect(sessions.contains("s2"))
-        // Card owns s2
-        let owner = try await store.cardIdForSession("s2")
-        #expect(owner == "card-1")
-    }
-
     @Test("Relational: CASCADE delete removes child rows")
     func relationalCascadeDelete() async throws {
         let dir = try makeTempDir()
