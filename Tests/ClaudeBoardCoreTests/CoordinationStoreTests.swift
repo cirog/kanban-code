@@ -338,8 +338,8 @@ struct CoordinationStoreTests {
         #expect(notFound == nil)
     }
 
-    @Test("Relational: addSessionPath chains sessions and marks new as current")
-    func relationalAddSessionPath() async throws {
+    @Test("Relational: linkSession links sessions and setCurrentSession marks current")
+    func relationalLinkSession() async throws {
         let dir = try makeTempDir()
         defer { cleanup(dir) }
         let store = CoordinationStore(basePath: dir)
@@ -348,17 +348,21 @@ struct CoordinationStoreTests {
         link.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "my-slug")
         try await store.upsertLink(link)
 
-        // Chain a new session
-        try await store.addSessionPath(linkId: "card-1", sessionId: "s2", path: "/s2.jsonl")
+        // Link a new session to the same card
+        try await store.linkSession(sessionId: "s2", linkId: "card-1", matchedBy: "slug", path: "/s2.jsonl")
+        try await store.setCurrentSession(sessionId: "s2", forLink: "card-1")
 
-        let loaded = try await store.readLinks()
-        #expect(loaded.count == 1)
-        let card = loaded[0]
-        // New session is current
-        #expect(card.sessionLink?.sessionId == "s2")
-        #expect(card.sessionLink?.sessionPath == "/s2.jsonl")
-        // Old session is in previousSessionPaths
-        #expect(card.sessionLink?.previousSessionPaths == ["/s1.jsonl"])
+        // s2 is now current
+        let currentId = try await store.currentSessionId(forLink: "card-1")
+        #expect(currentId == "s2")
+        // Both sessions are linked to card-1
+        let sessions = try await store.sessionIds(forLink: "card-1")
+        #expect(sessions.count == 2)
+        #expect(sessions.contains("s1"))
+        #expect(sessions.contains("s2"))
+        // Card owns s2
+        let owner = try await store.cardIdForSession("s2")
+        #expect(owner == "card-1")
     }
 
     @Test("Relational: CASCADE delete removes child rows")

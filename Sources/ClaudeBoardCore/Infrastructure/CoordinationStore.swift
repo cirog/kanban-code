@@ -3,7 +3,7 @@ import SQLite3
 
 /// Data access layer for Link persistence using SQLite.
 /// All SQL is encapsulated here — no raw SQL exists outside this file.
-/// Relational schema: links + session_paths + tmux_sessions + queued_prompts.
+/// Relational schema: links + session_links + tmux_sessions + queued_prompts.
 public actor CoordinationStore {
     private let dbPath: String
     private let basePath: String
@@ -60,11 +60,19 @@ public actor CoordinationStore {
 
     /// Ensures the relational schema exists, creating it if needed.
     private func migrateSchema() {
-        let hasRelational = queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_paths'") ?? 0
-        if hasRelational == 0 {
-            // Drop any legacy tables
+        let hasSessionPaths = queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_paths'") ?? 0
+        let hasSessionLinks = queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_links'") ?? 0
+
+        if hasSessionPaths == 0 && hasSessionLinks == 0 {
+            // Fresh install — create new schema
             exec("DROP TABLE IF EXISTS links")
             createRelationalSchema()
+        } else if hasSessionPaths > 0 && hasSessionLinks == 0 {
+            // Migration: drop old session_paths, create session_links
+            exec("DROP TABLE IF EXISTS session_paths")
+            exec("DROP INDEX IF EXISTS idx_sp_session")
+            exec("DROP INDEX IF EXISTS idx_sp_current")
+            createSessionLinksTable()
         }
     }
 
@@ -101,18 +109,7 @@ public actor CoordinationStore {
                 override_column   INTEGER NOT NULL DEFAULT 0
             )
         """)
-        exec("""
-            CREATE TABLE IF NOT EXISTS session_paths (
-                link_id      TEXT NOT NULL REFERENCES links(id) ON DELETE CASCADE,
-                session_id   TEXT NOT NULL,
-                path         TEXT,
-                is_current   INTEGER NOT NULL DEFAULT 0,
-                created_at   TEXT NOT NULL,
-                PRIMARY KEY (link_id, session_id)
-            )
-        """)
-        exec("CREATE INDEX IF NOT EXISTS idx_sp_session ON session_paths(session_id)")
-        exec("CREATE INDEX IF NOT EXISTS idx_sp_current ON session_paths(link_id, is_current) WHERE is_current = 1")
+        createSessionLinksTable()
         exec("""
             CREATE TABLE IF NOT EXISTS tmux_sessions (
                 link_id       TEXT NOT NULL REFERENCES links(id) ON DELETE CASCADE,
@@ -137,6 +134,21 @@ public actor CoordinationStore {
         exec("CREATE INDEX IF NOT EXISTS idx_qp_link ON queued_prompts(link_id)")
     }
 
+    private func createSessionLinksTable() {
+        exec("""
+            CREATE TABLE IF NOT EXISTS session_links (
+                session_id    TEXT PRIMARY KEY,
+                link_id       TEXT NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+                matched_by    TEXT NOT NULL,
+                is_current    INTEGER NOT NULL DEFAULT 0,
+                path          TEXT,
+                created_at    TEXT NOT NULL
+            )
+        """)
+        exec("CREATE INDEX IF NOT EXISTS idx_sl_link ON session_links(link_id)")
+        exec("CREATE INDEX IF NOT EXISTS idx_sl_current ON session_links(link_id, is_current) WHERE is_current = 1")
+    }
+
     // MARK: - Public API
 
     /// Read all links from the database, hydrating child data.
@@ -158,7 +170,6 @@ public actor CoordinationStore {
 
         while sqlite3_step(stmt) == SQLITE_ROW {
             var link = hydrateLink(from: stmt)
-            link.sessionLink = try hydrateSessionLink(linkId: link.id)
             link.tmuxLink = try hydrateTmuxLink(linkId: link.id)
             link.queuedPrompts = try hydrateQueuedPrompts(linkId: link.id)
             links.append(link)
@@ -172,7 +183,7 @@ public actor CoordinationStore {
         exec("BEGIN TRANSACTION")
         exec("DELETE FROM queued_prompts")
         exec("DELETE FROM tmux_sessions")
-        exec("DELETE FROM session_paths")
+        exec("DELETE FROM session_links")
         exec("DELETE FROM links")
         do {
             for link in links {
@@ -206,7 +217,7 @@ public actor CoordinationStore {
         exec("BEGIN TRANSACTION")
         do {
             // Delete existing child rows (if updating)
-            execParam("DELETE FROM session_paths WHERE link_id = ?", bindings: [link.id])
+            execParam("DELETE FROM session_links WHERE link_id = ?", bindings: [link.id])
             execParam("DELETE FROM tmux_sessions WHERE link_id = ?", bindings: [link.id])
             execParam("DELETE FROM queued_prompts WHERE link_id = ?", bindings: [link.id])
             try insertRelational(link)
@@ -223,12 +234,12 @@ public actor CoordinationStore {
         return try queryOneLink("SELECT id, slug, name, project_path, \"column\", created_at, updated_at, last_activity, last_opened_at, source, manually_archived, prompt_body, prompt_image_paths, todoist_id, todoist_description, todoist_priority, todoist_due, todoist_labels, todoist_project_id, notes, project_id, assistant, last_tab, is_launching, sort_order, override_tmux, override_name, override_column FROM links WHERE id = ?", bindings: [id])
     }
 
-    /// Get a single link by session ID (searches session_paths table).
+    /// Get a single link by session ID (searches session_links table).
     public func linkForSession(_ sessionId: String) throws -> Link? {
         ensureInitialized()
-        // Find the link_id from session_paths, then load the full link
+        // Find the link_id from session_links, then load the full link
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT link_id FROM session_paths WHERE session_id = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        guard sqlite3_prepare_v2(db, "SELECT link_id FROM session_links WHERE session_id = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
@@ -254,33 +265,87 @@ public actor CoordinationStore {
         return try queryOneLink("SELECT id, slug, name, project_path, \"column\", created_at, updated_at, last_activity, last_opened_at, source, manually_archived, prompt_body, prompt_image_paths, todoist_id, todoist_description, todoist_priority, todoist_due, todoist_labels, todoist_project_id, notes, project_id, assistant, last_tab, is_launching, sort_order, override_tmux, override_name, override_column FROM links WHERE slug = ?", bindings: [slug])
     }
 
-    /// Add a new session path to an existing card, marking it as current.
-    public func addSessionPath(linkId: String, sessionId: String, path: String?) throws {
+    /// Link a session to a card. If the session already exists, UPDATE to new card.
+    public func linkSession(sessionId: String, linkId: String, matchedBy: String, path: String?) throws {
         ensureInitialized()
-        exec("BEGIN TRANSACTION")
-        // Mark all existing paths as not current
-        execParam("UPDATE session_paths SET is_current = 0 WHERE link_id = ?", bindings: [linkId])
-        // Insert new path as current
+        let sql = """
+            INSERT INTO session_links (session_id, link_id, matched_by, is_current, path, created_at)
+            VALUES (?, ?, ?, 0, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET link_id = ?, matched_by = ?, path = COALESCE(?, path)
+        """
         var stmt: OpaquePointer?
-        let sql = "INSERT OR REPLACE INTO session_paths (link_id, session_id, path, is_current, created_at) VALUES (?, ?, ?, 1, ?)"
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            exec("ROLLBACK")
             throw CoordinationStoreError.prepareError(lastError)
         }
         defer { sqlite3_finalize(stmt) }
+        let now = dateToText(.now)
+        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, (linkId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 3, (matchedBy as NSString).utf8String, -1, nil)
+        if let path { sqlite3_bind_text(stmt, 4, (path as NSString).utf8String, -1, nil) } else { sqlite3_bind_null(stmt, 4) }
+        sqlite3_bind_text(stmt, 5, (now as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 6, (linkId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 7, (matchedBy as NSString).utf8String, -1, nil)
+        if let path { sqlite3_bind_text(stmt, 8, (path as NSString).utf8String, -1, nil) } else { sqlite3_bind_null(stmt, 8) }
+        guard sqlite3_step(stmt) == SQLITE_DONE else { throw CoordinationStoreError.stepError(lastError) }
+    }
+
+    /// Get the current session ID for a card.
+    public func currentSessionId(forLink linkId: String) throws -> String? {
+        ensureInitialized()
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT session_id FROM session_links WHERE link_id = ? AND is_current = 1 LIMIT 1", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, (linkId as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (sessionId as NSString).utf8String, -1, nil)
-        if let path {
-            sqlite3_bind_text(stmt, 3, (path as NSString).utf8String, -1, nil)
-        } else {
-            sqlite3_bind_null(stmt, 3)
-        }
-        sqlite3_bind_text(stmt, 4, (dateToText(.now) as NSString).utf8String, -1, nil)
-        if sqlite3_step(stmt) != SQLITE_DONE {
-            exec("ROLLBACK")
-            throw CoordinationStoreError.stepError(lastError)
-        }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        return String(cString: sqlite3_column_text(stmt, 0))
+    }
+
+    /// Get the card ID that owns a session.
+    public func cardIdForSession(_ sessionId: String) throws -> String? {
+        ensureInitialized()
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT link_id FROM session_links WHERE session_id = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        return String(cString: sqlite3_column_text(stmt, 0))
+    }
+
+    /// Mark the latest session as current for a card, clearing others.
+    public func setCurrentSession(sessionId: String, forLink linkId: String) throws {
+        ensureInitialized()
+        exec("BEGIN TRANSACTION")
+        execParam("UPDATE session_links SET is_current = 0 WHERE link_id = ?", bindings: [linkId])
+        execParam("UPDATE session_links SET is_current = 1 WHERE session_id = ? AND link_id = ?", bindings: [sessionId, linkId])
         exec("COMMIT")
+    }
+
+    /// Get all session IDs linked to a card.
+    public func sessionIds(forLink linkId: String) throws -> [String] {
+        ensureInitialized()
+        var result: [String] = []
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT session_id FROM session_links WHERE link_id = ? ORDER BY created_at", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, (linkId as NSString).utf8String, -1, nil)
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            result.append(String(cString: sqlite3_column_text(stmt, 0)))
+        }
+        return result
+    }
+
+    /// Get all owned session IDs (for reconciler to check what's already assigned).
+    public func allOwnedSessionIds() throws -> Set<String> {
+        ensureInitialized()
+        var result: Set<String> = []
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT session_id FROM session_links", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            result.insert(String(cString: sqlite3_column_text(stmt, 0)))
+        }
+        return result
     }
 
     /// Update specific fields of a link by link.id.
@@ -387,19 +452,10 @@ public actor CoordinationStore {
             throw CoordinationStoreError.stepError(lastError)
         }
 
-        // Insert session paths
+        // Insert session link (current session only)
         if let sl = link.sessionLink {
-            // Previous sessions
-            if let prevPaths = sl.previousSessionPaths {
-                // We don't have session IDs for previous sessions stored in the old format.
-                // Use the path filename (minus .jsonl) as a synthetic session ID.
-                for prevPath in prevPaths {
-                    let syntheticId = (prevPath as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
-                    try insertSessionPath(linkId: link.id, sessionId: syntheticId, path: prevPath, isCurrent: false)
-                }
-            }
-            // Current session
-            try insertSessionPath(linkId: link.id, sessionId: sl.sessionId, path: sl.sessionPath, isCurrent: true)
+            try linkSessionInternal(sessionId: sl.sessionId, linkId: link.id,
+                                     matchedBy: "discovered", path: sl.sessionPath)
         }
 
         // Insert tmux sessions
@@ -424,17 +480,17 @@ public actor CoordinationStore {
         }
     }
 
-    private func insertSessionPath(linkId: String, sessionId: String, path: String?, isCurrent: Bool) throws {
+    private func linkSessionInternal(sessionId: String, linkId: String, matchedBy: String, path: String?) throws {
         var stmt: OpaquePointer?
-        let sql = "INSERT OR REPLACE INTO session_paths (link_id, session_id, path, is_current, created_at) VALUES (?, ?, ?, ?, ?)"
+        let sql = "INSERT OR REPLACE INTO session_links (session_id, link_id, matched_by, is_current, path, created_at) VALUES (?, ?, ?, 1, ?, ?)"
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             throw CoordinationStoreError.prepareError(lastError)
         }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (linkId as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (sessionId as NSString).utf8String, -1, nil)
-        if let path { sqlite3_bind_text(stmt, 3, (path as NSString).utf8String, -1, nil) } else { sqlite3_bind_null(stmt, 3) }
-        sqlite3_bind_int(stmt, 4, isCurrent ? 1 : 0)
+        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, (linkId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 3, (matchedBy as NSString).utf8String, -1, nil)
+        if let path { sqlite3_bind_text(stmt, 4, (path as NSString).utf8String, -1, nil) } else { sqlite3_bind_null(stmt, 4) }
         sqlite3_bind_text(stmt, 5, (dateToText(.now) as NSString).utf8String, -1, nil)
         guard sqlite3_step(stmt) == SQLITE_DONE else { throw CoordinationStoreError.stepError(lastError) }
     }
@@ -522,47 +578,6 @@ public actor CoordinationStore {
         )
     }
 
-    private func hydrateSessionLink(linkId: String) throws -> SessionLink? {
-        var sessions: [(sessionId: String, path: String?, isCurrent: Bool)] = []
-        var slug: String?
-
-        // Get slug from links table
-        var slugStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT slug FROM links WHERE id = ?", -1, &slugStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(slugStmt, 1, (linkId as NSString).utf8String, -1, nil)
-            if sqlite3_step(slugStmt) == SQLITE_ROW {
-                slug = columnText(slugStmt, 0)
-            }
-        }
-        sqlite3_finalize(slugStmt)
-
-        // Get session paths
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT session_id, path, is_current FROM session_paths WHERE link_id = ? ORDER BY created_at", -1, &stmt, nil) == SQLITE_OK else { return nil }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (linkId as NSString).utf8String, -1, nil)
-
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let sid = String(cString: sqlite3_column_text(stmt, 0))
-            let path = columnText(stmt, 1)
-            let isCurrent = sqlite3_column_int(stmt, 2) != 0
-            sessions.append((sid, path, isCurrent))
-        }
-
-        guard !sessions.isEmpty else { return nil }
-
-        let current = sessions.first { $0.isCurrent } ?? sessions.last!
-        let previous = sessions.filter { !$0.isCurrent }
-        let prevPaths = previous.compactMap(\.path)
-
-        return SessionLink(
-            sessionId: current.sessionId,
-            sessionPath: current.path,
-            slug: slug,
-            previousSessionPaths: prevPaths.isEmpty ? nil : prevPaths
-        )
-    }
-
     private func hydrateTmuxLink(linkId: String) throws -> TmuxLink? {
         var primary: (name: String, isDead: Bool, isShellOnly: Bool)?
         var extras: [String] = []
@@ -624,7 +639,6 @@ public actor CoordinationStore {
         }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         var link = hydrateLink(from: stmt)
-        link.sessionLink = try hydrateSessionLink(linkId: link.id)
         link.tmuxLink = try hydrateTmuxLink(linkId: link.id)
         link.queuedPrompts = try hydrateQueuedPrompts(linkId: link.id)
         return link
