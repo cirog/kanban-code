@@ -222,6 +222,7 @@ public struct ReconciliationResult: Sendable {
     public let configuredProjects: [Project]
     public let excludedPaths: [String]
     public let discoveredProjectPaths: [String]
+    public let newAssociations: [CardReconciler.SessionAssociation]
     public init(
         links: [Link],
         sessions: [Session],
@@ -229,7 +230,8 @@ public struct ReconciliationResult: Sendable {
         tmuxSessions: Set<String>,
         configuredProjects: [Project] = [],
         excludedPaths: [String] = [],
-        discoveredProjectPaths: [String] = []
+        discoveredProjectPaths: [String] = [],
+        newAssociations: [CardReconciler.SessionAssociation] = []
     ) {
         self.links = links
         self.sessions = sessions
@@ -238,6 +240,7 @@ public struct ReconciliationResult: Sendable {
         self.configuredProjects = configuredProjects
         self.excludedPaths = excludedPaths
         self.discoveredProjectPaths = discoveredProjectPaths
+        self.newAssociations = newAssociations
     }
 }
 
@@ -835,6 +838,11 @@ public enum Reducer {
             )
             state.activityMap = result.activityMap
 
+            // Update transient maps from new associations
+            for assoc in result.newAssociations {
+                state.sessionIdByCardId[assoc.cardId] = assoc.sessionId
+            }
+
             // Merge reconciled links with in-memory state.
             // In-memory wins when it has a newer updatedAt (user action during reconciliation).
             var mergedLinks = state.links
@@ -1252,20 +1260,28 @@ public final class BoardStore: @unchecked Sendable {
 
             // Reconcile
             let t3 = ContinuousClock.now
+            let ownedSessionIds = try await coordinationStore.allOwnedSessionIds()
             let snapshot = CardReconciler.DiscoverySnapshot(
                 sessions: sessions,
                 tmuxSessions: tmuxSessions,
-                didScanTmux: tmuxAdapter != nil
+                didScanTmux: tmuxAdapter != nil,
+                ownedSessionIds: ownedSessionIds
             )
-            let ownedSessionIds = try await coordinationStore.allOwnedSessionIds()
             let reconcileResult = CardReconciler.reconcile(
                 existing: existingLinks,
-                snapshot: snapshot,
-                ownedSessionIds: ownedSessionIds,
-                sessionIdByCardId: state.sessionIdByCardId
+                snapshot: snapshot
             )
             let mergedLinks = reconcileResult.links
-            ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) reconciled)")
+            let newAssociations = reconcileResult.newAssociations
+            ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) reconciled, \(newAssociations.count) new associations)")
+
+            // Persist new associations to session_links table
+            for assoc in newAssociations {
+                try await coordinationStore.linkSession(
+                    sessionId: assoc.sessionId, linkId: assoc.cardId,
+                    matchedBy: assoc.matchedBy, path: assoc.path
+                )
+            }
 
             // Rebuild sessionIdByCardId from session_links table
             let ownedMap = try await coordinationStore.allSessionLinkMappings()
@@ -1300,7 +1316,8 @@ public final class BoardStore: @unchecked Sendable {
                 tmuxSessions: Set(tmuxSessions.map(\.name)),
                 configuredProjects: configuredProjects,
                 excludedPaths: excludedPaths,
-                discoveredProjectPaths: discoveredProjectPaths
+                discoveredProjectPaths: discoveredProjectPaths,
+                newAssociations: newAssociations
             )
             dispatch(.reconciled(result))
             ClaudeBoardLog.info("reconcile", "dispatch: \(t5.duration(to: .now))")

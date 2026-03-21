@@ -3,12 +3,12 @@ import Foundation
 /// Pure reconciliation logic — hook-authoritative version.
 ///
 /// Responsibilities:
-/// - Update lastActivity/metadata for cards that already have a session link
+/// - Match unowned sessions to existing cards by slug
 /// - Create discovered cards for truly unmatched sessions
 /// - Clear dead tmux links
 ///
 /// NOT responsible for: linking sessions to managed cards (the hook does that),
-/// column assignment, activity detection.
+/// column assignment, activity detection, tmux matching.
 public enum CardReconciler {
 
     /// A point-in-time snapshot of all discovered external resources.
@@ -16,74 +16,99 @@ public enum CardReconciler {
         public let sessions: [Session]
         public let tmuxSessions: [TmuxSession]
         public let didScanTmux: Bool
+        public let ownedSessionIds: Set<String>
 
         public init(
             sessions: [Session] = [],
             tmuxSessions: [TmuxSession] = [],
-            didScanTmux: Bool = false
+            didScanTmux: Bool = false,
+            ownedSessionIds: Set<String> = []
         ) {
             self.sessions = sessions
             self.tmuxSessions = tmuxSessions
             self.didScanTmux = didScanTmux
+            self.ownedSessionIds = ownedSessionIds
         }
+    }
+
+    /// A new session-to-card association to persist.
+    public struct SessionAssociation: Sendable {
+        public let sessionId: String
+        public let cardId: String
+        public let matchedBy: String
+        public let path: String?
     }
 
     /// Result of reconciliation.
     public struct ReconcileResult: Sendable {
         public let links: [Link]
+        public let newAssociations: [SessionAssociation]
     }
 
     /// Reconcile existing cards with discovered resources.
+    ///
+    /// Three-level association hierarchy:
+    /// 1. Already owned? → skip (session is in `ownedSessionIds`)
+    /// 2. Slug match → link to existing card that has matching slug
+    /// 3. No match → create discovered card
+    ///
     /// - Parameters:
     ///   - existing: Current in-memory cards.
-    ///   - snapshot: Discovered sessions and tmux sessions.
-    ///   - ownedSessionIds: Session IDs already claimed in the session_links table.
-    ///   - sessionIdByCardId: Map of cardId → sessionId from session_links.
-    public static func reconcile(
-        existing: [Link],
-        snapshot: DiscoverySnapshot,
-        ownedSessionIds: Set<String> = [],
-        sessionIdByCardId: [String: String] = [:]
-    ) -> ReconcileResult {
+    ///   - snapshot: Discovered sessions, tmux sessions, and owned session IDs.
+    public static func reconcile(existing: [Link], snapshot: DiscoverySnapshot) -> ReconcileResult {
         var linksById: [String: Link] = [:]
+        for link in existing { linksById[link.id] = link }
+
+        // Build slug → cardId index
+        var cardIdBySlug: [String: String] = [:]
         for link in existing {
-            linksById[link.id] = link
+            if let slug = link.slug, !slug.isEmpty {
+                cardIdBySlug[slug] = link.id
+            }
         }
 
-        // Build cardId by sessionId (reverse of sessionIdByCardId)
-        var cardIdBySessionId: [String: String] = [:]
-        for (cardId, sessionId) in sessionIdByCardId {
-            cardIdBySessionId[sessionId] = cardId
-        }
+        var newAssociations: [SessionAssociation] = []
 
         // A. Process discovered sessions
         for session in snapshot.sessions {
-            if let cardId = cardIdBySessionId[session.id],
+            // Step 1: Already owned?
+            if snapshot.ownedSessionIds.contains(session.id) { continue }
+
+            // Step 2: Slug match
+            if let slug = session.slug, !slug.isEmpty,
+               let cardId = cardIdBySlug[slug],
                var link = linksById[cardId] {
-                // Session already linked to a card — update metadata
-                if link.manuallyArchived {
-                    continue // Archived cards stay archived
+                if !link.manuallyArchived {
+                    link.lastActivity = session.modifiedTime
+                    if link.projectPath == nil, let pp = session.projectPath {
+                        link.projectPath = pp
+                    }
+                    linksById[cardId] = link
                 }
-                if let slug = session.slug {
-                    link.slug = slug
-                }
-                link.lastActivity = session.modifiedTime
-                if link.projectPath == nil, let pp = session.projectPath {
-                    link.projectPath = pp
-                }
-                linksById[cardId] = link
-            } else if !ownedSessionIds.contains(session.id) {
-                // Truly unmatched session — create discovered card
-                ClaudeBoardLog.info("reconciler", "New session \(session.id.prefix(8)) → discovered card")
-                let newLink = Link(
-                    projectPath: session.projectPath,
-                    column: .done,
-                    lastActivity: session.modifiedTime,
-                    source: .discovered,
-                    slug: session.slug
-                )
-                linksById[newLink.id] = newLink
+                newAssociations.append(SessionAssociation(
+                    sessionId: session.id, cardId: cardId,
+                    matchedBy: "slug", path: session.jsonlPath
+                ))
+                continue
             }
+
+            // Step 3: No match → create discovered card
+            ClaudeBoardLog.info("reconciler", "New session \(session.id.prefix(8)) → discovered card")
+            let newLink = Link(
+                projectPath: session.projectPath,
+                column: .done,
+                lastActivity: session.modifiedTime,
+                source: .discovered,
+                slug: session.slug
+            )
+            linksById[newLink.id] = newLink
+            if let slug = session.slug, !slug.isEmpty {
+                cardIdBySlug[slug] = newLink.id
+            }
+            newAssociations.append(SessionAssociation(
+                sessionId: session.id, cardId: newLink.id,
+                matchedBy: "discovered", path: session.jsonlPath
+            ))
         }
 
         // B. Clear dead tmux links
@@ -91,40 +116,30 @@ public enum CardReconciler {
         let didScanTmux = snapshot.didScanTmux
 
         for (id, var link) in linksById {
-            guard var tmux = link.tmuxLink,
-                  didScanTmux else { continue }
-
+            guard var tmux = link.tmuxLink, didScanTmux else { continue }
             var changed = false
             let primaryAlive = liveTmuxNames.contains(tmux.sessionName)
 
-            // Filter dead extra sessions
             if let extras = tmux.extraSessions {
                 let liveExtras = extras.filter { liveTmuxNames.contains($0) }
                 tmux.extraSessions = liveExtras.isEmpty ? nil : liveExtras
             }
 
             if !primaryAlive && tmux.extraSessions == nil {
-                link.tmuxLink = nil
-                changed = true
+                link.tmuxLink = nil; changed = true
             } else if !primaryAlive {
-                tmux.isPrimaryDead = true
-                link.tmuxLink = tmux
-                changed = true
+                tmux.isPrimaryDead = true; link.tmuxLink = tmux; changed = true
             } else {
-                if tmux.isPrimaryDead != nil {
-                    tmux.isPrimaryDead = nil
-                }
-                if tmux != link.tmuxLink {
-                    link.tmuxLink = tmux
-                    changed = true
-                }
+                if tmux.isPrimaryDead != nil { tmux.isPrimaryDead = nil }
+                if tmux != link.tmuxLink { link.tmuxLink = tmux; changed = true }
             }
 
-            if changed {
-                linksById[id] = link
-            }
+            if changed { linksById[id] = link }
         }
 
-        return ReconcileResult(links: Array(linksById.values))
+        return ReconcileResult(
+            links: Array(linksById.values),
+            newAssociations: newAssociations
+        )
     }
 }
