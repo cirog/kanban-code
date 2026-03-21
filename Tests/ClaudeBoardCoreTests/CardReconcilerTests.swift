@@ -162,6 +162,57 @@ struct CardReconcilerTests {
         #expect(result.links.first!.id == "card-1")
     }
 
+    // MARK: - Slug dedup for discovered cards
+
+    @Test("Multiple sessions with same slug create one discovered card")
+    func slugDedupDiscovered() {
+        var sess1 = Session(id: "sess-1")
+        sess1.slug = "shared-slug"
+        sess1.projectPath = "/test"
+        sess1.modifiedTime = .now
+
+        var sess2 = Session(id: "sess-2")
+        sess2.slug = "shared-slug"
+        sess2.projectPath = "/test"
+        sess2.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [sess1, sess2], tmuxSessions: [], didScanTmux: false,
+            hookEvents: [], existingAssociations: []
+        )
+
+        let result = CardReconciler.reconcile(existing: [], snapshot: snapshot)
+
+        // Only one card created — both sessions share the slug
+        #expect(result.links.count == 1)
+        // Both sessions associated to the same card
+        #expect(result.associations.count == 2)
+        let cardIds = Set(result.associations.map(\.cardId))
+        #expect(cardIds.count == 1)
+    }
+
+    @Test("Session with same slug as existing card associates to it")
+    func slugMatchExistingCard() {
+        let existing = Link(id: "card-1", column: .done, source: .discovered, slug: "my-slug")
+
+        var session = Session(id: "sess-new")
+        session.slug = "my-slug"
+        session.modifiedTime = .now
+
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [session], tmuxSessions: [], didScanTmux: false,
+            hookEvents: [], existingAssociations: []
+        )
+
+        let result = CardReconciler.reconcile(existing: [existing], snapshot: snapshot)
+
+        // No new card — session links to existing card via slug
+        #expect(result.links.count == 1)
+        #expect(result.links.first!.id == "card-1")
+        #expect(result.associations.count == 1)
+        #expect(result.associations.first!.cardId == "card-1")
+    }
+
     // MARK: - Dead tmux cleanup
 
     @Test("Dead tmux link is cleared")

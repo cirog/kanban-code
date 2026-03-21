@@ -102,8 +102,27 @@ public enum CardReconciler {
         }
 
         // Step 4: Create discovered cards for unowned sessions
+        // Build slug → cardId index for dedup (multiple sessions share the same slug)
+        var discoveredCardBySlug: [String: String] = [:]
+        for (id, link) in linksById {
+            if let slug = link.slug, !slug.isEmpty {
+                discoveredCardBySlug[slug] = id
+            }
+        }
+
         for session in snapshot.sessions {
             if ownedSessionIds.contains(session.id) { continue }
+
+            // Dedup: if a card with this slug already exists, associate to it
+            if let slug = session.slug, !slug.isEmpty,
+               let existingCardId = discoveredCardBySlug[slug] {
+                associationsBySessionId[session.id] = SessionAssociation(
+                    sessionId: session.id, cardId: existingCardId,
+                    matchedBy: "discovered", path: session.jsonlPath
+                )
+                ownedSessionIds.insert(session.id)
+                continue
+            }
 
             ClaudeBoardLog.info("reconciler", "New session \(session.id.prefix(8)) → discovered card")
             let newLink = Link(
@@ -114,6 +133,9 @@ public enum CardReconciler {
                 slug: session.slug
             )
             linksById[newLink.id] = newLink
+            if let slug = session.slug, !slug.isEmpty {
+                discoveredCardBySlug[slug] = newLink.id
+            }
             associationsBySessionId[session.id] = SessionAssociation(
                 sessionId: session.id, cardId: newLink.id,
                 matchedBy: "discovered", path: session.jsonlPath
