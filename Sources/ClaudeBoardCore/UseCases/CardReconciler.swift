@@ -1,14 +1,15 @@
 import Foundation
 
-/// Pure reconciliation logic — hook-authoritative version.
+/// Pure reconciliation logic — tmux-authoritative association.
 ///
 /// Responsibilities:
-/// - Match unowned sessions to existing cards by slug
+/// - Carry forward existing session associations from previous cycle
+/// - Build new associations via tmux name → SessionStart hook events
 /// - Create discovered cards for truly unmatched sessions
 /// - Clear dead tmux links
 ///
-/// NOT responsible for: linking sessions to managed cards (the hook does that),
-/// column assignment, activity detection, tmux matching.
+/// NOT responsible for: activity detection (hook does that),
+/// column assignment, card-session linking via hooks.
 public enum CardReconciler {
 
     /// A point-in-time snapshot of all discovered external resources.
@@ -16,83 +17,94 @@ public enum CardReconciler {
         public let sessions: [Session]
         public let tmuxSessions: [TmuxSession]
         public let didScanTmux: Bool
-        public let ownedSessionIds: Set<String>
+        public let hookEvents: [HookEvent]
+        public let existingAssociations: [SessionAssociation]
 
         public init(
             sessions: [Session] = [],
             tmuxSessions: [TmuxSession] = [],
             didScanTmux: Bool = false,
-            ownedSessionIds: Set<String> = []
+            hookEvents: [HookEvent] = [],
+            existingAssociations: [SessionAssociation] = []
         ) {
             self.sessions = sessions
             self.tmuxSessions = tmuxSessions
             self.didScanTmux = didScanTmux
-            self.ownedSessionIds = ownedSessionIds
+            self.hookEvents = hookEvents
+            self.existingAssociations = existingAssociations
         }
     }
 
-    /// A new session-to-card association to persist.
+    /// A session-to-card association to persist.
     public struct SessionAssociation: Sendable {
         public let sessionId: String
         public let cardId: String
-        public let matchedBy: String
+        public let matchedBy: String  // "tmux" | "discovered"
         public let path: String?
+
+        public init(sessionId: String, cardId: String, matchedBy: String, path: String?) {
+            self.sessionId = sessionId
+            self.cardId = cardId
+            self.matchedBy = matchedBy
+            self.path = path
+        }
     }
 
     /// Result of reconciliation.
     public struct ReconcileResult: Sendable {
         public let links: [Link]
-        public let newAssociations: [SessionAssociation]
+        public let associations: [SessionAssociation]
     }
 
     /// Reconcile existing cards with discovered resources.
-    ///
-    /// Three-level association hierarchy:
-    /// 1. Already owned? → skip (session is in `ownedSessionIds`)
-    /// 2. Slug match → link to existing card that has matching slug
-    /// 3. No match → create discovered card
-    ///
-    /// - Parameters:
-    ///   - existing: Current in-memory cards.
-    ///   - snapshot: Discovered sessions, tmux sessions, and owned session IDs.
     public static func reconcile(existing: [Link], snapshot: DiscoverySnapshot) -> ReconcileResult {
         var linksById: [String: Link] = [:]
         for link in existing { linksById[link.id] = link }
 
-        // Build slug → cardId index
-        var cardIdBySlug: [String: String] = [:]
-        for link in existing {
-            if let slug = link.slug, !slug.isEmpty {
-                cardIdBySlug[slug] = link.id
+        // Step 1: Carry forward ALL existing associations
+        var associationsBySessionId: [String: SessionAssociation] = [:]
+        var ownedSessionIds: Set<String> = []
+        for assoc in snapshot.existingAssociations {
+            // Only carry forward if the card still exists
+            if linksById[assoc.cardId] != nil {
+                associationsBySessionId[assoc.sessionId] = assoc
+                ownedSessionIds.insert(assoc.sessionId)
             }
         }
 
-        var newAssociations: [SessionAssociation] = []
-
-        // A. Process discovered sessions
-        for session in snapshot.sessions {
-            // Step 1: Already owned?
-            if snapshot.ownedSessionIds.contains(session.id) { continue }
-
-            // Step 2: Slug match
-            if let slug = session.slug, !slug.isEmpty,
-               let cardId = cardIdBySlug[slug],
-               var link = linksById[cardId] {
-                if !link.manuallyArchived {
-                    link.lastActivity = session.modifiedTime
-                    if link.projectPath == nil, let pp = session.projectPath {
-                        link.projectPath = pp
-                    }
-                    linksById[cardId] = link
-                }
-                newAssociations.append(SessionAssociation(
-                    sessionId: session.id, cardId: cardId,
-                    matchedBy: "slug", path: session.jsonlPath
-                ))
-                continue
+        // Step 2: Build tmux → latest sessionId index from hook events
+        // For each tmux name, find the most recent SessionStart
+        var tmuxToSessions: [String: [(sessionId: String, path: String?, timestamp: Date)]] = [:]
+        for event in snapshot.hookEvents {
+            if event.eventName == "SessionStart",
+               let tmuxName = event.tmuxSessionName, !tmuxName.isEmpty {
+                tmuxToSessions[tmuxName, default: []].append(
+                    (sessionId: event.sessionId, path: event.transcriptPath, timestamp: event.timestamp)
+                )
             }
+        }
 
-            // Step 3: No match → create discovered card
+        // Step 3: Update associations for managed cards with tmux
+        for link in existing {
+            guard let tmux = link.tmuxLink else { continue }
+            let tmuxName = tmux.sessionName
+
+            if let sessions = tmuxToSessions[tmuxName] {
+                // Associate ALL sessions that ran in this tmux to this card
+                for sess in sessions {
+                    associationsBySessionId[sess.sessionId] = SessionAssociation(
+                        sessionId: sess.sessionId, cardId: link.id,
+                        matchedBy: "tmux", path: sess.path
+                    )
+                    ownedSessionIds.insert(sess.sessionId)
+                }
+            }
+        }
+
+        // Step 4: Create discovered cards for unowned sessions
+        for session in snapshot.sessions {
+            if ownedSessionIds.contains(session.id) { continue }
+
             ClaudeBoardLog.info("reconciler", "New session \(session.id.prefix(8)) → discovered card")
             let newLink = Link(
                 projectPath: session.projectPath,
@@ -102,16 +114,14 @@ public enum CardReconciler {
                 slug: session.slug
             )
             linksById[newLink.id] = newLink
-            if let slug = session.slug, !slug.isEmpty {
-                cardIdBySlug[slug] = newLink.id
-            }
-            newAssociations.append(SessionAssociation(
+            associationsBySessionId[session.id] = SessionAssociation(
                 sessionId: session.id, cardId: newLink.id,
                 matchedBy: "discovered", path: session.jsonlPath
-            ))
+            )
+            ownedSessionIds.insert(session.id)
         }
 
-        // B. Clear dead tmux links
+        // Step 5: Clear dead tmux links
         let liveTmuxNames = Set(snapshot.tmuxSessions.map(\.name))
         let didScanTmux = snapshot.didScanTmux
 
@@ -139,7 +149,7 @@ public enum CardReconciler {
 
         return ReconcileResult(
             links: Array(linksById.values),
-            newAssociations: newAssociations
+            associations: Array(associationsBySessionId.values)
         )
     }
 }
