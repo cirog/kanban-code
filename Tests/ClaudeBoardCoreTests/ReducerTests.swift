@@ -603,28 +603,25 @@ struct ReducerTests {
 
     // MARK: - Merge Cards
 
-    @Test("mergeCards transfers session from source to target")
+    @Test("mergeCards transfers session association from source to target")
     func mergeTransfersSession() {
-        let source = makeLink(
-            id: "card_src",
-            column: .inProgress,
-            slug: "sess-1"
-        )
+        let source = makeLink(id: "card_src", column: .done, source: .discovered)
         let target = makeLink(
             id: "card_tgt",
             column: .inProgress,
             tmuxLink: TmuxLink(sessionName: "tmux-1")
         )
         var state = stateWith([source, target])
+        state.sessionIdByCardId["card_src"] = "sess-from-source"
 
         let effects = Reducer.reduce(state: &state, action: .mergeCards(sourceId: "card_src", targetId: "card_tgt"))
 
-        // Source removed, target gained session slug
+        // Source removed, target gained session mapping
         #expect(state.links["card_src"] == nil)
-        #expect(state.links["card_tgt"]?.slug == "sess-1")
-        #expect(state.links["card_tgt"]?.tmuxLink?.sessionName == "tmux-1")
+        #expect(state.links["card_tgt"] != nil)
+        #expect(state.sessionIdByCardId["card_tgt"] == "sess-from-source")
+        #expect(state.sessionIdByCardId["card_src"] == nil)
         #expect(state.deletedCardIds.contains("card_src"))
-        // Should produce upsert + remove effects
         #expect(effects.count == 2)
     }
 
@@ -651,15 +648,11 @@ struct ReducerTests {
 
     @Test("mergeCards blocked when both have sessions")
     func mergeBlockedBothSessions() {
-        let source = makeLink(
-            id: "card_src",
-            slug: "sess-1"
-        )
-        let target = makeLink(
-            id: "card_tgt",
-            slug: "sess-2"
-        )
+        let source = makeLink(id: "card_src")
+        let target = makeLink(id: "card_tgt")
         var state = stateWith([source, target])
+        state.sessionIdByCardId["card_src"] = "sess-1"
+        state.sessionIdByCardId["card_tgt"] = "sess-2"
 
         let effects = Reducer.reduce(state: &state, action: .mergeCards(sourceId: "card_src", targetId: "card_tgt"))
 

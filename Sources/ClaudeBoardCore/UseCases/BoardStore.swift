@@ -665,7 +665,9 @@ public enum Reducer {
                   sourceId != targetId else { return [] }
 
             // Validation: don't merge two cards that both have sessions
-            if source.slug != nil && target.slug != nil {
+            let sourceHasSession = state.sessionIdByCardId[sourceId] != nil
+            let targetHasSession = state.sessionIdByCardId[targetId] != nil
+            if sourceHasSession && targetHasSession {
                 state.error = "Cannot merge: both cards have sessions"
                 return []
             }
@@ -675,7 +677,6 @@ public enum Reducer {
                 return []
             }
             // Transfer links from source → target (only fill nil slots)
-            if target.slug == nil { target.slug = source.slug }
             if target.tmuxLink == nil { target.tmuxLink = source.tmuxLink }
             if target.projectPath == nil { target.projectPath = source.projectPath }
             if target.name == nil { target.name = source.name }
