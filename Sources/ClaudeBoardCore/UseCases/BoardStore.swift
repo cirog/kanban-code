@@ -170,6 +170,9 @@ public enum Action: Sendable {
     case renameTerminalTab(cardId: String, sessionName: String, label: String)
     case reorderTerminalTab(cardId: String, sessionName: String, beforeSession: String?)
 
+    // Hook-authoritative session linking
+    case hookSessionLinked(cardId: String, sessionId: String, path: String?)
+
     // Background reconciliation
     case reconciled(ReconciliationResult)
     case activityChanged([String: ActivityState]) // sessionId → state
@@ -785,6 +788,39 @@ public enum Reducer {
             link.tmuxLink = tmux
             link.updatedAt = .now
             state.links[cardId] = link
+            return [.upsertLink(link)]
+
+        // MARK: Hook-Authoritative Session Linking
+
+        case .hookSessionLinked(let cardId, let sessionId, let path):
+            guard var link = state.links[cardId] else { return [] }
+
+            if let existingSession = link.sessionLink, existingSession.sessionId != sessionId {
+                // Context continuation — chain the old session
+                var pathSet = Set(existingSession.previousSessionPaths ?? [])
+                if let oldPath = existingSession.sessionPath {
+                    pathSet.insert(oldPath)
+                }
+                if let newPath = path { pathSet.remove(newPath) }
+                link.sessionLink = SessionLink(
+                    sessionId: sessionId,
+                    sessionPath: path,
+                    slug: existingSession.slug,
+                    previousSessionPaths: pathSet.isEmpty ? nil : pathSet.sorted()
+                )
+            } else if link.sessionLink?.sessionId == sessionId {
+                // Same session — just update path
+                link.sessionLink?.sessionPath = path
+            } else {
+                // First session link
+                link.sessionLink = SessionLink(sessionId: sessionId, sessionPath: path)
+            }
+
+            link.isLaunching = nil
+            link.lastActivity = .now
+            link.updatedAt = .now
+            state.links[cardId] = link
+            ClaudeBoardLog.info("store", "Hook linked session \(sessionId.prefix(8)) → card \(cardId.prefix(12))")
             return [.upsertLink(link)]
 
         // MARK: Background Reconciliation

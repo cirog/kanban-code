@@ -1364,4 +1364,63 @@ struct ReducerTests {
         #expect(effects.isEmpty)
     }
 
+    // MARK: - Hook Session Linked
+
+    @Test("hookSessionLinked sets sessionLink on card and clears isLaunching")
+    func hookSessionLinkedSetsSession() {
+        let link = makeLink(id: "card_hook1", column: .inProgress, isLaunching: true)
+        var state = stateWith([link])
+
+        let effects = reduceAndRebuild(state: &state, action: .hookSessionLinked(
+            cardId: "card_hook1",
+            sessionId: "sess-abc123",
+            path: "/path/to/session.jsonl"
+        ))
+
+        let updated = state.links["card_hook1"]!
+        #expect(updated.sessionLink?.sessionId == "sess-abc123")
+        #expect(updated.sessionLink?.sessionPath == "/path/to/session.jsonl")
+        #expect(updated.isLaunching == nil)
+        #expect(effects.contains(where: { if case .upsertLink = $0 { return true }; return false }))
+    }
+
+    @Test("hookSessionLinked chains session when card already has different sessionId")
+    func hookSessionLinkedChainsSession() {
+        let link = makeLink(
+            id: "card_hook2",
+            column: .inProgress,
+            sessionLink: SessionLink(
+                sessionId: "old-session",
+                sessionPath: "/path/to/old.jsonl",
+                slug: "my-slug"
+            )
+        )
+        var state = stateWith([link])
+
+        let _ = reduceAndRebuild(state: &state, action: .hookSessionLinked(
+            cardId: "card_hook2",
+            sessionId: "new-session",
+            path: "/path/to/new.jsonl"
+        ))
+
+        let updated = state.links["card_hook2"]!
+        #expect(updated.sessionLink?.sessionId == "new-session")
+        #expect(updated.sessionLink?.sessionPath == "/path/to/new.jsonl")
+        #expect(updated.sessionLink?.previousSessionPaths == ["/path/to/old.jsonl"])
+        #expect(updated.sessionLink?.slug == "my-slug")
+    }
+
+    @Test("hookSessionLinked ignores unknown cardId")
+    func hookSessionLinkedUnknownCard() {
+        var state = AppState()
+
+        let effects = reduceAndRebuild(state: &state, action: .hookSessionLinked(
+            cardId: "nonexistent",
+            sessionId: "sess-abc",
+            path: nil
+        ))
+
+        #expect(effects.isEmpty)
+    }
+
 }
