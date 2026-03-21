@@ -41,9 +41,9 @@ public enum AssignColumn {
             switch activity {
             case .activelyWorking:
                 return .inProgress // Already handled, exhaustive
-            case .needsAttention, .idleWaiting:
+            case .needsAttention:
                 return .waiting
-            case .ended, .stale:
+            case .idleWaiting, .ended, .stale:
                 // Discovered cards with no live process → done (historical)
                 // Managed cards → waiting (user may resume)
                 return link.source == .discovered ? .done : .waiting

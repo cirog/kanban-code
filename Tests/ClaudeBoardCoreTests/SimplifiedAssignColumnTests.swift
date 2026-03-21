@@ -110,8 +110,14 @@ struct SimplifiedAssignColumnTests {
         #expect(result == .waiting)
     }
 
-    @Test func noProcess_idleWaiting_goesToWaiting() {
+    @Test func noProcess_idleWaiting_discoveredGoesToDone() {
         let link = Link(source: .discovered)
+        let result = AssignColumn.assign(link: link, activityState: .idleWaiting, hasLiveTmux: false)
+        #expect(result == .done)
+    }
+
+    @Test func noProcess_idleWaiting_managedGoesToWaiting() {
+        let link = Link(source: .manual)
         let result = AssignColumn.assign(link: link, activityState: .idleWaiting, hasLiveTmux: false)
         #expect(result == .waiting)
     }
