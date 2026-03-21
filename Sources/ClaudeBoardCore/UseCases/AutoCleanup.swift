@@ -25,7 +25,7 @@ public enum AutoCleanup {
 
         // Remove old Done cards
         cleaned = cleaned.filter { link in
-            if link.column == .done && link.updatedAt < cutoff {
+            if link.column == .done && link.source == .discovered && link.updatedAt < cutoff {
                 return false
             }
             return true

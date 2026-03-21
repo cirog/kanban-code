@@ -3,30 +3,35 @@ import Foundation
 @testable import ClaudeBoardCore
 
 struct AutoCleanupTests {
-    @Test func removesOldDoneCards() {
-        let old = Link(
+    @Test func removesOldDoneCards_discoveredOnly() {
+        let oldDiscovered = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-25 * 3600), // 25h ago
+            updatedAt: Date.now.addingTimeInterval(-25 * 3600),
             source: .discovered
         )
-
-        let recent = Link(
+        let oldManual = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-12 * 3600), // 12h ago
+            updatedAt: Date.now.addingTimeInterval(-25 * 3600),
+            source: .manual
+        )
+        let oldHook = Link(
+            column: .done,
+            updatedAt: Date.now.addingTimeInterval(-25 * 3600),
+            source: .hook
+        )
+        let recentDiscovered = Link(
+            column: .done,
+            updatedAt: Date.now.addingTimeInterval(-12 * 3600),
             source: .discovered
         )
 
-        let waiting = Link(
-            column: .waiting,
-            updatedAt: Date.now.addingTimeInterval(-72 * 3600), // 3 days ago — never expires
-            source: .discovered
-        )
+        let result = AutoCleanup.clean(links: [oldDiscovered, oldManual, oldHook, recentDiscovered])
 
-        let result = AutoCleanup.clean(links: [old, recent, waiting])
-
-        #expect(result.count == 2) // old Done card removed
-        #expect(result.contains(where: { $0.id == recent.id }))
-        #expect(result.contains(where: { $0.id == waiting.id }))
+        #expect(result.count == 3) // only oldDiscovered removed
+        #expect(!result.contains(where: { $0.id == oldDiscovered.id }))
+        #expect(result.contains(where: { $0.id == oldManual.id }))
+        #expect(result.contains(where: { $0.id == oldHook.id }))
+        #expect(result.contains(where: { $0.id == recentDiscovered.id }))
     }
 
     @Test func capsAtMaxCards() {
