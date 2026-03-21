@@ -1,21 +1,21 @@
 import Foundation
 
-/// Pure reconciliation logic: matches discovered resources to existing cards,
-/// preventing duplicate card creation.
+/// Pure reconciliation logic — hook-authoritative version.
 ///
 /// Responsibilities:
-/// - Match discovered sessions to existing cards (by sessionId → tmux name)
-/// - Create new cards for truly unmatched sessions
+/// - Update lastActivity/metadata for cards that already have a session link
+/// - Create discovered cards for truly unmatched sessions
 /// - Clear dead tmux links
 ///
-/// NOT responsible for: column assignment, activity detection.
+/// NOT responsible for: linking sessions to managed cards (the hook does that),
+/// column assignment, activity detection.
 public enum CardReconciler {
 
     /// A point-in-time snapshot of all discovered external resources.
     public struct DiscoverySnapshot: Sendable {
         public let sessions: [Session]
         public let tmuxSessions: [TmuxSession]
-        public let didScanTmux: Bool                    // true if tmux was queried (even if 0 results)
+        public let didScanTmux: Bool
 
         public init(
             sessions: [Session] = [],
@@ -34,97 +34,40 @@ public enum CardReconciler {
     }
 
     /// Reconcile existing cards with discovered resources.
-    /// Returns the merged list of links and IDs of cards that were merged away (slug dedup).
     public static func reconcile(existing: [Link], snapshot: DiscoverySnapshot) -> ReconcileResult {
         var linksById: [String: Link] = [:]
         for link in existing {
             linksById[link.id] = link
         }
 
-        // Build reverse indexes for matching
+        // Build sessionId → cardId index for O(1) lookup
         var cardIdBySessionId: [String: String] = [:]
-        var cardIdByTmuxName: [String: String] = [:]
-        var cardIdBySlug: [String: String] = [:]
-
         for link in existing {
             if let sid = link.sessionLink?.sessionId {
                 cardIdBySessionId[sid] = link.id
             }
-            if let slug = link.sessionLink?.slug, !slug.isEmpty {
-                cardIdBySlug[slug] = link.id
-            }
-            if let tmux = link.tmuxLink {
-                for name in tmux.allSessionNames {
-                    cardIdByTmuxName[name] = link.id
-                }
-            }
         }
 
-        // Track which sessions we've matched so we can detect new ones
-        var matchedSessionIds: Set<String> = []
-        let liveTmuxNames = Set(snapshot.tmuxSessions.map(\.name))
-
-        // A. Match sessions to existing cards
+        // A. Process discovered sessions
         for session in snapshot.sessions {
-            let cardId = findCardForSession(
-                session: session,
-                cardIdBySessionId: cardIdBySessionId,
-                cardIdBySlug: cardIdBySlug,
-                cardIdByTmuxName: cardIdByTmuxName,
-                linksById: linksById,
-                tmuxSessions: snapshot.tmuxSessions
-            )
-
-            if let cardId, var link = linksById[cardId] {
-                // Archived cards stay archived — just mark matched to prevent duplicates
+            if let cardId = cardIdBySessionId[session.id],
+               var link = linksById[cardId] {
+                // Session already linked to a card — update metadata
                 if link.manuallyArchived {
-                    matchedSessionIds.insert(session.id)
-                    continue
+                    continue // Archived cards stay archived
                 }
-                // Update existing card with session data
-                if link.sessionLink == nil {
-                    ClaudeBoardLog.info("reconciler", "Linking session \(session.id.prefix(8)) to existing card \(cardId.prefix(12))")
-                    link.sessionLink = SessionLink(
-                        sessionId: session.id,
-                        sessionPath: session.jsonlPath,
-                        slug: session.slug
-                    )
-                    cardIdBySessionId[session.id] = link.id
-                } else if link.sessionLink?.sessionId != session.id {
-                    // Slug match with different sessionId → chain sessions
-                    ClaudeBoardLog.info("reconciler", "Chaining session \(session.id.prefix(8)) to card \(cardId.prefix(12)) via slug")
-                    var pathSet = Set(link.sessionLink?.previousSessionPaths ?? [])
-                    if let oldPath = link.sessionLink?.sessionPath {
-                        pathSet.insert(oldPath)
-                    }
-                    // Don't include the new session's own path in previous
-                    if let newPath = session.jsonlPath {
-                        pathSet.remove(newPath)
-                    }
-                    let dedupedPaths = pathSet.sorted()
-                    link.sessionLink = SessionLink(
-                        sessionId: session.id,
-                        sessionPath: session.jsonlPath,
-                        slug: session.slug,
-                        previousSessionPaths: dedupedPaths.isEmpty ? nil : dedupedPaths
-                    )
-                    cardIdBySessionId[session.id] = link.id
-                } else {
-                    // Same sessionId — update path and slug
-                    link.sessionLink?.sessionPath = session.jsonlPath
-                    if let slug = session.slug {
-                        link.sessionLink?.slug = slug
-                    }
+                link.sessionLink?.sessionPath = session.jsonlPath
+                if let slug = session.slug {
+                    link.sessionLink?.slug = slug
                 }
                 link.lastActivity = session.modifiedTime
                 if link.projectPath == nil, let pp = session.projectPath {
                     link.projectPath = pp
                 }
                 linksById[cardId] = link
-                matchedSessionIds.insert(session.id)
             } else {
-                ClaudeBoardLog.info("reconciler", "New session \(session.id.prefix(8)) → new card")
-                // Truly new session — create discovered card
+                // Truly unmatched session — create discovered card
+                ClaudeBoardLog.info("reconciler", "New session \(session.id.prefix(8)) → discovered card")
                 let newLink = Link(
                     projectPath: session.projectPath,
                     column: .done,
@@ -138,110 +81,41 @@ public enum CardReconciler {
                 )
                 linksById[newLink.id] = newLink
                 cardIdBySessionId[session.id] = newLink.id
-                if let slug = session.slug {
-                    cardIdBySlug[slug] = newLink.id
-                }
-                matchedSessionIds.insert(session.id)
             }
         }
 
-        // B. Slug-based dedup — merge cards that share the same slug.
-        // This catches duplicates from context continuations where the slug wasn't
-        // available on the first discovery pass, creating an orphan card that
-        // sessionId matching then permanently prevents from merging.
-        var slugGroups: [String: [String]] = [:]
-        for (id, link) in linksById {
-            if let slug = link.sessionLink?.slug, !slug.isEmpty, link.isLaunching != true {
-                slugGroups[slug, default: []].append(id)
-            }
-        }
-        for (slug, cardIds) in slugGroups where cardIds.count > 1 {
-            // Pick survivor: prefer card with tmuxLink, then oldest by id (stable tiebreak)
-            let sorted = cardIds.sorted { a, b in
-                let linkA = linksById[a]!
-                let linkB = linksById[b]!
-                let hasTmuxA = linkA.tmuxLink != nil
-                let hasTmuxB = linkB.tmuxLink != nil
-                if hasTmuxA != hasTmuxB { return hasTmuxA }
-                return a < b  // stable tiebreak
-            }
-            let survivorId = sorted[0]
-            var survivor = linksById[survivorId]!
-
-            // Find the newest sessionId among all duplicates
-            let newest = cardIds
-                .compactMap { linksById[$0] }
-                .max(by: { ($0.lastActivity ?? .distantPast) < ($1.lastActivity ?? .distantPast) })!
-
-            // Collect all session paths from all duplicates
-            var allPaths: Set<String> = []
-            for cardId in cardIds {
-                guard let link = linksById[cardId] else { continue }
-                if let path = link.sessionLink?.sessionPath {
-                    allPaths.insert(path)
-                }
-                for prev in link.sessionLink?.previousSessionPaths ?? [] {
-                    allPaths.insert(prev)
-                }
-            }
-            // Remove the newest session's own path from previous
-            if let currentPath = newest.sessionLink?.sessionPath {
-                allPaths.remove(currentPath)
-            }
-
-            // Update survivor with newest session, preserving all history
-            survivor.sessionLink = SessionLink(
-                sessionId: newest.sessionLink!.sessionId,
-                sessionPath: newest.sessionLink?.sessionPath,
-                slug: slug,
-                previousSessionPaths: allPaths.isEmpty ? nil : allPaths.sorted()
-            )
-            survivor.lastActivity = newest.lastActivity
-            linksById[survivorId] = survivor
-
-            // Remove losers
-            for cardId in sorted.dropFirst() {
-                ClaudeBoardLog.info("reconciler", "Slug dedup: merging card=\(cardId.prefix(12)) into survivor=\(survivorId.prefix(12)) (slug=\(slug))")
-                linksById.removeValue(forKey: cardId)
-            }
-        }
-
-        // C. Clear dead tmux links
+        // B. Clear dead tmux links
+        let liveTmuxNames = Set(snapshot.tmuxSessions.map(\.name))
         let didScanTmux = snapshot.didScanTmux
 
         for (id, var link) in linksById {
+            guard var tmux = link.tmuxLink,
+                  !link.manualOverrides.tmuxSession,
+                  didScanTmux else { continue }
+
             var changed = false
+            let primaryAlive = liveTmuxNames.contains(tmux.sessionName)
 
-            // Clear dead tmux links (tmux session no longer exists)
-            // Only clear if we actually scanned tmux (avoid clearing when snapshot has no tmux data)
-            // Skip cards mid-launch — the tmux session may not be visible yet
-            if var tmux = link.tmuxLink, link.isLaunching != true, !link.manualOverrides.tmuxSession, didScanTmux {
-                let primaryAlive = liveTmuxNames.contains(tmux.sessionName)
+            // Filter dead extra sessions
+            if let extras = tmux.extraSessions {
+                let liveExtras = extras.filter { liveTmuxNames.contains($0) }
+                tmux.extraSessions = liveExtras.isEmpty ? nil : liveExtras
+            }
 
-                // Filter dead extra sessions
-                if let extras = tmux.extraSessions {
-                    let liveExtras = extras.filter { liveTmuxNames.contains($0) }
-                    tmux.extraSessions = liveExtras.isEmpty ? nil : liveExtras
+            if !primaryAlive && tmux.extraSessions == nil {
+                link.tmuxLink = nil
+                changed = true
+            } else if !primaryAlive {
+                tmux.isPrimaryDead = true
+                link.tmuxLink = tmux
+                changed = true
+            } else {
+                if tmux.isPrimaryDead != nil {
+                    tmux.isPrimaryDead = nil
                 }
-
-                if !primaryAlive && tmux.extraSessions == nil {
-                    // Both primary and all extras dead
-                    link.tmuxLink = nil
-                    changed = true
-                } else if !primaryAlive {
-                    // Primary dead but extras alive — mark primary dead
-                    tmux.isPrimaryDead = true
+                if tmux != link.tmuxLink {
                     link.tmuxLink = tmux
                     changed = true
-                } else {
-                    // Primary alive — ensure isPrimaryDead is cleared
-                    if tmux.isPrimaryDead != nil {
-                        tmux.isPrimaryDead = nil
-                    }
-                    if tmux != link.tmuxLink {
-                        link.tmuxLink = tmux
-                        changed = true
-                    }
                 }
             }
 
@@ -251,138 +125,5 @@ public enum CardReconciler {
         }
 
         return ReconcileResult(links: Array(linksById.values))
-    }
-
-    // MARK: - Private
-
-    /// Find an existing card that should own this session.
-    /// Match priority: exact sessionId → project path + tmux (no session) → promptBody → name-to-slug → solo project path → slug.
-    private static func findCardForSession(
-        session: Session,
-        cardIdBySessionId: [String: String],
-        cardIdBySlug: [String: String],
-        cardIdByTmuxName: [String: String],
-        linksById: [String: Link],
-        tmuxSessions: [TmuxSession] = []
-    ) -> String? {
-        let sid = session.id.prefix(8)
-
-        // 1. Exact match by sessionId
-        if let cardId = cardIdBySessionId[session.id] {
-            ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by sessionId → card=\(cardId.prefix(12))")
-            return cardId
-        }
-
-        // 2. Match by tmux + project path (card has tmuxLink, no sessionLink yet)
-        //    Skip cards mid-launch — the launch flow will set sessionLink via launchCompleted.
-        //    Uses solo-match guard: only match when exactly one candidate remains.
-        //    When card.projectPath is nil, falls back to tmux session path for comparison.
-        if let projectPath = session.projectPath {
-            // Build tmux path lookup for disambiguation
-            let tmuxPathByName = Dictionary(tmuxSessions.map { ($0.name, $0.path) }, uniquingKeysWith: { a, _ in a })
-
-            let candidates = linksById.values.filter { link in
-                guard link.tmuxLink != nil,
-                      link.sessionLink == nil,
-                      link.isLaunching != true else { return false }
-                // Match by card's projectPath if set, otherwise by tmux session's path
-                if let cardPath = link.projectPath {
-                    return cardPath == projectPath
-                }
-                // Card has no projectPath — check if its tmux session path matches
-                if let tmuxName = link.tmuxLink?.sessionName,
-                   let tmuxPath = tmuxPathByName[tmuxName] {
-                    return tmuxPath == projectPath
-                }
-                return false
-            }
-
-            if candidates.count == 1, let match = candidates.first {
-                ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by projectPath+tmux → card=\(match.id.prefix(12)) (tmux=\(match.tmuxLink?.sessionName ?? "?"), cardPath=\(match.projectPath ?? "nil"))")
-                return match.id
-            } else if candidates.count > 1 {
-                // Disambiguation: filter candidates whose tmux session path matches the session's projectPath
-                let narrowed = candidates.filter { link in
-                    guard let tmuxName = link.tmuxLink?.sessionName,
-                          let tmuxPath = tmuxPathByName[tmuxName] else { return false }
-                    return tmuxPath == projectPath
-                }
-                if narrowed.count == 1, let match = narrowed.first {
-                    ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) disambiguated by tmux path → card=\(match.id.prefix(12)) (tmux=\(match.tmuxLink?.sessionName ?? "?"), from \(candidates.count) candidates)")
-                    return match.id
-                }
-                ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) projectPath=\(projectPath) → \(candidates.count) tmux candidates (\(narrowed.count) with matching tmux path, ambiguous): \(candidates.map { "\($0.id.prefix(12)):\($0.tmuxLink?.sessionName ?? "?")" }.joined(separator: ", "))")
-            }
-        }
-
-        // 3. Match by promptBody (manual card with same prompt, no sessionLink yet)
-        //    Skip cards mid-launch — same reason as above
-        if let firstPrompt = session.firstPrompt, !firstPrompt.isEmpty {
-            for (_, link) in linksById {
-                if link.sessionLink == nil,
-                   link.isLaunching != true,
-                   link.source == .manual,
-                   let prompt = link.promptBody,
-                   prompt == firstPrompt {
-                    ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by promptBody → card=\(link.id.prefix(12))")
-                    return link.id
-                }
-            }
-        }
-
-        // 3.5. Match by card name → session slug (manual/todoist cards with no sessionLink)
-        if let sessionSlug = session.slug, !sessionSlug.isEmpty {
-            let normalizedSlug = slugify(sessionSlug)
-            for (_, link) in linksById {
-                if link.sessionLink == nil,
-                   link.isLaunching != true,
-                   (link.source == .manual || link.source == .todoist),
-                   let name = link.name, !name.isEmpty,
-                   slugify(name) == normalizedSlug {
-                    ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by name-to-slug '\(name)' → card=\(link.id.prefix(12))")
-                    return link.id
-                }
-            }
-        }
-
-        // 3.6. Match by solo project path (manual/todoist card, no sessionLink, no tmuxLink,
-        //      exactly one candidate for this project — avoids ambiguity)
-        if let projectPath = session.projectPath {
-            let candidates = linksById.values.filter {
-                $0.sessionLink == nil &&
-                $0.tmuxLink == nil &&
-                $0.isLaunching != true &&
-                ($0.source == .manual || $0.source == .todoist) &&
-                $0.projectPath == projectPath
-            }
-            if candidates.count == 1, let match = candidates.first {
-                ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by solo projectPath → card=\(match.id.prefix(12))")
-                return match.id
-            }
-        }
-
-        // 4. Match by slug (context-continued session shares same conversation slug)
-        if let slug = session.slug, !slug.isEmpty, let cardId = cardIdBySlug[slug] {
-            ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) matched by slug=\(slug) → card=\(cardId.prefix(12))")
-            return cardId
-        }
-
-        // Detailed no-match logging to diagnose reconciler misses
-        let tmuxCandidates = linksById.values.filter { $0.tmuxLink != nil && $0.sessionLink == nil && $0.isLaunching != true }
-        let tmuxInfo = tmuxCandidates.isEmpty ? "none" : tmuxCandidates.map {
-            "\($0.id.prefix(12))(src=\($0.source),path=\($0.projectPath ?? "nil"),tmux=\($0.tmuxLink?.sessionName ?? "?"))"
-        }.joined(separator: ", ")
-        ClaudeBoardLog.info("reconciler", "findCard: session=\(sid) slug=\(session.slug ?? "nil") projectPath=\(session.projectPath ?? "nil") → NO MATCH. Unlinked tmux cards: [\(tmuxInfo)]")
-        return nil
-    }
-
-    /// Normalize a string to slug form for comparison.
-    /// "Sync Meetings!" → "sync-meetings"
-    internal static func slugify(_ name: String) -> String {
-        let lowered = name.lowercased()
-        let replaced = lowered.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : Character("-") }
-        let joined = String(replaced)
-        let collapsed = joined.replacing(/\-+/, with: "-")
-        return collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 }
