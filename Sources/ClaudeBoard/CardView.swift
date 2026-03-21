@@ -25,7 +25,11 @@ struct CardView: View {
 
     /// Resolve the project color hex for this card.
     private var projectColorHex: String {
-        // First: check projectId against labels
+        // Discovered cards: muted blue-gray accent (Dracula comment color)
+        if card.link.source == .discovered {
+            return "#6272A4"
+        }
+        // Managed/todoist: check projectId against labels
         if let pid = card.link.projectId,
            let label = projectLabels.first(where: { $0.id == pid }) {
             return label.color

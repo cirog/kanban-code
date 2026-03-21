@@ -907,6 +907,8 @@ public enum Reducer {
             // Lightweight column update — no full reconciliation, just activity → column
             var changed = false
             for (id, var link) in state.links where link.isLaunching != true {
+                // Skip discovered cards — their columns are set by PID-based reconcile only
+                guard link.source != .discovered else { continue }
                 guard let sessionId = state.sessionIdByCardId[id],
                       let activity = activityMap[sessionId] else { continue }
                 let oldColumn = link.column
