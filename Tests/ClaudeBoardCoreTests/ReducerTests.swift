@@ -1144,8 +1144,8 @@ struct ReducerTests {
 
     // MARK: - Backlog Auto-Promotion
 
-    @Test("activityChanged clears manual backlog override when activelyWorking")
-    func activityChangedClearsBacklogOverride() {
+    @Test("activityChanged preserves manual override flag even when activelyWorking promotes column")
+    func activityChangedPreservesBacklogOverride() {
         var link = Link(
             id: "card_backlog_active",
             name: "Backlog task",
@@ -1159,8 +1159,10 @@ struct ReducerTests {
         let _ = Reducer.reduce(state: &state, action: .activityChanged(["sess_backlog": .activelyWorking]))
 
         let updated = state.links["card_backlog_active"]!
+        // AssignColumn Priority 1: activelyWorking always wins over manual override
         #expect(updated.column == .inProgress)
-        #expect(updated.manualOverrides.column == false)
+        // But the override flag is never cleared — when activity stops, card returns to backlog
+        #expect(updated.manualOverrides.column == true)
     }
 
     @Test("activityChanged keeps manual backlog override when not activelyWorking")

@@ -882,17 +882,6 @@ public enum Reducer {
                     return tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
                 } ?? false
 
-                // Clear manual column override when we have definitive data.
-                // Backlog is sticky — the user explicitly parked this card.
-                if link.manualOverrides.column && link.column != .backlog {
-                    if activity != nil && activity != .stale {
-                        link.manualOverrides.column = false
-                    } else if link.tmuxLink != nil && !hasLiveTmux {
-                        link.tmuxLink = nil
-                        link.manualOverrides.column = false
-                    }
-                }
-
                 UpdateCardColumn.update(
                     link: &link,
                     activityState: activity,
@@ -929,10 +918,6 @@ public enum Reducer {
                 guard let sessionId = link.sessionLink?.sessionId,
                       let activity = activityMap[sessionId] else { continue }
                 let oldColumn = link.column
-                // Clear manual backlog override when activity promotes the card
-                if activity == .activelyWorking && link.manualOverrides.column && link.column == .backlog {
-                    link.manualOverrides.column = false
-                }
                 let hasLiveTmux = link.tmuxLink.map { tmux in
                     guard tmux.isShellOnly != true else { return false }
                     return tmux.allSessionNames.contains(where: { state.tmuxSessions.contains($0) })
