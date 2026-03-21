@@ -7,6 +7,7 @@ public struct HookEvent: Sendable {
     public let transcriptPath: String?
     public let notificationType: String?
     public let tmuxSessionName: String?  // tmux session name from hook environment
+    public let pid: Int?                 // Claude CLI process PID (from $PPID in hook)
     public let timestamp: Date
 
     public init(
@@ -15,6 +16,7 @@ public struct HookEvent: Sendable {
         transcriptPath: String? = nil,
         notificationType: String? = nil,
         tmuxSessionName: String? = nil,
+        pid: Int? = nil,
         timestamp: Date = .now
     ) {
         self.sessionId = sessionId
@@ -22,6 +24,7 @@ public struct HookEvent: Sendable {
         self.transcriptPath = transcriptPath
         self.notificationType = notificationType
         self.tmuxSessionName = tmuxSessionName
+        self.pid = pid
         self.timestamp = timestamp
     }
 }

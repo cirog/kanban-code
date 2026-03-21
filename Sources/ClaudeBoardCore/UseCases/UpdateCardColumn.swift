@@ -1,23 +1,22 @@
 import Foundation
 
-/// Updates a link's column based on current activity state.
-/// Wraps AssignColumn with persistence via CoordinationStore.
+/// Updates a link's column based on PID-based process detection.
+/// Wraps AssignColumn with state mutation logic.
 public enum UpdateCardColumn {
 
     /// Update a single link's column assignment.
     public static func update(
         link: inout Link,
-        activityState: ActivityState?,
-        hasLiveTmux: Bool = false
+        isClaudeRunning: Bool = false,
+        lastHookEvent: String? = nil
     ) {
         let newColumn = AssignColumn.assign(
             link: link,
-            activityState: activityState,
-            hasLiveTmux: hasLiveTmux
+            isClaudeRunning: isClaudeRunning,
+            lastHookEvent: lastHookEvent
         )
 
         // If an archived card becomes actively working, clear the archive flag
-        // so it stays in waiting (not done) once work stops.
         if link.manuallyArchived && newColumn == .inProgress {
             link.manuallyArchived = false
         }

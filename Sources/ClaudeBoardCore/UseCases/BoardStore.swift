@@ -217,7 +217,9 @@ public enum Action: Sendable {
 public struct ReconciliationResult: Sendable {
     public let links: [Link]
     public let sessions: [Session]
-    public let activityMap: [String: ActivityState]
+    public let isClaudeRunning: [String: Bool]     // sessionId → PID alive?
+    public let lastHookEvent: [String: String]      // sessionId → latest event name
+    public let activityMap: [String: ActivityState]  // kept for .activityChanged compat
     public let tmuxSessions: Set<String>
     public let configuredProjects: [Project]
     public let excludedPaths: [String]
@@ -226,7 +228,9 @@ public struct ReconciliationResult: Sendable {
     public init(
         links: [Link],
         sessions: [Session],
-        activityMap: [String: ActivityState],
+        isClaudeRunning: [String: Bool] = [:],
+        lastHookEvent: [String: String] = [:],
+        activityMap: [String: ActivityState] = [:],
         tmuxSessions: Set<String>,
         configuredProjects: [Project] = [],
         excludedPaths: [String] = [],
@@ -235,6 +239,8 @@ public struct ReconciliationResult: Sendable {
     ) {
         self.links = links
         self.sessions = sessions
+        self.isClaudeRunning = isClaudeRunning
+        self.lastHookEvent = lastHookEvent
         self.activityMap = activityMap
         self.tmuxSessions = tmuxSessions
         self.configuredProjects = configuredProjects
@@ -862,19 +868,16 @@ public enum Reducer {
                 }
             }
 
-            // Recompute columns
-            let liveTmuxNames = result.tmuxSessions
+            // Recompute columns using PID-based detection
             for (id, var link) in mergedLinks where link.isLaunching != true {
-                let activity = result.activityMap[state.sessionIdByCardId[id] ?? ""]
-                let hasLiveTmux = link.tmuxLink.map { tmux in
-                    guard tmux.isShellOnly != true else { return false }
-                    return tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
-                } ?? false
+                let sessionId = state.sessionIdByCardId[id] ?? ""
+                let running = result.isClaudeRunning[sessionId] ?? false
+                let hookEvent = result.lastHookEvent[sessionId]
 
                 UpdateCardColumn.update(
                     link: &link,
-                    activityState: activity,
-                    hasLiveTmux: hasLiveTmux
+                    isClaudeRunning: running,
+                    lastHookEvent: hookEvent
                 )
 
                 // Copy session's firstPrompt into link.promptBody
@@ -907,11 +910,16 @@ public enum Reducer {
                 guard let sessionId = state.sessionIdByCardId[id],
                       let activity = activityMap[sessionId] else { continue }
                 let oldColumn = link.column
-                let hasLiveTmux = link.tmuxLink.map { tmux in
-                    guard tmux.isShellOnly != true else { return false }
-                    return tmux.allSessionNames.contains(where: { state.tmuxSessions.contains($0) })
-                } ?? false
-                UpdateCardColumn.update(link: &link, activityState: activity, hasLiveTmux: hasLiveTmux)
+                // Convert ActivityState to PID-based signals for UpdateCardColumn
+                let isRunning = activity == .activelyWorking || activity == .needsAttention || activity == .idleWaiting
+                let hookEvent: String? = switch activity {
+                    case .activelyWorking: "UserPromptSubmit"
+                    case .needsAttention: "Stop"
+                    case .idleWaiting: "SessionStart"
+                    case .ended: "SessionEnd"
+                    case .stale: nil
+                }
+                UpdateCardColumn.update(link: &link, isClaudeRunning: isRunning, lastHookEvent: hookEvent)
                 if link.column != oldColumn {
                     state.links[id] = link
                     changed = true
@@ -1277,8 +1285,28 @@ public final class BoardStore: @unchecked Sendable {
                 state.sessionIdByCardId[cardId] = sessionId
             }
 
-            // Build activity map
+            // PID-based process detection
             let t4 = ContinuousClock.now
+            var latestPidBySession: [String: Int] = [:]
+            var latestEventBySession: [String: String] = [:]
+            for event in allHookEvents {
+                if let pid = event.pid {
+                    latestPidBySession[event.sessionId] = pid
+                }
+                latestEventBySession[event.sessionId] = event.eventName
+            }
+            var pidAliveCache: [Int: Bool] = [:]
+            for pid in Set(latestPidBySession.values) {
+                pidAliveCache[pid] = ProcessChecker.isAlive(pid: pid)
+            }
+            var isClaudeRunningMap: [String: Bool] = [:]
+            for (sessionId, pid) in latestPidBySession {
+                isClaudeRunningMap[sessionId] = pidAliveCache[pid] ?? false
+            }
+            let aliveCount = isClaudeRunningMap.values.filter { $0 }.count
+            ClaudeBoardLog.info("reconcile", "PID check: \(t4.duration(to: .now)) (\(latestPidBySession.count) sessions, \(aliveCount) alive)")
+
+            // Build legacy activity map for .activityChanged compat
             var activityMap: [String: ActivityState] = [:]
             for (cardId, sessionId) in state.sessionIdByCardId {
                 guard state.links[cardId] != nil || mergedLinks.contains(where: { $0.id == cardId }) else { continue }
@@ -1286,7 +1314,6 @@ public final class BoardStore: @unchecked Sendable {
                     activityMap[sessionId] = activity
                 }
             }
-            ClaudeBoardLog.info("reconcile", "activityMap: \(t4.duration(to: .now)) (\(activityMap.count) active)")
 
             // Compute discovered project paths
             let sessionPaths = mergedLinks.map { $0.projectPath }
@@ -1300,6 +1327,8 @@ public final class BoardStore: @unchecked Sendable {
             let result = ReconciliationResult(
                 links: mergedLinks,
                 sessions: sessions,
+                isClaudeRunning: isClaudeRunningMap,
+                lastHookEvent: latestEventBySession,
                 activityMap: activityMap,
                 tmuxSessions: Set(tmuxSessions.map(\.name)),
                 configuredProjects: configuredProjects,

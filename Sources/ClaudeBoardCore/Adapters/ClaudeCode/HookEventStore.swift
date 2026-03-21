@@ -35,6 +35,7 @@ public actor HookEventStore {
             let eventName = obj["event"] as? String ?? "unknown"
             let transcriptPath = obj["transcriptPath"] as? String
             let tmuxSession = obj["tmuxSession"] as? String
+            let pid = obj["pid"] as? Int
             let timestampStr = obj["timestamp"] as? String
             let timestamp = timestampStr.flatMap { iso.date(from: $0) } ?? Date()
 
@@ -43,6 +44,7 @@ public actor HookEventStore {
                 eventName: eventName,
                 transcriptPath: transcriptPath,
                 tmuxSessionName: tmuxSession?.isEmpty == true ? nil : tmuxSession,
+                pid: pid,
                 timestamp: timestamp
             )
         }
@@ -68,12 +70,14 @@ public actor HookEventStore {
             let eventName = obj["event"] as? String ?? "unknown"
             let transcriptPath = obj["transcriptPath"] as? String
             let tmuxSession = obj["tmuxSession"] as? String
+            let pid = obj["pid"] as? Int
             let timestampStr = obj["timestamp"] as? String
             let timestamp = timestampStr.flatMap { iso.date(from: $0) } ?? Date()
             return HookEvent(
                 sessionId: sessionId, eventName: eventName,
                 transcriptPath: transcriptPath,
                 tmuxSessionName: tmuxSession?.isEmpty == true ? nil : tmuxSession,
+                pid: pid,
                 timestamp: timestamp
             )
         }

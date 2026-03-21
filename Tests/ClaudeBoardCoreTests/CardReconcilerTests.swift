@@ -132,11 +132,12 @@ struct CardReconcilerTests {
 
         #expect(result.links.count == 1)
         let card = result.links.first!
+        #expect(card.id == "orphan-sess") // deterministic: card ID = session ID
         #expect(card.source == .discovered)
         #expect(card.column == .done)
         let assoc = result.associations.first(where: { $0.sessionId == "orphan-sess" })
         #expect(assoc != nil)
-        #expect(assoc?.cardId == card.id)
+        #expect(assoc?.cardId == "orphan-sess")
         #expect(assoc?.matchedBy == "discovered")
     }
 
@@ -162,10 +163,10 @@ struct CardReconcilerTests {
         #expect(result.links.first!.id == "card-1")
     }
 
-    // MARK: - Slug dedup for discovered cards
+    // MARK: - Deterministic IDs
 
-    @Test("Multiple sessions with same slug create one discovered card")
-    func slugDedupDiscovered() {
+    @Test("Multiple sessions with same slug get separate cards (deterministic IDs)")
+    func sameSlugSeparateCards() {
         var sess1 = Session(id: "sess-1")
         sess1.slug = "shared-slug"
         sess1.projectPath = "/test"
@@ -183,19 +184,17 @@ struct CardReconcilerTests {
 
         let result = CardReconciler.reconcile(existing: [], snapshot: snapshot)
 
-        // Only one card created — both sessions share the slug
-        #expect(result.links.count == 1)
-        // Both sessions associated to the same card
-        #expect(result.associations.count == 2)
-        let cardIds = Set(result.associations.map(\.cardId))
-        #expect(cardIds.count == 1)
+        // Each session gets its own card (card ID = session ID)
+        #expect(result.links.count == 2)
+        #expect(result.links.contains(where: { $0.id == "sess-1" }))
+        #expect(result.links.contains(where: { $0.id == "sess-2" }))
     }
 
-    @Test("Session with same slug as existing card associates to it")
-    func slugMatchExistingCard() {
-        let existing = Link(id: "card-1", column: .done, source: .discovered, slug: "my-slug")
+    @Test("Existing discovered card is reused by same session ID")
+    func existingDiscoveredCardReused() {
+        let existing = Link(id: "sess-1", column: .done, source: .discovered, slug: "my-slug")
 
-        var session = Session(id: "sess-new")
+        var session = Session(id: "sess-1")
         session.slug = "my-slug"
         session.modifiedTime = .now
 
@@ -206,11 +205,11 @@ struct CardReconcilerTests {
 
         let result = CardReconciler.reconcile(existing: [existing], snapshot: snapshot)
 
-        // No new card — session links to existing card via slug
+        // No new card — existing card has same ID as session
         #expect(result.links.count == 1)
-        #expect(result.links.first!.id == "card-1")
+        #expect(result.links.first!.id == "sess-1")
         #expect(result.associations.count == 1)
-        #expect(result.associations.first!.cardId == "card-1")
+        #expect(result.associations.first!.cardId == "sess-1")
     }
 
     // MARK: - Dead tmux cleanup

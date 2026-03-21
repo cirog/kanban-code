@@ -1,33 +1,33 @@
 import Foundation
 
-/// Determines which Kanban column a link should be in based on its state.
+/// Determines which Kanban column a link should be in.
 ///
-/// Priority layers:
-///   1. Active work (.activelyWorking) → inProgress
-///   2. Live tmux → waiting
-///   3. User intent (manual override, archived)
-///   4. Activity-driven (any known state → waiting)
-///   5. No data (nil) → preserve current column
-///   6. Classification (unstarted tasks → backlog)
+/// Rules:
+///   1. User intent (manual override, archived) — always respected
+///   2. Claude running + UserPromptSubmit → inProgress
+///   3. Claude running + anything else → waiting
+///   4. Claude NOT running + discovered → done (auto-archive)
+///   5. Claude NOT running + managed/todoist → waiting (sticky)
+///   6. Unstarted tasks (no session) → backlog
 public enum AssignColumn {
 
-    /// Assign a column to a link based on current state signals.
+    /// Assign a column based on PID-based process detection.
+    ///
+    /// - Parameters:
+    ///   - link: The card
+    ///   - isClaudeRunning: Whether the Claude process (PID) is alive for this card's session
+    ///   - lastHookEvent: The most recent hook event name (e.g. "UserPromptSubmit", "Stop")
     public static func assign(
         link: Link,
-        activityState: ActivityState? = nil,
-        hasLiveTmux: Bool = false
+        isClaudeRunning: Bool = false,
+        lastHookEvent: String? = nil
     ) -> ClaudeBoardColumn {
-        // --- Priority 1: Active work always inProgress ---
-        if activityState == .activelyWorking {
+        // --- Claude actively working overrides everything ---
+        if isClaudeRunning && lastHookEvent == "UserPromptSubmit" {
             return .inProgress
         }
 
-        // --- Priority 2: Live tmux → waiting ---
-        if hasLiveTmux {
-            return .waiting
-        }
-
-        // --- Priority 3: User intent ---
+        // --- User intent ---
         if link.manualOverrides.column {
             return link.column
         }
@@ -36,29 +36,22 @@ public enum AssignColumn {
             return .done
         }
 
-        // --- Priority 4: Activity-driven ---
-        if let activity = activityState {
-            switch activity {
-            case .activelyWorking:
-                return .inProgress // Already handled, exhaustive
-            case .needsAttention:
-                return .waiting
-            case .idleWaiting, .ended, .stale:
-                // Discovered cards with no live process → done (historical)
-                // Managed cards → waiting (user may resume)
-                return link.source == .discovered ? .done : .waiting
-            }
+        // --- Claude IS running (but not actively working) ---
+        if isClaudeRunning {
+            return .waiting
         }
 
-        // --- Priority 5: No data (nil) — preserve current column ---
-        // On cold start or race conditions, we have no activity data.
-        // Don't move cards we can't reason about.
+        // --- Claude NOT running ---
+        if link.source == .discovered {
+            return .done
+        }
 
-        // Exception: unstarted tasks stay in backlog
-        if (link.source == .manual || link.source == .todoist) && link.slug == nil {
+        // Managed/todoist: sticky in waiting until manual archive
+        // Exception: unstarted tasks (no session ever) stay in backlog
+        if (link.source == .manual || link.source == .todoist) && link.slug == nil && lastHookEvent == nil {
             return .backlog
         }
 
-        return link.column
+        return .waiting
     }
 }

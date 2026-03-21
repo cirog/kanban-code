@@ -102,22 +102,14 @@ public enum CardReconciler {
         }
 
         // Step 4: Create discovered cards for unowned sessions
-        // Build slug → cardId index for dedup (multiple sessions share the same slug)
-        var discoveredCardBySlug: [String: String] = [:]
-        for (id, link) in linksById {
-            if let slug = link.slug, !slug.isEmpty {
-                discoveredCardBySlug[slug] = id
-            }
-        }
-
+        // Card ID = session ID (deterministic — same session always produces same card)
         for session in snapshot.sessions {
             if ownedSessionIds.contains(session.id) { continue }
 
-            // Dedup: if a card with this slug already exists, associate to it
-            if let slug = session.slug, !slug.isEmpty,
-               let existingCardId = discoveredCardBySlug[slug] {
+            // If a card with this session's ID already exists (from a previous cycle), reuse it
+            if linksById[session.id] != nil {
                 associationsBySessionId[session.id] = SessionAssociation(
-                    sessionId: session.id, cardId: existingCardId,
+                    sessionId: session.id, cardId: session.id,
                     matchedBy: "discovered", path: session.jsonlPath
                 )
                 ownedSessionIds.insert(session.id)
@@ -126,6 +118,7 @@ public enum CardReconciler {
 
             ClaudeBoardLog.info("reconciler", "New session \(session.id.prefix(8)) → discovered card")
             let newLink = Link(
+                id: session.id,
                 projectPath: session.projectPath,
                 column: .done,
                 lastActivity: session.modifiedTime,
@@ -133,9 +126,6 @@ public enum CardReconciler {
                 slug: session.slug
             )
             linksById[newLink.id] = newLink
-            if let slug = session.slug, !slug.isEmpty {
-                discoveredCardBySlug[slug] = newLink.id
-            }
             associationsBySessionId[session.id] = SessionAssociation(
                 sessionId: session.id, cardId: newLink.id,
                 matchedBy: "discovered", path: session.jsonlPath
