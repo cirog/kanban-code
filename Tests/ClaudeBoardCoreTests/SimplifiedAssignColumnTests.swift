@@ -102,49 +102,55 @@ struct SimplifiedAssignColumnTests {
         #expect(result == .backlog)
     }
 
-    @Test func noProcess_default_goesToDone() {
-        let link = Link(source: .discovered)
-        let result = AssignColumn.assign(link: link, activityState: nil, hasLiveTmux: false)
-        #expect(result == .done)
-    }
+    // MARK: - Priority 4: Activity-Driven (any known state → waiting)
 
-    // MARK: - Removed behaviors: no longer special-cased
-
-    @Test func noProcess_needsAttention_noTmux_goesToDone() {
-        // Without a live process, needsAttention alone doesn't keep card in waiting
+    @Test func noProcess_needsAttention_goesToWaiting() {
         let link = Link(source: .discovered)
         let result = AssignColumn.assign(link: link, activityState: .needsAttention, hasLiveTmux: false)
-        #expect(result == .done)
+        #expect(result == .waiting)
     }
 
-    @Test func noProcess_idleWaiting_noTmux_goesToDone() {
-        // Without a live process, idleWaiting alone doesn't keep card in waiting
+    @Test func noProcess_idleWaiting_goesToWaiting() {
         let link = Link(source: .discovered)
         let result = AssignColumn.assign(link: link, activityState: .idleWaiting, hasLiveTmux: false)
-        #expect(result == .done)
+        #expect(result == .waiting)
     }
 
-    @Test func noProcess_recentActivity_goesToDone() {
-        // 24h recency heuristic removed — recent lastActivity alone doesn't mean waiting
-        var link = Link(source: .discovered)
-        link.lastActivity = Date.now.addingTimeInterval(-3600) // 1h ago
+    @Test func noProcess_ended_goesToWaiting() {
+        let link = Link(source: .discovered)
         let result = AssignColumn.assign(link: link, activityState: .ended, hasLiveTmux: false)
-        #expect(result == .done)
+        #expect(result == .waiting)
     }
 
-    @Test func noProcess_scheduledTask_goesToDone() {
-        // No special-case for <scheduled-task> — just a dead session
-        var link = Link(source: .discovered)
-        link.promptBody = "<scheduled-task>daily check</scheduled-task>"
+    @Test func noProcess_stale_goesToWaiting() {
+        let link = Link(source: .discovered)
+        let result = AssignColumn.assign(link: link, activityState: .stale, hasLiveTmux: false)
+        #expect(result == .waiting)
+    }
+
+    // MARK: - Priority 5: No Data (nil) — Preserve Column
+
+    @Test func nilActivity_noTmux_preservesWaiting() {
+        let link = Link(column: .waiting, source: .discovered)
+        let result = AssignColumn.assign(link: link, activityState: nil, hasLiveTmux: false)
+        #expect(result == .waiting)
+    }
+
+    @Test func nilActivity_noTmux_preservesInProgress() {
+        let link = Link(column: .inProgress, source: .discovered)
+        let result = AssignColumn.assign(link: link, activityState: nil, hasLiveTmux: false)
+        #expect(result == .inProgress)
+    }
+
+    @Test func nilActivity_noTmux_preservesDone() {
+        let link = Link(column: .done, source: .discovered)
         let result = AssignColumn.assign(link: link, activityState: nil, hasLiveTmux: false)
         #expect(result == .done)
     }
 
-    @Test func noProcess_summarySession_goesToDone() {
-        // No special-case for [CB-SUMMARY] — just a dead session
-        var link = Link(source: .discovered)
-        link.promptBody = "[CB-SUMMARY] Weekly recap"
+    @Test func nilActivity_noTmux_preservesBacklog() {
+        let link = Link(column: .backlog, source: .manual)
         let result = AssignColumn.assign(link: link, activityState: nil, hasLiveTmux: false)
-        #expect(result == .done)
+        #expect(result == .backlog)
     }
 }
