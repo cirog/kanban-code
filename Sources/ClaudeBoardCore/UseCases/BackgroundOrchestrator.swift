@@ -109,23 +109,21 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
 
             if !didInitialLoad {
                 // First call: consume all old events without notifying.
-                // Also resolve SessionStart links — survives app restarts by re-linking
-                // sessions to their cards via tmux session name before reconciler runs.
+                // Re-link sessions to cards via tmux name (survives app restart).
                 ClaudeBoardLog.info("notify", "Initial load: consuming \(events.count) old events")
                 var resolvedCount = 0
                 for event in events {
                     await activityDetector.handleHookEvent(event)
-                    // Resolve links for SessionStart events (defense against app restart)
                     let normalized = HookManager.normalizeEventName(event.eventName)
                     if normalized == "SessionStart",
-                       let tmuxName = event.tmuxSessionName, !tmuxName.isEmpty {
-                        let link = try? await Self.resolveLink(
+                       let tmuxName = event.tmuxSessionName, !tmuxName.isEmpty,
+                       let cardId = Self.extractCardId(from: tmuxName), let dispatch {
+                        await dispatch(.hookSessionLinked(
+                            cardId: cardId,
                             sessionId: event.sessionId,
-                            transcriptPath: event.transcriptPath,
-                            tmuxSessionName: tmuxName,
-                            coordinationStore: coordinationStore
-                        )
-                        if link != nil { resolvedCount += 1 }
+                            path: event.transcriptPath
+                        ))
+                        resolvedCount += 1
                     }
                 }
                 if resolvedCount > 0 {
@@ -150,17 +148,16 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                 let eventName = HookManager.normalizeEventName(event.eventName)
                 switch eventName {
                 case "SessionStart":
-                    // Eagerly resolve the new session to its card via tmux.
-                    // This chains the session BEFORE the next reconciliation cycle,
-                    // preventing duplicate card creation.
+                    // Link session to its card via tmux name (contains card ID).
                     if let tmuxName = event.tmuxSessionName, !tmuxName.isEmpty {
                         ClaudeBoardLog.info("notify", "SessionStart for \(event.sessionId.prefix(8)) in tmux \(tmuxName)")
-                        let _ = try? await Self.resolveLink(
-                            sessionId: event.sessionId,
-                            transcriptPath: event.transcriptPath,
-                            tmuxSessionName: tmuxName,
-                            coordinationStore: coordinationStore
-                        )
+                        if let cardId = Self.extractCardId(from: tmuxName), let dispatch {
+                            await dispatch(.hookSessionLinked(
+                                cardId: cardId,
+                                sessionId: event.sessionId,
+                                path: event.transcriptPath
+                            ))
+                        }
                     }
 
                 case "Stop":
@@ -243,12 +240,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
             return
         }
 
-        let link = try? await Self.resolveLink(
-            sessionId: sessionId,
-            transcriptPath: transcriptPath,
-            tmuxSessionName: tmuxSessionName,
-            coordinationStore: coordinationStore
-        )
+        let link = try? await coordinationStore.linkForSession(sessionId)
         let title = link?.displayTitle ?? "Session done"
 
         // Mirrors claude-pushover's do_notify() exactly:
@@ -302,12 +294,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     /// Auto-send the first queued prompt with sendAutomatically=true for a session.
     private func autoSendQueuedPrompt(sessionId: String, transcriptPath: String? = nil, tmuxSessionName: String? = nil) async {
         do {
-            guard let link = try await Self.resolveLink(
-                sessionId: sessionId,
-                transcriptPath: transcriptPath,
-                tmuxSessionName: tmuxSessionName,
-                coordinationStore: coordinationStore
-            ) else {
+            guard let link = try await coordinationStore.linkForSession(sessionId) else {
                 return
             }
             guard let prompts = link.queuedPrompts,
@@ -340,41 +327,14 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         await updateActivityStates()
     }
 
-    // MARK: - Session resolution
+    // MARK: - Card ID Extraction
 
-    /// Resolve a session ID to a Link. Fast path: exact DB match.
-    /// Fallback 1: read slug from .jsonl transcript, find card by slug.
-    /// Fallback 2: tmux session name → card (most reliable for context resets).
-    static func resolveLink(
-        sessionId: String,
-        transcriptPath: String?,
-        tmuxSessionName: String? = nil,
-        coordinationStore: CoordinationStore
-    ) async throws -> Link? {
-        // Fast path: session already registered
-        if let link = try await coordinationStore.linkForSession(sessionId) {
-            return link
-        }
-
-        // Fallback 1: read slug from transcript, find card by slug
-        if let path = transcriptPath,
-           let metadata = try await JsonlParser.extractMetadata(from: path),
-           let slug = metadata.slug,
-           let link = try await coordinationStore.findBySlug(slug) {
-            ClaudeBoardLog.info("reconciler", "Hook resolution: session \(sessionId.prefix(8)) → card \(link.id.prefix(12)) via slug \(slug)")
-            try await coordinationStore.addSessionPath(linkId: link.id, sessionId: sessionId, path: path)
-            return try await coordinationStore.linkById(link.id)
-        }
-
-        // Fallback 2: tmux session name → card (most reliable for context resets)
-        if let tmuxName = tmuxSessionName, !tmuxName.isEmpty,
-           let link = try await coordinationStore.findByTmuxSessionName(tmuxName) {
-            ClaudeBoardLog.info("reconciler", "Hook resolution: session \(sessionId.prefix(8)) → card \(link.id.prefix(12)) via tmux \(tmuxName)")
-            try await coordinationStore.addSessionPath(linkId: link.id, sessionId: sessionId, path: transcriptPath)
-            return try await coordinationStore.linkById(link.id)
-        }
-
-        return nil
+    /// Extract the card ID from a tmux session name.
+    /// Format: "projectName-card_XXXX..." → "card_XXXX..."
+    /// Returns nil if the tmux name doesn't contain a card ID (external session).
+    static func extractCardId(from tmuxName: String) -> String? {
+        guard let range = tmuxName.range(of: "card_") else { return nil }
+        return String(tmuxName[range.lowerBound...])
     }
 
     private func updateActivityStates() async {
