@@ -838,56 +838,22 @@ public enum Reducer {
             )
             state.activityMap = result.activityMap
 
-            // Merge reconciled links using last-writer-wins on updatedAt.
-            // Reconciliation takes seconds of async work. Any in-memory changes
-            // made during that window (launch, create terminal, move card) have a
-            // newer updatedAt than the stale snapshot the reconciler used.
+            // Merge reconciled links with in-memory state.
+            // In-memory wins when it has a newer updatedAt (user action during reconciliation).
             var mergedLinks = state.links
             var preservedIds: Set<String> = []
             for link in result.links {
-                // Skip cards deliberately deleted during this reconciliation cycle
-                if state.deletedCardIds.contains(link.id) {
-                    continue
-                }
-                // Skip cards whose session was deliberately deleted
-                if let sessionId = link.sessionLink?.sessionId, state.deletedSessionIds.contains(sessionId) {
-                    continue
-                }
+                if state.deletedCardIds.contains(link.id) { continue }
+                if let sessionId = link.sessionLink?.sessionId, state.deletedSessionIds.contains(sessionId) { continue }
+
                 if let existing = mergedLinks[link.id] {
-                    var shouldPreserve = false
-                    if existing.isLaunching == true {
-                        // Check if activity hook has confirmed the session is running
-                        let activity = result.activityMap[existing.sessionLink?.sessionId ?? ""]
-                        if activity != nil {
-                            // Activity detected — clear isLaunching, let column recomputation run
-                            var cleared = existing
-                            cleared.isLaunching = nil
-                            mergedLinks[link.id] = cleared
-                            ClaudeBoardLog.info("store", "Cleared isLaunching on card=\(link.id.prefix(12)) (activity=\(activity!))")
-                            continue
-                        }
-                        // Stale launch timeout: clear isLaunching after 30s (crash recovery)
-                        if Date.now.timeIntervalSince(existing.updatedAt) > 30 {
-                            var cleared = link
-                            cleared.isLaunching = nil
-                            mergedLinks[link.id] = cleared
-                            ClaudeBoardLog.info("store", "Cleared stale isLaunching on card=\(link.id.prefix(12))")
-                            continue
-                        }
-                        // Still launching, no activity yet — preserve
-                        shouldPreserve = true
-                    } else if existing.updatedAt > link.updatedAt {
-                        // In-memory state is newer → preserve it, skip stale reconciled data.
-                        // The next reconciliation cycle (5s) will incorporate these changes.
-                        shouldPreserve = true
-                    }
-                    if shouldPreserve {
+                    // In-memory is newer — preserve it, skip stale reconciled data
+                    if existing.updatedAt > link.updatedAt {
                         preservedIds.insert(link.id)
                         continue
                     }
-                }
-                // Preserve user-set state from in-memory version that reconciler must not clobber
-                if let existing = mergedLinks[link.id] {
+
+                    // Reconciled data is newer — take it, but preserve user overrides
                     var merged = link
                     if existing.manualOverrides.name {
                         merged.name = existing.name
@@ -903,17 +869,12 @@ public enum Reducer {
                     }
                     mergedLinks[link.id] = merged
                 } else {
+                    // New card from reconciler (discovered)
                     mergedLinks[link.id] = link
                 }
             }
 
-            if !preservedIds.isEmpty {
-                ClaudeBoardLog.info("store", "Preserved \(preservedIds.count) card(s) modified during reconciliation")
-            }
-
-            // Recompute columns for cards NOT mid-launch and NOT preserved.
-            // Preserved cards have stale tmux/activity data — skip them until
-            // the next reconciliation cycle picks up their current state.
+            // Recompute columns — skip preserved cards (stale activity data)
             let liveTmuxNames = result.tmuxSessions
             for (id, var link) in mergedLinks where link.isLaunching != true && !preservedIds.contains(id) {
                 let activity = result.activityMap[link.sessionLink?.sessionId ?? ""]
