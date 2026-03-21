@@ -38,6 +38,15 @@ public struct AppState: Sendable {
     /// Transient — not persisted. Used to show a spinner on the card.
     public var busyCards: Set<String> = []
 
+    /// Transient map from cardId → current sessionId, rebuilt each reconciliation.
+    /// Source of truth is the session_links DB table; this is just an in-memory cache.
+    public var sessionIdByCardId: [String: String] = [:]
+
+    /// Reverse index: sessionId → cardId, derived from sessionIdByCardId.
+    public var cardIdBySessionId: [String: String] {
+        Dictionary(sessionIdByCardId.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a })
+    }
+
 
     // MARK: - Derived
 
@@ -47,8 +56,9 @@ public struct AppState: Sendable {
     /// Rebuild the cached cards array from current state.
     mutating func rebuildCards() {
         cards = links.values.map { link in
-            let session = link.sessionLink.flatMap { sessions[$0.sessionId] }
-            let activity = link.sessionLink.flatMap { activityMap[$0.sessionId] }
+            let sessionId = sessionIdByCardId[link.id]
+            let session = sessionId.flatMap { sessions[$0] }
+            let activity = sessionId.flatMap { activityMap[$0] }
             return ClaudeBoardCard(link: link, session: session, activityState: activity, isBusy: busyCards.contains(link.id))
         }
     }
@@ -146,7 +156,7 @@ public enum Action: Sendable {
     case moveCardToProject(cardId: String, projectPath: String)
     case moveCardToFolder(cardId: String, folderPath: String, parentProjectPath: String)
     case beginMigration(cardId: String)
-    case migrateSession(cardId: String, newAssistant: CodingAssistant, newSessionId: String, newSessionPath: String)
+    case migrateSession(cardId: String, newAssistant: CodingAssistant, newSessionId: String)
     case migrationFailed(cardId: String, error: String)
     case mergeCards(sourceId: String, targetId: String)
     case updatePrompt(cardId: String, body: String, imagePaths: [String]?)
@@ -159,7 +169,7 @@ public enum Action: Sendable {
     case sendQueuedPrompt(cardId: String, promptId: String)
 
     // Async completions
-    case launchCompleted(cardId: String, tmuxName: String, sessionLink: SessionLink?)
+    case launchCompleted(cardId: String, tmuxName: String, sessionId: String?, sessionPath: String?)
     case launchTmuxReady(cardId: String)
     case launchFailed(cardId: String, error: String)
     case resumeCompleted(cardId: String, tmuxName: String)
@@ -251,6 +261,7 @@ public enum Effect: Sendable {
     case deleteFiles([String])
     case completeTodoistTask(todoistId: String)
     case killClaudeProcess(sessionId: String)
+    case linkSession(cardId: String, sessionId: String, path: String?)
 }
 
 // MARK: - Reducer
@@ -316,7 +327,7 @@ public enum Reducer {
 
         case .resumeCard(let cardId):
             guard var link = state.links[cardId] else { return [] }
-            let sid = link.sessionLink?.sessionId ?? link.id
+            let sid = state.sessionIdByCardId[cardId] ?? link.id
             let tmuxName = "\(link.effectiveAssistant.cliCommand)-\(String(sid.prefix(8)))"
             // Preserve existing shell sessions as extras
             var extras = link.tmuxLink?.extraSessions ?? []
@@ -341,7 +352,7 @@ public enum Reducer {
             link.manualOverrides.column = true
             if column == .done {
                 link.manuallyArchived = true
-                let archiveEffects = archiveLinkEffects(link: &link)
+                let archiveEffects = archiveLinkEffects(link: &link, sessionId: state.sessionIdByCardId[cardId])
                 state.links[cardId] = link
                 return [.upsertLink(link)] + archiveEffects
             } else if link.manuallyArchived {
@@ -385,7 +396,7 @@ public enum Reducer {
             link.updatedAt = .now
             state.links[cardId] = link
             var effects: [Effect] = [.upsertLink(link)]
-            if let sessionId = link.sessionLink?.sessionId {
+            if let sessionId = state.sessionIdByCardId[cardId] {
                 effects.append(.updateSessionIndex(sessionId: sessionId, name: name))
             }
             return effects
@@ -409,7 +420,7 @@ public enum Reducer {
             guard var link = state.links[cardId] else { return [] }
             link.manuallyArchived = true
             link.column = .done
-            let archiveEffects = archiveLinkEffects(link: &link)
+            let archiveEffects = archiveLinkEffects(link: &link, sessionId: state.sessionIdByCardId[cardId])
             state.links[cardId] = link
             return [.upsertLink(link)] + archiveEffects
 
@@ -418,16 +429,13 @@ public enum Reducer {
             if state.selectedCardId == cardId { state.selectedCardId = nil }
             // Remember deleted IDs so in-flight reconciliation doesn't re-add them
             state.deletedCardIds.insert(cardId)
-            if let sessionId = link.sessionLink?.sessionId {
+            if let sessionId = state.sessionIdByCardId.removeValue(forKey: cardId) {
                 state.deletedSessionIds.insert(sessionId)
             }
             var effects: [Effect] = [.removeLink(cardId)]
             if let tmux = link.tmuxLink {
                 effects.append(.killTmuxSessions(tmux.allSessionNames))
                 effects.append(.cleanupTerminalCache(sessionNames: tmux.allSessionNames))
-            }
-            if let sessionPath = link.sessionLink?.sessionPath {
-                effects.append(.deleteSessionFile(sessionPath))
             }
             // Clean up prompt and queued prompt images
             var imagesToDelete = link.promptImagePaths ?? []
@@ -455,7 +463,6 @@ public enum Reducer {
             switch linkType {
             case .tmux:
                 link.tmuxLink = nil
-                link.manualOverrides.tmuxSession = true
             }
             link.updatedAt = .now
             state.links[cardId] = link
@@ -569,8 +576,9 @@ public enum Reducer {
             state.links[cardId] = link
             effects.insert(.upsertLink(link), at: 0)
             // Move the .jsonl file to the new project folder
-            if let sessionId = link.sessionLink?.sessionId,
-               let oldPath = link.sessionLink?.sessionPath,
+            if let sessionId = state.sessionIdByCardId[cardId],
+               let session = state.sessions[sessionId],
+               let oldPath = session.jsonlPath,
                oldProjectPath != projectPath {
                 effects.append(.moveSessionFile(
                     cardId: cardId,
@@ -596,8 +604,9 @@ public enum Reducer {
             state.links[cardId] = link
             effects.insert(.upsertLink(link), at: 0)
             // Move the session file — use folderPath for file location (not parentProjectPath)
-            if let sessionId = link.sessionLink?.sessionId,
-               let oldPath = link.sessionLink?.sessionPath {
+            if let sessionId = state.sessionIdByCardId[cardId],
+               let session = state.sessions[sessionId],
+               let oldPath = session.jsonlPath {
                 effects.append(.moveSessionFile(
                     cardId: cardId,
                     sessionId: sessionId,
@@ -616,14 +625,14 @@ public enum Reducer {
             state.busyCards.insert(cardId)
             return []
 
-        case .migrateSession(let cardId, let newAssistant, let newSessionId, let newSessionPath):
+        case .migrateSession(let cardId, let newAssistant, let newSessionId):
             guard var link = state.links[cardId] else { return [] }
             // Mark old session as deleted so reconciler won't recreate a card for it
-            if let oldSessionId = link.sessionLink?.sessionId {
+            if let oldSessionId = state.sessionIdByCardId[cardId] {
                 state.deletedSessionIds.insert(oldSessionId)
             }
             link.assistant = newAssistant
-            link.sessionLink = SessionLink(sessionId: newSessionId, sessionPath: newSessionPath)
+            state.sessionIdByCardId[cardId] = newSessionId
             // Kill tmux sessions — the old assistant process must stop
             var effects: [Effect] = []
             if let tmux = link.tmuxLink {
@@ -654,7 +663,7 @@ public enum Reducer {
                   sourceId != targetId else { return [] }
 
             // Validation: don't merge two cards that both have sessions
-            if source.sessionLink != nil && target.sessionLink != nil {
+            if source.slug != nil && target.slug != nil {
                 state.error = "Cannot merge: both cards have sessions"
                 return []
             }
@@ -664,11 +673,16 @@ public enum Reducer {
                 return []
             }
             // Transfer links from source → target (only fill nil slots)
-            if target.sessionLink == nil { target.sessionLink = source.sessionLink }
+            if target.slug == nil { target.slug = source.slug }
             if target.tmuxLink == nil { target.tmuxLink = source.tmuxLink }
             if target.projectPath == nil { target.projectPath = source.projectPath }
             if target.name == nil { target.name = source.name }
             if target.promptBody == nil { target.promptBody = source.promptBody }
+            // Transfer session mapping if source had one
+            if let sourceSessionId = state.sessionIdByCardId[sourceId],
+               state.sessionIdByCardId[targetId] == nil {
+                state.sessionIdByCardId[targetId] = sourceSessionId
+            }
             // Preserve the more recent lastActivity
             if let sourceActivity = source.lastActivity {
                 if target.lastActivity == nil || sourceActivity > target.lastActivity! {
@@ -681,8 +695,9 @@ public enum Reducer {
             // Remove source card
             state.links.removeValue(forKey: sourceId)
             state.deletedCardIds.insert(sourceId)
-            if let sessionId = source.sessionLink?.sessionId, target.sessionLink?.sessionId != sessionId {
-                state.deletedSessionIds.insert(sessionId)
+            if let sourceSessionId = state.sessionIdByCardId.removeValue(forKey: sourceId),
+               state.sessionIdByCardId[targetId] != sourceSessionId {
+                state.deletedSessionIds.insert(sourceSessionId)
             }
             if state.selectedCardId == sourceId { state.selectedCardId = targetId }
 
@@ -691,11 +706,11 @@ public enum Reducer {
 
         // MARK: Async Completions
 
-        case .launchCompleted(let cardId, let tmuxName, let sessionLink):
+        case .launchCompleted(let cardId, let tmuxName, let sessionId, _):
             guard var link = state.links[cardId] else { return [] }
             let existingExtras = link.tmuxLink?.extraSessions
             link.tmuxLink = TmuxLink(sessionName: tmuxName, extraSessions: existingExtras)
-            if let sl = sessionLink { link.sessionLink = sl }
+            if let sessionId { state.sessionIdByCardId[cardId] = sessionId }
             link.isLaunching = nil
             link.lastActivity = .now
             link.updatedAt = .now
@@ -705,7 +720,7 @@ public enum Reducer {
         case .launchTmuxReady(let cardId):
             guard var link = state.links[cardId] else { return [] }
             // Keep isLaunching=true — prevents reconciler from creating duplicates
-            // before launchCompleted sets the sessionLink. The UI can show the
+            // before hookSessionLinked sets the session mapping. The UI can show the
             // terminal via tmuxLink even with isLaunching still set.
             link.lastActivity = .now
             link.updatedAt = .now
@@ -794,33 +809,16 @@ public enum Reducer {
         case .hookSessionLinked(let cardId, let sessionId, let path):
             guard var link = state.links[cardId] else { return [] }
 
-            if let existingSession = link.sessionLink, existingSession.sessionId != sessionId {
-                // Context continuation — chain the old session
-                var pathSet = Set(existingSession.previousSessionPaths ?? [])
-                if let oldPath = existingSession.sessionPath {
-                    pathSet.insert(oldPath)
-                }
-                if let newPath = path { pathSet.remove(newPath) }
-                link.sessionLink = SessionLink(
-                    sessionId: sessionId,
-                    sessionPath: path,
-                    slug: existingSession.slug,
-                    previousSessionPaths: pathSet.isEmpty ? nil : pathSet.sorted()
-                )
-            } else if link.sessionLink?.sessionId == sessionId {
-                // Same session — just update path
-                link.sessionLink?.sessionPath = path
-            } else {
-                // First session link
-                link.sessionLink = SessionLink(sessionId: sessionId, sessionPath: path)
-            }
+            // Update the transient session map
+            state.sessionIdByCardId[cardId] = sessionId
 
             link.isLaunching = nil
             link.lastActivity = .now
             link.updatedAt = .now
             state.links[cardId] = link
             ClaudeBoardLog.info("store", "Hook linked session \(sessionId.prefix(8)) → card \(cardId.prefix(12))")
-            return [.upsertLink(link)]
+            // Persist to session_links table via effect
+            return [.upsertLink(link), .linkSession(cardId: cardId, sessionId: sessionId, path: path)]
 
         // MARK: Background Reconciliation
 
@@ -843,7 +841,7 @@ public enum Reducer {
             var preservedIds: Set<String> = []
             for link in result.links {
                 if state.deletedCardIds.contains(link.id) { continue }
-                if let sessionId = link.sessionLink?.sessionId, state.deletedSessionIds.contains(sessionId) { continue }
+                if let sessionId = state.sessionIdByCardId[link.id], state.deletedSessionIds.contains(sessionId) { continue }
 
                 if let existing = mergedLinks[link.id] {
                     // In-memory is newer — preserve it, skip stale reconciled data
@@ -876,7 +874,7 @@ public enum Reducer {
             // Recompute columns — skip preserved cards (stale activity data)
             let liveTmuxNames = result.tmuxSessions
             for (id, var link) in mergedLinks where link.isLaunching != true && !preservedIds.contains(id) {
-                let activity = result.activityMap[link.sessionLink?.sessionId ?? ""]
+                let activity = result.activityMap[state.sessionIdByCardId[id] ?? ""]
                 let hasLiveTmux = link.tmuxLink.map { tmux in
                     guard tmux.isShellOnly != true else { return false }
                     return tmux.allSessionNames.contains(where: { liveTmuxNames.contains($0) })
@@ -890,7 +888,7 @@ public enum Reducer {
 
                 // Copy session's firstPrompt into link.promptBody
                 if link.promptBody == nil,
-                   let sessionId = link.sessionLink?.sessionId,
+                   let sessionId = state.sessionIdByCardId[id],
                    let session = result.sessions.first(where: { $0.id == sessionId }),
                    let firstPrompt = session.firstPrompt, !firstPrompt.isEmpty {
                     link.promptBody = firstPrompt
@@ -915,7 +913,7 @@ public enum Reducer {
             // Lightweight column update — no full reconciliation, just activity → column
             var changed = false
             for (id, var link) in state.links where link.isLaunching != true {
-                guard let sessionId = link.sessionLink?.sessionId,
+                guard let sessionId = state.sessionIdByCardId[id],
                       let activity = activityMap[sessionId] else { continue }
                 let oldColumn = link.column
                 let hasLiveTmux = link.tmuxLink.map { tmux in
@@ -1045,7 +1043,7 @@ public enum Reducer {
 
     /// Shared side-effects for moving a card to Done: kill tmux, complete Todoist.
     /// Mutates link in-place (clears tmuxLink, sets updatedAt).
-    private static func archiveLinkEffects(link: inout Link) -> [Effect] {
+    private static func archiveLinkEffects(link: inout Link, sessionId: String?) -> [Effect] {
         link.updatedAt = .now
         var effects: [Effect] = []
         if let tmux = link.tmuxLink {
@@ -1053,7 +1051,7 @@ public enum Reducer {
             effects.append(.cleanupTerminalCache(sessionNames: tmux.allSessionNames))
             link.tmuxLink = nil
         }
-        if let sessionId = link.sessionLink?.sessionId {
+        if let sessionId {
             effects.append(.killClaudeProcess(sessionId: sessionId))
         }
         if let todoistId = link.todoistId {
@@ -1162,8 +1160,8 @@ public final class BoardStore: @unchecked Sendable {
     public func refreshActivity() async {
         guard let activityDetector else { return }
         var activityMap: [String: ActivityState] = [:]
-        for (_, link) in state.links {
-            guard let sessionId = link.sessionLink?.sessionId else { continue }
+        for (cardId, _) in state.links {
+            guard let sessionId = state.sessionIdByCardId[cardId] else { continue }
             let activity = await activityDetector.activityState(for: sessionId)
             activityMap[sessionId] = activity
         }
@@ -1259,18 +1257,29 @@ public final class BoardStore: @unchecked Sendable {
                 tmuxSessions: tmuxSessions,
                 didScanTmux: tmuxAdapter != nil
             )
-            let reconcileResult = CardReconciler.reconcile(existing: existingLinks, snapshot: snapshot)
+            let ownedSessionIds = try await coordinationStore.allOwnedSessionIds()
+            let reconcileResult = CardReconciler.reconcile(
+                existing: existingLinks,
+                snapshot: snapshot,
+                ownedSessionIds: ownedSessionIds,
+                sessionIdByCardId: state.sessionIdByCardId
+            )
             let mergedLinks = reconcileResult.links
             ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) reconciled)")
+
+            // Rebuild sessionIdByCardId from session_links table
+            let ownedMap = try await coordinationStore.allSessionLinkMappings()
+            for mapping in ownedMap {
+                state.sessionIdByCardId[mapping.cardId] = mapping.sessionId
+            }
 
             // Build activity map
             let t4 = ContinuousClock.now
             var activityMap: [String: ActivityState] = [:]
-            for link in mergedLinks {
-                if let sessionId = link.sessionLink?.sessionId {
-                    if let activity = await activityDetector?.activityState(for: sessionId) {
-                        activityMap[sessionId] = activity
-                    }
+            for (cardId, sessionId) in state.sessionIdByCardId {
+                guard state.links[cardId] != nil || mergedLinks.contains(where: { $0.id == cardId }) else { continue }
+                if let activity = await activityDetector?.activityState(for: sessionId) {
+                    activityMap[sessionId] = activity
                 }
             }
             ClaudeBoardLog.info("reconcile", "activityMap: \(t4.duration(to: .now)) (\(activityMap.count) active)")

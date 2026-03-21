@@ -35,7 +35,7 @@ struct PromptBuilderTests {
     func sessionCardUsesName() {
         let link = Link(
             name: "Implement feature X",
-            sessionLink: SessionLink(sessionId: "s1")
+            slug: "s1"
         )
         let prompt = PromptBuilder.buildPrompt(card: link)
         #expect(prompt == "Implement feature X")

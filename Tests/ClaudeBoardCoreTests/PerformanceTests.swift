@@ -76,11 +76,7 @@ struct PerformanceTests {
                 name: "Task \(i): implement feature for module \(i % 10)",
                 projectPath: projects[i % projects.count],
                 column: columns[i % columns.count],
-                sessionLink: SessionLink(
-                    sessionId: UUID().uuidString,
-                    sessionPath: "/tmp/sessions/\(UUID().uuidString).jsonl",
-                    slug: "slug-\(i)"
-                ),
+                slug: "slug-\(i)",
                 tmuxLink: TmuxLink(sessionName: "tmux-\(i)")
             )
         }
@@ -251,7 +247,7 @@ struct PerformanceTests {
             let store = CoordinationStore(basePath: dir)
             let links = makeLinks(100)
             try await store.writeLinks(links)
-            let sessionId = links[50].sessionLink!.sessionId
+            let sessionId = links[50].slug!
 
             try await measureMedian(limitMs: 5) {
                 _ = try await store.linkForSession(sessionId)

@@ -34,18 +34,26 @@ public enum CardReconciler {
     }
 
     /// Reconcile existing cards with discovered resources.
-    public static func reconcile(existing: [Link], snapshot: DiscoverySnapshot) -> ReconcileResult {
+    /// - Parameters:
+    ///   - existing: Current in-memory cards.
+    ///   - snapshot: Discovered sessions and tmux sessions.
+    ///   - ownedSessionIds: Session IDs already claimed in the session_links table.
+    ///   - sessionIdByCardId: Map of cardId → sessionId from session_links.
+    public static func reconcile(
+        existing: [Link],
+        snapshot: DiscoverySnapshot,
+        ownedSessionIds: Set<String> = [],
+        sessionIdByCardId: [String: String] = [:]
+    ) -> ReconcileResult {
         var linksById: [String: Link] = [:]
         for link in existing {
             linksById[link.id] = link
         }
 
-        // Build sessionId → cardId index for O(1) lookup
+        // Build cardId by sessionId (reverse of sessionIdByCardId)
         var cardIdBySessionId: [String: String] = [:]
-        for link in existing {
-            if let sid = link.sessionLink?.sessionId {
-                cardIdBySessionId[sid] = link.id
-            }
+        for (cardId, sessionId) in sessionIdByCardId {
+            cardIdBySessionId[sessionId] = cardId
         }
 
         // A. Process discovered sessions
@@ -56,16 +64,15 @@ public enum CardReconciler {
                 if link.manuallyArchived {
                     continue // Archived cards stay archived
                 }
-                link.sessionLink?.sessionPath = session.jsonlPath
                 if let slug = session.slug {
-                    link.sessionLink?.slug = slug
+                    link.slug = slug
                 }
                 link.lastActivity = session.modifiedTime
                 if link.projectPath == nil, let pp = session.projectPath {
                     link.projectPath = pp
                 }
                 linksById[cardId] = link
-            } else {
+            } else if !ownedSessionIds.contains(session.id) {
                 // Truly unmatched session — create discovered card
                 ClaudeBoardLog.info("reconciler", "New session \(session.id.prefix(8)) → discovered card")
                 let newLink = Link(
@@ -73,14 +80,9 @@ public enum CardReconciler {
                     column: .done,
                     lastActivity: session.modifiedTime,
                     source: .discovered,
-                    sessionLink: SessionLink(
-                        sessionId: session.id,
-                        sessionPath: session.jsonlPath,
-                        slug: session.slug
-                    )
+                    slug: session.slug
                 )
                 linksById[newLink.id] = newLink
-                cardIdBySessionId[session.id] = newLink.id
             }
         }
 
@@ -90,7 +92,6 @@ public enum CardReconciler {
 
         for (id, var link) in linksById {
             guard var tmux = link.tmuxLink,
-                  !link.manualOverrides.tmuxSession,
                   didScanTmux else { continue }
 
             var changed = false

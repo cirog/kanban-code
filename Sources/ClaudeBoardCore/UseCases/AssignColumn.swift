@@ -51,7 +51,7 @@ public enum AssignColumn {
         // Don't move cards we can't reason about.
 
         // Exception: unstarted tasks stay in backlog
-        if (link.source == .manual || link.source == .todoist) && link.sessionLink == nil {
+        if (link.source == .manual || link.source == .todoist) && link.slug == nil {
             return .backlog
         }
 

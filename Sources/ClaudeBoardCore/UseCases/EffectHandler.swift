@@ -76,10 +76,11 @@ public actor EffectHandler {
                     fromPath: oldPath,
                     toProjectPath: newProjectPath
                 )
-                // Update the link's sessionPath to the new location
-                try await coordinationStore.updateLink(id: cardId) { link in
-                    link.sessionLink?.sessionPath = newPath
-                }
+                // Update the session path in session_links table
+                try await coordinationStore.linkSession(
+                    sessionId: sessionId, linkId: cardId,
+                    matchedBy: "move", path: newPath
+                )
                 ClaudeBoardLog.info("effect", "Moved session \(sessionId.prefix(8)) → \(newPath)")
             } catch {
                 ClaudeBoardLog.warn("effect", "moveSessionFile failed: \(error)")
@@ -118,6 +119,16 @@ public actor EffectHandler {
 
         case .killClaudeProcess(let sessionId):
             await Self.killClaudeProcess(sessionId: sessionId)
+
+        case .linkSession(let cardId, let sessionId, let path):
+            do {
+                try await coordinationStore.linkSession(
+                    sessionId: sessionId, linkId: cardId,
+                    matchedBy: "tmux", path: path
+                )
+            } catch {
+                ClaudeBoardLog.warn("effect", "linkSession failed: \(error)")
+            }
         }
     }
 

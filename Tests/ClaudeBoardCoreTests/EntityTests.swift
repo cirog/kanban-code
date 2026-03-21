@@ -74,7 +74,7 @@ struct EntityTests {
             column: .backlog,
             source: .todoist,
             todoistId: "abc123",
-            sessionLink: SessionLink(sessionId: "sess1", sessionPath: nil, sessionNumber: nil)
+            slug: "sess1"
         )
         #expect(link.cardLabel == .session)
     }

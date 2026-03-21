@@ -10,7 +10,7 @@ struct ReducerTests {
         id: String = "card_test123",
         column: ClaudeBoardColumn = .backlog,
         tmuxLink: TmuxLink? = nil,
-        sessionLink: SessionLink? = nil,
+        slug: String? = nil,
         isLaunching: Bool? = nil,
         source: LinkSource = .manual,
         name: String? = "Test card",
@@ -23,7 +23,7 @@ struct ReducerTests {
             column: column,
             updatedAt: updatedAt,
             source: source,
-            sessionLink: sessionLink,
+            slug: slug,
             tmuxLink: tmuxLink,
             isLaunching: isLaunching
         )
@@ -149,9 +149,10 @@ struct ReducerTests {
         let link = makeLink(
             id: "card_r1",
             column: .waiting,
-            sessionLink: SessionLink(sessionId: "sess_abc12345")
+            slug: "sess_abc12345"
         )
         var state = stateWith([link])
+        state.sessionIdByCardId["card_r1"] = "sess_abc12345"
 
         let _ = Reducer.reduce(state: &state, action: .resumeCard(cardId: "card_r1"))
 
@@ -166,7 +167,7 @@ struct ReducerTests {
         let link = makeLink(
             id: "card_r2",
             column: .waiting,
-            sessionLink: SessionLink(sessionId: "sess_def12345")
+            slug: "sess_def12345"
         )
         var state = stateWith([link])
 
@@ -179,7 +180,7 @@ struct ReducerTests {
         let reconciledLink = makeLink(
             id: "card_r2",
             column: .waiting, // reconciliation would compute waiting (no activity yet)
-            sessionLink: SessionLink(sessionId: "sess_def12345"),
+            slug: "sess_def12345",
             updatedAt: .now.addingTimeInterval(-5) // stale: from before the resume
         )
         let result = ReconciliationResult(
@@ -201,7 +202,7 @@ struct ReducerTests {
             id: "card_r3",
             column: .inProgress,
             tmuxLink: TmuxLink(sessionName: "claude-sess_abc"),
-            sessionLink: SessionLink(sessionId: "sess_abc12345"),
+            slug: "sess_abc12345",
             isLaunching: true
         )
         var state = stateWith([link])
@@ -287,7 +288,7 @@ struct ReducerTests {
             id: "card_d1",
             column: .inProgress,
             tmuxLink: TmuxLink(sessionName: "test-tmux", extraSessions: ["test-tmux-sh1"]),
-            sessionLink: SessionLink(sessionId: "sess_123", sessionPath: "/path/to/sess.jsonl")
+            slug: "sess_123"
         )
         var state = stateWith([link])
         state.selectedCardId = "card_d1"
@@ -298,7 +299,7 @@ struct ReducerTests {
         #expect(state.selectedCardId == nil) // deselected
         #expect(effects.contains(where: { if case .removeLink = $0 { return true }; return false }))
         #expect(effects.contains(where: { if case .killTmuxSessions = $0 { return true }; return false }))
-        #expect(effects.contains(where: { if case .deleteSessionFile = $0 { return true }; return false }))
+        // Note: deleteSessionFile no longer emitted — session paths are in session_links table
         #expect(effects.contains(where: { if case .cleanupTerminalCache = $0 { return true }; return false }))
     }
 
@@ -426,7 +427,7 @@ struct ReducerTests {
             id: "card_lc1",
             column: .inProgress,
             tmuxLink: TmuxLink(sessionName: "proj-card_lc1"),
-            sessionLink: SessionLink(sessionId: "sess_new123")
+            slug: "sess_new123"
             // updatedAt = .now (after snapshot)
         )
         var state = stateWith([card])
@@ -448,7 +449,7 @@ struct ReducerTests {
         // Card should NOT bounce back to backlog
         #expect(state.links["card_lc1"]?.column == .inProgress)
         #expect(state.links["card_lc1"]?.tmuxLink?.sessionName == "proj-card_lc1")
-        #expect(state.links["card_lc1"]?.sessionLink?.sessionId == "sess_new123")
+        #expect(state.links["card_lc1"]?.slug == "sess_new123")
     }
 
     @Test("reconciled updates sessions and activity map")
@@ -521,8 +522,9 @@ struct ReducerTests {
     @Test("cards computed property combines links, sessions, and activity")
     func cardsComputed() {
         var state = AppState()
-        let link = makeLink(id: "card_c1", sessionLink: SessionLink(sessionId: "sess_1"))
+        let link = makeLink(id: "card_c1", slug: "sess_1")
         state.links["card_c1"] = link
+        state.sessionIdByCardId["card_c1"] = "sess_1"
         state.sessions["sess_1"] = Session(id: "sess_1", name: "My Session", messageCount: 3, modifiedTime: .now)
         state.activityMap["sess_1"] = .activelyWorking
         state.rebuildCards()
@@ -604,7 +606,7 @@ struct ReducerTests {
         let source = makeLink(
             id: "card_src",
             column: .inProgress,
-            sessionLink: SessionLink(sessionId: "sess-1", sessionPath: "/path/to/sess")
+            slug: "sess-1"
         )
         let target = makeLink(
             id: "card_tgt",
@@ -615,9 +617,9 @@ struct ReducerTests {
 
         let effects = Reducer.reduce(state: &state, action: .mergeCards(sourceId: "card_src", targetId: "card_tgt"))
 
-        // Source removed, target gained session
+        // Source removed, target gained session slug
         #expect(state.links["card_src"] == nil)
-        #expect(state.links["card_tgt"]?.sessionLink?.sessionId == "sess-1")
+        #expect(state.links["card_tgt"]?.slug == "sess-1")
         #expect(state.links["card_tgt"]?.tmuxLink?.sessionName == "tmux-1")
         #expect(state.deletedCardIds.contains("card_src"))
         // Should produce upsert + remove effects
@@ -634,7 +636,7 @@ struct ReducerTests {
         let target = makeLink(
             id: "card_tgt",
             column: .inProgress,
-            sessionLink: SessionLink(sessionId: "sess-1")
+            slug: "sess-1"
         )
         var state = stateWith([source, target])
 
@@ -642,18 +644,18 @@ struct ReducerTests {
 
         #expect(state.links["card_src"] == nil)
         #expect(state.links["card_tgt"]?.tmuxLink?.sessionName == "tmux-1")
-        #expect(state.links["card_tgt"]?.sessionLink?.sessionId == "sess-1")
+        #expect(state.links["card_tgt"]?.slug == "sess-1")
     }
 
     @Test("mergeCards blocked when both have sessions")
     func mergeBlockedBothSessions() {
         let source = makeLink(
             id: "card_src",
-            sessionLink: SessionLink(sessionId: "sess-1")
+            slug: "sess-1"
         )
         let target = makeLink(
             id: "card_tgt",
-            sessionLink: SessionLink(sessionId: "sess-2")
+            slug: "sess-2"
         )
         var state = stateWith([source, target])
 
@@ -695,7 +697,7 @@ struct ReducerTests {
             column: .inProgress,
             source: .manual,
             promptBody: "target prompt",
-            sessionLink: SessionLink(sessionId: "sess-1")
+            slug: "sess-1"
         )
         var state = stateWith([source, target])
 
@@ -706,7 +708,7 @@ struct ReducerTests {
         #expect(merged.name == "Target name")
         #expect(merged.projectPath == "/target/path")
         #expect(merged.promptBody == "target prompt")
-        #expect(merged.sessionLink?.sessionId == "sess-1")
+        #expect(merged.slug == "sess-1")
     }
 
     @Test("mergeCards fills nil target fields from source")
@@ -800,15 +802,15 @@ struct ReducerTests {
 
     @Test("mergeBlocked returns nil for compatible cards")
     func mergeBlockedCompatible() {
-        let source = Link(id: "a", column: .inProgress, sessionLink: SessionLink(sessionId: "s1"))
+        let source = Link(id: "a", column: .inProgress, slug: "s1")
         let target = Link(id: "b", column: .inProgress, tmuxLink: TmuxLink(sessionName: "t1"))
         #expect(Link.mergeBlocked(source: source, target: target) == nil)
     }
 
     @Test("mergeBlocked detects both sessions")
     func mergeBlockedBothSessionsValidation() {
-        let source = Link(id: "a", column: .inProgress, sessionLink: SessionLink(sessionId: "s1"))
-        let target = Link(id: "b", column: .inProgress, sessionLink: SessionLink(sessionId: "s2"))
+        let source = Link(id: "a", column: .inProgress, slug: "s1")
+        let target = Link(id: "b", column: .inProgress, slug: "s2")
         #expect(Link.mergeBlocked(source: source, target: target) != nil)
     }
 
@@ -922,7 +924,7 @@ struct ReducerTests {
             id: "card_ti6",
             column: .waiting,
             tmuxLink: TmuxLink(sessionName: "old-main", extraSessions: ["old-main-sh1"], isPrimaryDead: true),
-            sessionLink: SessionLink(sessionId: "sess_abc12345")
+            slug: "sess_abc12345"
         )
         var state = stateWith([link])
 
@@ -941,7 +943,7 @@ struct ReducerTests {
             id: "card_ti7",
             column: .inProgress,
             tmuxLink: TmuxLink(sessionName: "claude-sess_abc", extraSessions: ["claude-sess_abc-sh1"]),
-            sessionLink: SessionLink(sessionId: "sess_abc12345"),
+            slug: "sess_abc12345",
             isLaunching: true
         )
         var state = stateWith([link])
@@ -967,12 +969,12 @@ struct ReducerTests {
         let _ = Reducer.reduce(state: &state, action: .launchCompleted(
             cardId: "card_ti8",
             tmuxName: "proj-card_ti8",
-            sessionLink: SessionLink(sessionId: "sess_new123", sessionPath: "/path/to/sess.jsonl")
+            sessionId: "sess_new123", sessionPath: "/path/to/sess.jsonl"
         ))
 
         #expect(state.links["card_ti8"]?.tmuxLink?.extraSessions == ["proj-card_ti8-sh1"])
         #expect(state.links["card_ti8"]?.isLaunching == nil)
-        #expect(state.links["card_ti8"]?.sessionLink?.sessionId == "sess_new123")
+        #expect(state.sessionIdByCardId["card_ti8"] == "sess_new123")
     }
 
     @Test("resumeCard on shell-only card moves shell to extras")
@@ -981,7 +983,7 @@ struct ReducerTests {
             id: "card_ti9",
             column: .waiting,
             tmuxLink: TmuxLink(sessionName: "project-card_ti9", isShellOnly: true),
-            sessionLink: SessionLink(sessionId: "sess_xyz12345")
+            slug: "sess_xyz12345"
         )
         var state = stateWith([link])
 
@@ -1151,10 +1153,11 @@ struct ReducerTests {
             name: "Backlog task",
             column: .backlog,
             source: .manual,
-            sessionLink: SessionLink(sessionId: "sess_backlog", sessionPath: "/tmp/test.jsonl")
+            slug: "sess_backlog"
         )
         link.manualOverrides = ManualOverrides(column: true)
         var state = stateWith([link])
+        state.sessionIdByCardId["card_backlog_active"] = "sess_backlog"
 
         let _ = Reducer.reduce(state: &state, action: .activityChanged(["sess_backlog": .activelyWorking]))
 
@@ -1172,10 +1175,11 @@ struct ReducerTests {
             name: "Backlog task",
             column: .backlog,
             source: .manual,
-            sessionLink: SessionLink(sessionId: "sess_idle", sessionPath: "/tmp/test.jsonl")
+            slug: "sess_idle"
         )
         link.manualOverrides = ManualOverrides(column: true)
         var state = stateWith([link])
+        state.sessionIdByCardId["card_backlog_idle"] = "sess_idle"
 
         let _ = Reducer.reduce(state: &state, action: .activityChanged(["sess_idle": .needsAttention]))
 
@@ -1368,7 +1372,7 @@ struct ReducerTests {
 
     // MARK: - Hook Session Linked
 
-    @Test("hookSessionLinked sets sessionLink on card and clears isLaunching")
+    @Test("hookSessionLinked updates session map and clears isLaunching")
     func hookSessionLinkedSetsSession() {
         let link = makeLink(id: "card_hook1", column: .inProgress, isLaunching: true)
         var state = stateWith([link])
@@ -1380,24 +1384,21 @@ struct ReducerTests {
         ))
 
         let updated = state.links["card_hook1"]!
-        #expect(updated.sessionLink?.sessionId == "sess-abc123")
-        #expect(updated.sessionLink?.sessionPath == "/path/to/session.jsonl")
+        #expect(state.sessionIdByCardId["card_hook1"] == "sess-abc123")
         #expect(updated.isLaunching == nil)
         #expect(effects.contains(where: { if case .upsertLink = $0 { return true }; return false }))
+        #expect(effects.contains(where: { if case .linkSession = $0 { return true }; return false }))
     }
 
-    @Test("hookSessionLinked chains session when card already has different sessionId")
+    @Test("hookSessionLinked updates session map when card already has different sessionId")
     func hookSessionLinkedChainsSession() {
         let link = makeLink(
             id: "card_hook2",
             column: .inProgress,
-            sessionLink: SessionLink(
-                sessionId: "old-session",
-                sessionPath: "/path/to/old.jsonl",
-                slug: "my-slug"
-            )
+            slug: "my-slug"
         )
         var state = stateWith([link])
+        state.sessionIdByCardId["card_hook2"] = "old-session"
 
         let _ = reduceAndRebuild(state: &state, action: .hookSessionLinked(
             cardId: "card_hook2",
@@ -1405,11 +1406,9 @@ struct ReducerTests {
             path: "/path/to/new.jsonl"
         ))
 
+        #expect(state.sessionIdByCardId["card_hook2"] == "new-session")
         let updated = state.links["card_hook2"]!
-        #expect(updated.sessionLink?.sessionId == "new-session")
-        #expect(updated.sessionLink?.sessionPath == "/path/to/new.jsonl")
-        #expect(updated.sessionLink?.previousSessionPaths == ["/path/to/old.jsonl"])
-        #expect(updated.sessionLink?.slug == "my-slug")
+        #expect(updated.slug == "my-slug") // slug preserved
     }
 
     @Test("hookSessionLinked ignores unknown cardId")

@@ -254,7 +254,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
 
         let renderMarkdown = (try? await SettingsStore().read())?.notifications.renderMarkdownImage ?? false
 
-        if let transcriptPath = link?.sessionLink?.sessionPath {
+        if let transcriptPath {
             // Use the correct session store for the assistant
             let assistant = link?.assistant ?? .claude
             let lastText: String?
@@ -339,15 +339,14 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
 
     private func updateActivityStates() async {
         do {
-            let links = try await coordinationStore.readLinks()
-            let sessionPaths = Dictionary(
-                links.compactMap { link -> (String, String)? in
-                    guard let sessionId = link.sessionLink?.sessionId,
-                          let path = link.sessionLink?.sessionPath else { return nil }
-                    return (sessionId, path)
-                },
-                uniquingKeysWith: { a, _ in a }
-            )
+            // Build sessionId → path map from session_links table
+            let mappings = try await coordinationStore.allSessionLinkMappings()
+            var sessionPaths: [String: String] = [:]
+            for mapping in mappings {
+                if let path = mapping.path {
+                    sessionPaths[mapping.sessionId] = path
+                }
+            }
 
             // Poll activity for sessions without hook events
             let _ = await activityDetector.pollActivity(sessionPaths: sessionPaths)

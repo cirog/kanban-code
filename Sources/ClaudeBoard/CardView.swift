@@ -147,7 +147,7 @@ struct CardView: View {
             } label: {
                 Label("Copy Card ID", systemImage: "number")
             }
-            if card.link.sessionLink != nil {
+            if card.link.slug != nil {
                 let currentPath = card.link.projectPath
                 let otherProjects = availableProjects.filter { $0.path != currentPath }
                 Divider()
@@ -186,7 +186,7 @@ struct CardView: View {
                     }
                 }
             }
-            if card.link.sessionLink != nil {
+            if card.link.slug != nil {
                 let migrationTargets = enabledAssistants.filter { $0 != card.link.effectiveAssistant }
                 if !migrationTargets.isEmpty {
                     Divider()

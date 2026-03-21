@@ -201,7 +201,7 @@ public actor CoordinationStore {
     public func upsertLink(_ link: Link) throws {
         ensureInitialized()
         // Check for slug conflict with a different card BEFORE modifying anything
-        if let slug = link.sessionLink?.slug, !slug.isEmpty {
+        if let slug = link.slug, !slug.isEmpty {
             var checkStmt: OpaquePointer?
             if sqlite3_prepare_v2(db, "SELECT id FROM links WHERE slug = ? AND id != ?", -1, &checkStmt, nil) == SQLITE_OK {
                 sqlite3_bind_text(checkStmt, 1, (slug as NSString).utf8String, -1, nil)
@@ -217,7 +217,7 @@ public actor CoordinationStore {
         exec("BEGIN TRANSACTION")
         do {
             // Delete existing child rows (if updating)
-            execParam("DELETE FROM session_links WHERE link_id = ?", bindings: [link.id])
+            // Note: session_links NOT deleted — managed separately via linkSession()
             execParam("DELETE FROM tmux_sessions WHERE link_id = ?", bindings: [link.id])
             execParam("DELETE FROM queued_prompts WHERE link_id = ?", bindings: [link.id])
             try insertRelational(link)
@@ -335,6 +335,22 @@ public actor CoordinationStore {
         return result
     }
 
+    /// Get all session→card mappings (sessionId, linkId, path).
+    public func allSessionLinkMappings() throws -> [(sessionId: String, cardId: String, path: String?)] {
+        ensureInitialized()
+        var result: [(sessionId: String, cardId: String, path: String?)] = []
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT session_id, link_id, path FROM session_links", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let sessionId = String(cString: sqlite3_column_text(stmt, 0))
+            let cardId = String(cString: sqlite3_column_text(stmt, 1))
+            let path = columnText(stmt, 2)
+            result.append((sessionId: sessionId, cardId: cardId, path: path))
+        }
+        return result
+    }
+
     /// Get all owned session IDs (for reconciler to check what's already assigned).
     public func allOwnedSessionIds() throws -> Set<String> {
         ensureInitialized()
@@ -378,15 +394,11 @@ public actor CoordinationStore {
     }
 
     /// Remove orphaned links whose .jsonl files no longer exist.
+    /// Note: With session_links table, orphan cleanup is handled by the reconciler.
+    /// This method is a no-op for now.
     public func removeOrphans() throws {
-        let fm = FileManager.default
-        let links = try readLinks()
-        for link in links {
-            guard let path = link.sessionLink?.sessionPath else { continue }
-            if !fm.fileExists(atPath: path) {
-                try removeLink(id: link.id)
-            }
-        }
+        // No-op: session paths are now in session_links table, not on Link.
+        // The reconciler handles cleanup.
     }
 
     /// Atomic read-modify-write within the actor.
@@ -403,7 +415,7 @@ public actor CoordinationStore {
 
     private func insertRelational(_ link: Link) throws {
         let sql = """
-            INSERT OR REPLACE INTO links (
+            INSERT INTO links (
                 id, slug, name, project_path, "column", created_at, updated_at,
                 last_activity, last_opened_at, source, manually_archived,
                 prompt_body, prompt_image_paths, todoist_id, todoist_description,
@@ -411,6 +423,20 @@ public actor CoordinationStore {
                 notes, project_id, assistant, last_tab, is_launching, sort_order,
                 override_tmux, override_name, override_column
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+                slug = excluded.slug, name = excluded.name, project_path = excluded.project_path,
+                "column" = excluded."column", updated_at = excluded.updated_at,
+                last_activity = excluded.last_activity, last_opened_at = excluded.last_opened_at,
+                source = excluded.source, manually_archived = excluded.manually_archived,
+                prompt_body = excluded.prompt_body, prompt_image_paths = excluded.prompt_image_paths,
+                todoist_id = excluded.todoist_id, todoist_description = excluded.todoist_description,
+                todoist_priority = excluded.todoist_priority, todoist_due = excluded.todoist_due,
+                todoist_labels = excluded.todoist_labels, todoist_project_id = excluded.todoist_project_id,
+                notes = excluded.notes, project_id = excluded.project_id,
+                assistant = excluded.assistant, last_tab = excluded.last_tab,
+                is_launching = excluded.is_launching, sort_order = excluded.sort_order,
+                override_tmux = excluded.override_tmux, override_name = excluded.override_name,
+                override_column = excluded.override_column
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -420,7 +446,7 @@ public actor CoordinationStore {
 
         var i: Int32 = 1
         bindText(stmt, &i, link.id)
-        bindText(stmt, &i, link.sessionLink?.slug)
+        bindText(stmt, &i, link.slug)
         bindText(stmt, &i, link.name)
         bindText(stmt, &i, link.projectPath)
         bindText(stmt, &i, link.column.rawValue)
@@ -444,7 +470,7 @@ public actor CoordinationStore {
         bindText(stmt, &i, link.lastTab)
         bindOptionalInt(stmt, &i, link.isLaunching == true ? 1 : (link.isLaunching == nil ? nil : 0))
         bindOptionalInt(stmt, &i, link.sortOrder)
-        bindInt(stmt, &i, link.manualOverrides.tmuxSession ? 1 : 0)
+        bindInt(stmt, &i, 0) // override_tmux — legacy, always false
         bindInt(stmt, &i, link.manualOverrides.name ? 1 : 0)
         bindInt(stmt, &i, link.manualOverrides.column ? 1 : 0)
 
@@ -452,11 +478,8 @@ public actor CoordinationStore {
             throw CoordinationStoreError.stepError(lastError)
         }
 
-        // Insert session link (current session only)
-        if let sl = link.sessionLink {
-            try linkSessionInternal(sessionId: sl.sessionId, linkId: link.id,
-                                     matchedBy: "discovered", path: sl.sessionPath)
-        }
+        // Note: session links are managed via linkSession() / hookSessionLinked,
+        // not through insertRelational. The session_links table is the source of truth.
 
         // Insert tmux sessions
         if let tmux = link.tmuxLink {
@@ -535,7 +558,7 @@ public actor CoordinationStore {
 
     private func hydrateLink(from stmt: OpaquePointer?) -> Link {
         let id = columnText(stmt, 0) ?? ""
-        // slug at column 1 — used for links table, hydrated into SessionLink
+        let slug = columnText(stmt, 1)
         let name = columnText(stmt, 2)
         let projectPath = columnText(stmt, 3)
         let column = ClaudeBoardColumn(rawValue: columnText(stmt, 4) ?? "done") ?? .done
@@ -559,7 +582,7 @@ public actor CoordinationStore {
         let lastTab = columnText(stmt, 22)
         let isLaunching: Bool? = sqlite3_column_type(stmt, 23) == SQLITE_NULL ? nil : sqlite3_column_int(stmt, 23) != 0
         let sortOrder: Int? = sqlite3_column_type(stmt, 24) == SQLITE_NULL ? nil : Int(sqlite3_column_int(stmt, 24))
-        let overrideTmux = sqlite3_column_int(stmt, 25) != 0
+        // column 25 = override_tmux (legacy, ignored)
         let overrideName = sqlite3_column_int(stmt, 26) != 0
         let overrideColumn = sqlite3_column_int(stmt, 27) != 0
 
@@ -567,13 +590,13 @@ public actor CoordinationStore {
             id: id, name: name, projectPath: projectPath, column: column,
             createdAt: createdAt, updatedAt: updatedAt, lastActivity: lastActivity,
             lastOpenedAt: lastOpenedAt,
-            manualOverrides: ManualOverrides(tmuxSession: overrideTmux, name: overrideName, column: overrideColumn),
+            manualOverrides: ManualOverrides(name: overrideName, column: overrideColumn),
             manuallyArchived: manuallyArchived, source: source,
             promptBody: promptBody, promptImagePaths: promptImagePaths,
             todoistId: todoistId, todoistDescription: todoistDescription,
             todoistPriority: todoistPriority, todoistDue: todoistDue,
             todoistLabels: todoistLabels, todoistProjectId: todoistProjectId,
-            notes: notes, projectId: projectId,
+            notes: notes, projectId: projectId, slug: slug,
             assistant: assistant, lastTab: lastTab, isLaunching: isLaunching, sortOrder: sortOrder
         )
     }

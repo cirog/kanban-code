@@ -16,7 +16,7 @@ struct LaunchFlowIntegrationTests {
         column: ClaudeBoardColumn = .backlog,
         projectPath: String = "/tmp",
         tmuxLink: TmuxLink? = nil,
-        sessionLink: SessionLink? = nil,
+        slug: String? = nil,
         isLaunching: Bool? = nil,
         source: LinkSource = .manual,
         name: String? = "Test card",
@@ -29,7 +29,7 @@ struct LaunchFlowIntegrationTests {
             column: column,
             updatedAt: updatedAt,
             source: source,
-            sessionLink: sessionLink,
+            slug: slug,
             tmuxLink: tmuxLink,
             isLaunching: isLaunching
         )
@@ -172,9 +172,9 @@ struct LaunchFlowIntegrationTests {
         let _ = Reducer.reduce(state: &state, action: .launchCompleted(
             cardId: "card_lifecycle",
             tmuxName: tmuxName,
-            sessionLink: SessionLink(sessionId: "sess_new123")
+            sessionId: "sess_new123", sessionPath: nil
         ))
-        #expect(state.links["card_lifecycle"]?.sessionLink?.sessionId == "sess_new123")
+        #expect(state.sessionIdByCardId["card_lifecycle"] == "sess_new123")
         #expect(state.links["card_lifecycle"]?.isLaunching == nil)
     }
 
@@ -301,10 +301,10 @@ struct LaunchFlowIntegrationTests {
         // because the launching card should be skipped during matching
         let launchingCard = result.links.first { $0.id == "card_launching" }
         #expect(launchingCard != nil)
-        #expect(launchingCard?.sessionLink == nil) // launch flow will set this
+        #expect(launchingCard?.slug == nil) // launch flow will set this
 
         // The session should create a new discovered card (will be deduped later by launchCompleted)
-        // OR be left unmatched — either way, the launching card should NOT get the sessionLink
+        // OR be left unmatched — either way, the launching card should NOT get the slug
         // from reconciliation
         let totalCards = result.links.count
         // We expect 2 cards: the original launching card + a new discovered one
@@ -396,7 +396,7 @@ struct LaunchFlowIntegrationTests {
 
         // Step 3b: launchCompleted clears isLaunching
         let _ = Reducer.reduce(state: &state, action: .launchCompleted(
-            cardId: "card_e2e", tmuxName: sessionName, sessionLink: nil
+            cardId: "card_e2e", tmuxName: sessionName, sessionId: nil, sessionPath: nil
         ))
         #expect(state.links["card_e2e"]?.isLaunching == nil)
 

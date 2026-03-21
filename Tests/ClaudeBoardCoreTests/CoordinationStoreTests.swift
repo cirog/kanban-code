@@ -33,13 +33,13 @@ struct CoordinationStoreTests {
             name: "Test session",
             projectPath: "/test/project",
             column: .inProgress,
-            sessionLink: SessionLink(sessionId: "abc-123")
+            slug: "test-slug"
         )
         try await store.writeLinks([link])
 
         let read = try await store.readLinks()
         #expect(read.count == 1)
-        #expect(read[0].sessionId == "abc-123")
+        #expect(read[0].slug == "test-slug")
         #expect(read[0].column == .inProgress)
         #expect(read[0].name == "Test session")
     }
@@ -50,12 +50,12 @@ struct CoordinationStoreTests {
         defer { cleanup(dir) }
         let store = CoordinationStore(basePath: dir)
 
-        let link = Link(column: .backlog, sessionLink: SessionLink(sessionId: "new-1"))
+        let link = Link(column: .backlog, slug: "new-1")
         try await store.upsertLink(link)
 
         let links = try await store.readLinks()
         #expect(links.count == 1)
-        #expect(links[0].sessionId == "new-1")
+        #expect(links[0].slug == "new-1")
     }
 
     @Test("Upsert updates existing link without affecting others")
@@ -64,8 +64,8 @@ struct CoordinationStoreTests {
         defer { cleanup(dir) }
         let store = CoordinationStore(basePath: dir)
 
-        let link1 = Link(name: "First", column: .backlog, sessionLink: SessionLink(sessionId: "s1"))
-        let link2 = Link(name: "Second", column: .waiting, sessionLink: SessionLink(sessionId: "s2"))
+        let link1 = Link(name: "First", column: .backlog, slug: "s1")
+        let link2 = Link(name: "Second", column: .waiting, slug: "s2")
         try await store.writeLinks([link1, link2])
 
         // Update only link1
@@ -85,21 +85,23 @@ struct CoordinationStoreTests {
         #expect(second?.column == .waiting)
     }
 
-    @Test("Remove link by session ID")
+    @Test("Remove link by session ID via session_links")
     func removeLink() async throws {
         let dir = try makeTempDir()
         defer { cleanup(dir) }
         let store = CoordinationStore(basePath: dir)
 
-        try await store.writeLinks([
-            Link(column: .backlog, sessionLink: SessionLink(sessionId: "a")),
-            Link(column: .inProgress, sessionLink: SessionLink(sessionId: "b")),
-        ])
+        let linkA = Link(column: .backlog, slug: "a")
+        let linkB = Link(column: .inProgress, slug: "b")
+        try await store.writeLinks([linkA, linkB])
+        // Link sessions
+        try await store.linkSession(sessionId: "sess-a", linkId: linkA.id, matchedBy: "test", path: nil)
+        try await store.linkSession(sessionId: "sess-b", linkId: linkB.id, matchedBy: "test", path: nil)
 
-        try await store.removeLink(sessionId: "a")
+        try await store.removeLink(sessionId: "sess-a")
         let links = try await store.readLinks()
         #expect(links.count == 1)
-        #expect(links[0].sessionId == "b")
+        #expect(links[0].slug == "b")
     }
 
     @Test("Remove link by card ID")
@@ -108,7 +110,7 @@ struct CoordinationStoreTests {
         defer { cleanup(dir) }
         let store = CoordinationStore(basePath: dir)
 
-        let link = Link(column: .backlog, sessionLink: SessionLink(sessionId: "x"))
+        let link = Link(column: .backlog, slug: "x")
         try await store.upsertLink(link)
 
         try await store.removeLink(id: link.id)
@@ -116,22 +118,24 @@ struct CoordinationStoreTests {
         #expect(links.isEmpty)
     }
 
-    @Test("Update link with closure")
+    @Test("Update link with closure via session ID")
     func updateLink() async throws {
         let dir = try makeTempDir()
         defer { cleanup(dir) }
         let store = CoordinationStore(basePath: dir)
 
-        try await store.upsertLink(Link(column: .backlog, sessionLink: SessionLink(sessionId: "upd-1")))
+        let link = Link(column: .backlog, slug: "upd-slug")
+        try await store.upsertLink(link)
+        try await store.linkSession(sessionId: "sess-upd-1", linkId: link.id, matchedBy: "test", path: nil)
 
-        try await store.updateLink(sessionId: "upd-1") { link in
+        try await store.updateLink(sessionId: "sess-upd-1") { link in
             link.column = .inProgress
             link.tmuxLink = TmuxLink(sessionName: "feat-login")
         }
 
-        let link = try await store.linkForSession("upd-1")
-        #expect(link?.column == .inProgress)
-        #expect(link?.tmuxSession == "feat-login")
+        let found = try await store.linkForSession("sess-upd-1")
+        #expect(found?.column == .inProgress)
+        #expect(found?.tmuxSession == "feat-login")
     }
 
     @Test("linkForSession returns correct link")
@@ -140,10 +144,11 @@ struct CoordinationStoreTests {
         defer { cleanup(dir) }
         let store = CoordinationStore(basePath: dir)
 
-        try await store.writeLinks([
-            Link(name: "A", column: .done, sessionLink: SessionLink(sessionId: "s-a")),
-            Link(name: "B", column: .done, sessionLink: SessionLink(sessionId: "s-b")),
-        ])
+        let linkA = Link(name: "A", column: .done, slug: "a")
+        let linkB = Link(name: "B", column: .done, slug: "b")
+        try await store.writeLinks([linkA, linkB])
+        try await store.linkSession(sessionId: "s-a", linkId: linkA.id, matchedBy: "test", path: nil)
+        try await store.linkSession(sessionId: "s-b", linkId: linkB.id, matchedBy: "test", path: nil)
 
         let found = try await store.linkForSession("s-b")
         #expect(found?.name == "B")
@@ -189,30 +194,26 @@ struct CoordinationStoreTests {
         #expect(links.allSatisfy { $0.column == .done })
     }
 
-    @Test("removeOrphans deletes links with missing session files")
+    @Test("removeOrphans is a no-op (session paths in session_links)")
     func removeOrphans() async throws {
         let dir = try makeTempDir()
         defer { cleanup(dir) }
         let store = CoordinationStore(basePath: dir)
 
-        // One link with existing file, one with missing file
-        let existingPath = (dir as NSString).appendingPathComponent("exists.jsonl")
-        try "data".write(toFile: existingPath, atomically: true, encoding: .utf8)
-
         try await store.writeLinks([
-            Link(column: .done, sessionLink: SessionLink(sessionId: "s1", sessionPath: existingPath)),
-            Link(column: .done, sessionLink: SessionLink(sessionId: "s2", sessionPath: "/nonexistent/missing.jsonl")),
+            Link(column: .done, slug: "s1"),
+            Link(column: .done, slug: "s2"),
         ])
 
+        // removeOrphans is now a no-op
         try await store.removeOrphans()
         let links = try await store.readLinks()
-        #expect(links.count == 1)
-        #expect(links[0].sessionId == "s1")
+        #expect(links.count == 2)
     }
 
     // MARK: - Relational schema tests
 
-    @Test("Relational: link with session paths round-trips all fields")
+    @Test("Relational: link with slug round-trips all fields")
     func relationalFullRoundTrip() async throws {
         let dir = try makeTempDir()
         defer { cleanup(dir) }
@@ -228,11 +229,7 @@ struct CoordinationStoreTests {
             source: .manual,
             promptBody: "Fix the bug",
             todoistId: "todo-123",
-            sessionLink: SessionLink(
-                sessionId: "session-1",
-                sessionPath: "/path/to/s1.jsonl",
-                slug: "test-slug"
-            ),
+            slug: "test-slug",
             assistant: .claude
         )
         link.tmuxLink = TmuxLink(sessionName: "tmux-primary", extraSessions: ["tmux-shell"])
@@ -255,11 +252,7 @@ struct CoordinationStoreTests {
         #expect(card.promptBody == "Fix the bug")
         #expect(card.todoistId == "todo-123")
         #expect(card.effectiveAssistant == .claude)
-
-        // Session data
-        #expect(card.sessionLink?.sessionId == "session-1")
-        #expect(card.sessionLink?.sessionPath == "/path/to/s1.jsonl")
-        #expect(card.sessionLink?.slug == "test-slug")
+        #expect(card.slug == "test-slug")
 
         // Tmux data
         #expect(card.tmuxLink?.sessionName == "tmux-primary")
@@ -270,34 +263,6 @@ struct CoordinationStoreTests {
         #expect(card.queuedPrompts?[0].body == "next task")
     }
 
-    @Test("Relational: session chaining via previousSessionPaths round-trips")
-    func relationalSessionChaining() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-        let store = CoordinationStore(basePath: dir)
-
-        let link = Link(
-            id: "card-1",
-            column: .done,
-            sessionLink: SessionLink(
-                sessionId: "session-3",
-                sessionPath: "/path/to/s3.jsonl",
-                slug: "my-slug",
-                previousSessionPaths: ["/path/to/s1.jsonl", "/path/to/s2.jsonl"]
-            )
-        )
-        try await store.upsertLink(link)
-
-        let loaded = try await store.readLinks()
-        #expect(loaded.count == 1)
-        let card = loaded[0]
-        #expect(card.sessionLink?.sessionId == "session-3")
-        #expect(card.sessionLink?.sessionPath == "/path/to/s3.jsonl")
-        #expect(card.sessionLink?.previousSessionPaths?.count == 2)
-        #expect(card.sessionLink?.previousSessionPaths?.contains("/path/to/s1.jsonl") == true)
-        #expect(card.sessionLink?.previousSessionPaths?.contains("/path/to/s2.jsonl") == true)
-    }
-
     @Test("Relational: UNIQUE slug constraint prevents duplicate cards")
     func relationalSlugUniqueness() async throws {
         let dir = try makeTempDir()
@@ -305,9 +270,9 @@ struct CoordinationStoreTests {
         let store = CoordinationStore(basePath: dir)
 
         var card1 = Link(id: "card-1", column: .done)
-        card1.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "same-slug")
+        card1.slug = "same-slug"
         var card2 = Link(id: "card-2", column: .done)
-        card2.sessionLink = SessionLink(sessionId: "s2", sessionPath: "/s2.jsonl", slug: "same-slug")
+        card2.slug = "same-slug"
 
         try await store.upsertLink(card1)
         // Second card with same slug should throw
@@ -327,7 +292,7 @@ struct CoordinationStoreTests {
         let store = CoordinationStore(basePath: dir)
 
         var link = Link(id: "card-1", name: "Found", column: .done)
-        link.sessionLink = SessionLink(sessionId: "s1", slug: "my-slug")
+        link.slug = "my-slug"
         try await store.upsertLink(link)
 
         let found = try await store.findBySlug("my-slug")
@@ -345,8 +310,11 @@ struct CoordinationStoreTests {
         let store = CoordinationStore(basePath: dir)
 
         var link = Link(id: "card-1", column: .done)
-        link.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "my-slug")
+        link.slug = "my-slug"
         try await store.upsertLink(link)
+
+        // Link first session
+        try await store.linkSession(sessionId: "s1", linkId: "card-1", matchedBy: "slug", path: "/s1.jsonl")
 
         // Link a new session to the same card
         try await store.linkSession(sessionId: "s2", linkId: "card-1", matchedBy: "slug", path: "/s2.jsonl")
@@ -372,7 +340,7 @@ struct CoordinationStoreTests {
         let store = CoordinationStore(basePath: dir)
 
         var link = Link(id: "card-1", column: .done)
-        link.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "slug")
+        link.slug = "slug"
         link.tmuxLink = TmuxLink(sessionName: "tmux-1")
         link.queuedPrompts = [QueuedPrompt(body: "test")]
         try await store.upsertLink(link)
@@ -381,9 +349,9 @@ struct CoordinationStoreTests {
         let links = try await store.readLinks()
         #expect(links.isEmpty)
         // Child rows should also be gone (CASCADE) — verified by re-inserting
-        // a card with same slug (would fail if old session_paths row still had the slug)
+        // a card with same slug (would fail if old row still had the slug)
         var link2 = Link(id: "card-2", column: .done)
-        link2.sessionLink = SessionLink(sessionId: "s1", sessionPath: "/s1.jsonl", slug: "slug")
+        link2.slug = "slug"
         try await store.upsertLink(link2) // Should not throw
         #expect(try await store.readLinks().count == 1)
     }
@@ -408,4 +376,3 @@ struct CoordinationStoreTests {
         #expect(links[0].name == "C")
     }
 }
-

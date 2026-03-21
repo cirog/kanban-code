@@ -307,7 +307,7 @@ struct ProcessManagerView: View {
     private func cardForSession(_ sessionId: String?) -> (String?, String?) {
         guard let sessionId else { return (nil, nil) }
         for card in store.state.cards {
-            if card.link.sessionLink?.sessionId == sessionId {
+            if store.state.sessionIdByCardId[card.id] == sessionId {
                 return (card.id, card.displayTitle)
             }
         }

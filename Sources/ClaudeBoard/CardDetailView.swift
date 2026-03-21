@@ -13,7 +13,7 @@ enum DetailTab: String {
 
     static func initialTab(for card: ClaudeBoardCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
-        if card.link.sessionLink != nil { return .history }
+        if card.link.slug != nil { return .history }
         if card.link.todoistId != nil { return .description }
         if card.link.promptBody != nil { return .prompt }
         return .history
@@ -233,11 +233,11 @@ struct CardDetailView: View {
         .onChange(of: selectedTab) {
             handleTabChange()
         }
-        .onChange(of: card.link.sessionLink?.sessionPath) {
+        .onChange(of: card.session?.jsonlPath) {
             // When a session path appears (e.g., after launch discovers the session),
             // restart the watcher so history starts updating live.
             guard selectedTab == .history else { return }
-            guard card.link.sessionLink?.sessionPath != nil else { return }
+            guard card.session?.jsonlPath != nil else { return }
             startHistoryWatcher()
             if selectedTab == .history {
                 Task { await loadHistory() }
@@ -427,7 +427,7 @@ struct CardDetailView: View {
 
     /// Whether the tab bar should be visible.
     private var showTabBar: Bool {
-        card.link.tmuxLink != nil || card.link.sessionLink != nil ||
+        card.link.tmuxLink != nil || card.link.slug != nil ||
         card.link.isLaunching == true
     }
 
@@ -715,7 +715,7 @@ struct CardDetailView: View {
                 .controlSize(.small)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if card.link.sessionLink != nil {
+        } else if card.link.slug != nil {
             VStack(spacing: 12) {
                 AssistantIcon(assistant: assistant)
                     .frame(width: CGFloat(32).scaled, height: CGFloat(32).scaled)
@@ -1116,7 +1116,7 @@ struct CardDetailView: View {
     }
 
     private func loadSummary() {
-        guard let sessionPath = card.link.sessionLink?.sessionPath else { return }
+        guard let sessionPath = card.session?.jsonlPath else { return }
         isLoadingSummary = true
         summaryCardId = card.id
 
@@ -1237,7 +1237,7 @@ struct CardDetailView: View {
 
                 HStack(spacing: 8) {
                     if card.link.tmuxLink == nil {
-                        let hasSession = card.link.sessionLink != nil
+                        let hasSession = card.link.slug != nil
                         let isStart = card.column == .backlog || !hasSession
                         Button(action: onResume) {
                             Label(isStart ? "Start" : "Resume", systemImage: "play.fill")
@@ -1292,10 +1292,10 @@ struct CardDetailView: View {
                 if let projectPath = card.link.projectPath {
                     copyableRow(icon: "folder.badge.gearshape", text: projectPath)
                 }
-                if let sessionId = card.link.sessionLink?.sessionId {
+                if let sessionId = card.session?.id {
                     SessionIdRow(sessionId: sessionId, assistant: card.link.effectiveAssistant)
                 }
-                if let slug = card.link.sessionLink?.slug {
+                if let slug = card.link.slug {
                     copyableRow(icon: "link", text: slug)
                 }
             }
@@ -1309,11 +1309,11 @@ struct CardDetailView: View {
             Picker("", selection: $selectedTab) {
                 Text("Terminal").tag(DetailTab.terminal)
                 Text("History").tag(DetailTab.history)
-                if card.link.promptBody != nil || card.link.sessionLink != nil {
+                if card.link.promptBody != nil || card.link.slug != nil {
                     Text("Prompts").tag(DetailTab.prompt)
                 }
                 if card.link.todoistId != nil { Text("Task").tag(DetailTab.description) }
-                if card.link.sessionLink != nil { Text("Summary").tag(DetailTab.summary) }
+                if card.link.slug != nil { Text("Summary").tag(DetailTab.summary) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -1340,20 +1340,20 @@ struct CardDetailView: View {
         menu.addActionItem("Rename", image: "pencil") { [self] in showRenameSheet = true }
 
         let forkItem = menu.addActionItem("Fork Session", image: "arrow.branch") { [self] in showForkConfirm = true }
-        forkItem.isEnabled = card.link.sessionLink?.sessionPath != nil
+        forkItem.isEnabled = card.session?.jsonlPath != nil
 
         let cpItem = menu.addActionItem("Checkpoint / Restore", image: "clock.arrow.circlepath") { [self] in
             checkpointMode = true
             selectedTab = .history
         }
-        cpItem.isEnabled = card.link.sessionLink?.sessionPath != nil && !turns.isEmpty
+        cpItem.isEnabled = card.session?.jsonlPath != nil && !turns.isEmpty
 
         menu.addItem(NSMenuItem.separator())
 
         menu.addActionItem("Copy Resume Command", image: "doc.on.doc") { [self] in copyResumeCommand() }
         menu.addActionItem("Copy Card ID", image: "number") { [self] in copyToClipboard(card.id) }
 
-        if let sessionId = card.link.sessionLink?.sessionId {
+        if let sessionId = card.session?.id {
             let sessionItem = menu.addActionItem("Copy Session ID") { [self] in copyToClipboard(sessionId) }
             if let img = AssistantIcon.menuImage(for: card.link.effectiveAssistant) {
                 sessionItem.image = img
@@ -1364,7 +1364,7 @@ struct CardDetailView: View {
             menu.addActionItem("Copy Tmux Command", image: "terminal") { [self] in copyToClipboard("tmux attach -t \(tmux)") }
         }
 
-        if card.link.sessionLink != nil {
+        if card.link.slug != nil {
             let currentPath = card.link.projectPath
             let otherProjects = availableProjects.filter { $0.path != currentPath }
             menu.addItem(NSMenuItem.separator())
@@ -1383,7 +1383,7 @@ struct CardDetailView: View {
             menu.addItem(moveItem)
         }
 
-        if card.link.sessionLink != nil {
+        if card.link.slug != nil {
             let migrationTargets = enabledAssistants.filter { $0 != card.link.effectiveAssistant }
             if !migrationTargets.isEmpty {
                 menu.addItem(NSMenuItem.separator())
@@ -1408,27 +1408,31 @@ struct CardDetailView: View {
     // MARK: - History loading
 
     /// All session paths in chronological order (previous sessions + current).
+    /// Note: With session_links table, previous session paths are no longer stored on Link.
+    /// This now only returns the current session path.
     private var allSessionPaths: [String] {
-        var paths = card.link.sessionLink?.previousSessionPaths ?? []
-        if let current = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath {
-            paths.append(current)
+        if let current = card.session?.jsonlPath {
+            return [current]
         }
-        return paths
+        return []
     }
 
     /// Whether this card has chained sessions (slug continuation via --resume).
+    /// Note: With session_links table, chain detection would need DB access.
+    /// For now, always false — full history loads the current session only.
     private var hasChainedSessions: Bool {
-        !(card.link.sessionLink?.previousSessionPaths ?? []).isEmpty
+        false
     }
 
     private static let pageSize = 80
 
     private func loadFullHistory() async {
-        guard let currentPath = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
+        guard let currentPath = card.session?.jsonlPath else { return }
         isLoadingHistory = true
         var allTurns: [ConversationTurn] = []
         // Load previous chained sessions first (oldest to newest)
-        for prevPath in card.link.sessionLink?.previousSessionPaths ?? [] {
+        // Note: previousSessionPaths removed with SessionLink. Chain history via session_links is TBD.
+        for prevPath in [String]() {
             if let prev = try? await TranscriptReader.readTurns(from: prevPath) {
                 allTurns.append(contentsOf: prev)
             }
@@ -1458,7 +1462,7 @@ struct CardDetailView: View {
             await loadFullHistory()
             return
         }
-        guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
+        guard let path = card.session?.jsonlPath else { return }
         if turns.isEmpty { isLoadingHistory = true }
         // Preserve expanded window: if user loaded more than pageSize, keep that many
         let loadCount = max(Self.pageSize, turns.count)
@@ -1486,7 +1490,7 @@ struct CardDetailView: View {
     private func loadMoreHistory() async {
         guard !hasChainedSessions else { return } // Full history already loaded
         guard hasMoreTurns, !isLoadingMore else { return }
-        guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
+        guard let path = card.session?.jsonlPath else { return }
         guard let firstTurn = turns.first else { return }
 
         isLoadingMore = true
@@ -1507,7 +1511,7 @@ struct CardDetailView: View {
     /// Loads a page-sized chunk around the target, merging with existing turns.
     private func loadAroundTurn(_ targetIndex: Int) async {
         guard !hasChainedSessions else { return } // Full history already loaded
-        guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
+        guard let path = card.session?.jsonlPath else { return }
         isLoadingMore = true
 
         let halfPage = Self.pageSize / 2
@@ -1529,7 +1533,7 @@ struct CardDetailView: View {
 
     private func startHistoryWatcher() {
         stopHistoryWatcher()
-        guard let path = card.link.sessionLink?.sessionPath ?? card.session?.jsonlPath else { return }
+        guard let path = card.session?.jsonlPath else { return }
 
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else { return }
@@ -1637,7 +1641,7 @@ struct CardDetailView: View {
     // MARK: - Checkpoint
 
     private func performCheckpoint() {
-        guard let path = card.link.sessionLink?.sessionPath,
+        guard let path = card.session?.jsonlPath,
               let turn = checkpointTurn else { return }
         Task {
             do {
@@ -1656,7 +1660,7 @@ struct CardDetailView: View {
         if let projectPath = card.link.projectPath {
             cmd += "cd \(projectPath) && "
         }
-        if let sessionId = card.link.sessionLink?.sessionId {
+        if let sessionId = card.session?.id {
             cmd += "claude --resume \(sessionId)"
         } else {
             cmd += "# no session yet"

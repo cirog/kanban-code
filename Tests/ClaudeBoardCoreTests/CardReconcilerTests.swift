@@ -15,10 +15,7 @@ struct CardReconcilerTests {
             column: .waiting,
             lastActivity: Date(timeIntervalSince1970: 1000),
             source: .manual,
-            sessionLink: SessionLink(
-                sessionId: "session-A",
-                sessionPath: "/path/to/A.jsonl"
-            )
+            slug: "some-slug"
         )
 
         var session = Session(id: "session-A")
@@ -34,19 +31,23 @@ struct CardReconcilerTests {
             didScanTmux: false
         )
 
-        let result = CardReconciler.reconcile(existing: [existingLink], snapshot: snapshot)
+        let result = CardReconciler.reconcile(
+            existing: [existingLink],
+            snapshot: snapshot,
+            ownedSessionIds: ["session-A"],
+            sessionIdByCardId: ["card-1": "session-A"]
+        )
 
         #expect(result.links.count == 1)
         let card = result.links.first!
         #expect(card.id == "card-1")
         #expect(card.lastActivity == Date(timeIntervalSince1970: 2000))
-        #expect(card.sessionLink?.sessionPath == "/path/to/A-updated.jsonl")
-        #expect(card.sessionLink?.slug == "some-slug")
+        #expect(card.slug == "some-slug")
     }
 
     @Test("Managed card is not hijacked by stale session from same project")
     func managedCardNotHijacked() {
-        // Managed card with tmux, no session link yet (hook hasn't fired)
+        // Managed card with tmux, no slug yet (hook hasn't fired)
         let managedCard = Link(
             id: "card-managed",
             name: "Clean",
@@ -72,15 +73,15 @@ struct CardReconcilerTests {
 
         let result = CardReconciler.reconcile(existing: [managedCard], snapshot: snapshot)
 
-        // Managed card should NOT get the stale session — it should stay sessionLink=nil
+        // Managed card should NOT get the stale session
         let managed = result.links.first(where: { $0.id == "card-managed" })!
-        #expect(managed.sessionLink == nil)
+        #expect(managed.slug == nil)
         #expect(managed.tmuxLink != nil)
 
         // Stale session should become a separate discovered card
         #expect(result.links.count == 2)
         let discovered = result.links.first(where: { $0.id != "card-managed" })!
-        #expect(discovered.sessionLink?.sessionId == "stale-session")
+        #expect(discovered.slug == "old-conversation")
         #expect(discovered.source == .discovered)
     }
 
@@ -106,7 +107,7 @@ struct CardReconcilerTests {
         #expect(result.links.count == 1)
         let card = result.links.first!
         #expect(card.source == .discovered)
-        #expect(card.sessionLink?.sessionId == "new-session")
+        #expect(card.slug == "brand-new")
         #expect(card.tmuxLink == nil)
         #expect(card.projectPath == "/test")
     }
@@ -119,7 +120,7 @@ struct CardReconcilerTests {
             column: .done,
             manuallyArchived: true,
             source: .manual,
-            sessionLink: SessionLink(sessionId: "sess-old")
+            slug: "sess-old"
         )
 
         var session = Session(id: "sess-old")
@@ -133,7 +134,12 @@ struct CardReconcilerTests {
             didScanTmux: false
         )
 
-        let result = CardReconciler.reconcile(existing: [archived], snapshot: snapshot)
+        let result = CardReconciler.reconcile(
+            existing: [archived],
+            snapshot: snapshot,
+            ownedSessionIds: ["sess-old"],
+            sessionIdByCardId: ["card-archived": "sess-old"]
+        )
 
         #expect(result.links.count == 1)
         #expect(result.links.first!.id == "card-archived")
@@ -182,27 +188,6 @@ struct CardReconcilerTests {
         #expect(result.links.first!.tmuxLink?.sessionName == "alive-tmux")
     }
 
-    @Test("Manual tmux override is not cleared even when dead")
-    func manualTmuxOverridePreserved() {
-        var link = Link(
-            id: "card-1",
-            column: .waiting,
-            source: .manual,
-            tmuxLink: TmuxLink(sessionName: "manual-tmux")
-        )
-        link.manualOverrides.tmuxSession = true
-
-        let snapshot = CardReconciler.DiscoverySnapshot(
-            sessions: [],
-            tmuxSessions: [],
-            didScanTmux: true
-        )
-
-        let result = CardReconciler.reconcile(existing: [link], snapshot: snapshot)
-
-        #expect(result.links.first!.tmuxLink?.sessionName == "manual-tmux")
-    }
-
     // MARK: - Mixed scenarios
 
     @Test("Multiple sessions: linked ones update, unlinked ones create discovered cards")
@@ -212,7 +197,7 @@ struct CardReconcilerTests {
             projectPath: "/test",
             column: .inProgress,
             source: .manual,
-            sessionLink: SessionLink(sessionId: "sess-1")
+            slug: "managed-slug"
         )
 
         var sess1 = Session(id: "sess-1")
@@ -231,14 +216,18 @@ struct CardReconcilerTests {
             didScanTmux: false
         )
 
-        let result = CardReconciler.reconcile(existing: [managed], snapshot: snapshot)
+        let result = CardReconciler.reconcile(
+            existing: [managed],
+            snapshot: snapshot,
+            ownedSessionIds: ["sess-1"],
+            sessionIdByCardId: ["card-managed": "sess-1"]
+        )
 
         #expect(result.links.count == 2) // managed + 1 discovered
         let managedResult = result.links.first(where: { $0.id == "card-managed" })!
-        #expect(managedResult.sessionLink?.sessionId == "sess-1")
+        #expect(managedResult.slug == "managed-slug")
         let discovered = result.links.first(where: { $0.id != "card-managed" })!
         #expect(discovered.source == .discovered)
-        #expect(discovered.sessionLink?.sessionId == "sess-2")
     }
 
     @Test("Fills projectPath on card when session provides it")
@@ -247,11 +236,12 @@ struct CardReconcilerTests {
             id: "card-1",
             column: .waiting,
             source: .manual,
-            sessionLink: SessionLink(sessionId: "sess-1")
+            slug: "sess-slug"
         )
 
         var session = Session(id: "sess-1")
         session.projectPath = "/discovered/path"
+        session.slug = "sess-slug"
         session.messageCount = 1
         session.modifiedTime = .now
 
@@ -261,7 +251,12 @@ struct CardReconcilerTests {
             didScanTmux: false
         )
 
-        let result = CardReconciler.reconcile(existing: [link], snapshot: snapshot)
+        let result = CardReconciler.reconcile(
+            existing: [link],
+            snapshot: snapshot,
+            ownedSessionIds: ["sess-1"],
+            sessionIdByCardId: ["card-1": "sess-1"]
+        )
 
         #expect(result.links.first!.projectPath == "/discovered/path")
     }

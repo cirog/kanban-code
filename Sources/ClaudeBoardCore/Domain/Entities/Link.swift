@@ -2,23 +2,6 @@ import Foundation
 
 // MARK: - Typed Link Sub-Structs
 
-/// Link to a Claude Code session.
-public struct SessionLink: Codable, Sendable, Equatable {
-    public var sessionId: String
-    public var sessionPath: String?
-    public var sessionNumber: Int?
-    public var slug: String?
-    public var previousSessionPaths: [String]?
-
-    public init(sessionId: String, sessionPath: String? = nil, sessionNumber: Int? = nil, slug: String? = nil, previousSessionPaths: [String]? = nil) {
-        self.sessionId = sessionId
-        self.sessionPath = sessionPath
-        self.sessionNumber = sessionNumber
-        self.slug = slug
-        self.previousSessionPaths = previousSessionPaths
-    }
-}
-
 /// Link to a tmux terminal session.
 public struct TmuxLink: Codable, Sendable, Equatable {
     public var sessionName: String          // Primary tmux session
@@ -100,8 +83,10 @@ public struct Link: Identifiable, Codable, Sendable {
     public var notes: String?
     public var projectId: String?
 
+    // Session association key — links this card to sessions via session_links table
+    public var slug: String?
+
     // Typed links — each independently optional
-    public var sessionLink: SessionLink?
     public var tmuxLink: TmuxLink?
     public var queuedPrompts: [QueuedPrompt]?
 
@@ -128,24 +113,17 @@ public struct Link: Identifiable, Codable, Sendable {
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
         if let promptBody, !promptBody.isEmpty { return String(promptBody.prefix(100)) }
-        if let sid = sessionLink?.sessionId { return sid }
         return id
     }
 
     // MARK: - Backward-compat computed properties
 
-    /// Claude session UUID. Use `sessionLink?.sessionId` for new code.
-    public var sessionId: String? { sessionLink?.sessionId }
-    /// Path to .jsonl transcript. Use `sessionLink?.sessionPath` for new code.
-    public var sessionPath: String? { sessionLink?.sessionPath }
     /// Tmux session name. Use `tmuxLink?.sessionName` for new code.
     public var tmuxSession: String? { tmuxLink?.sessionName }
-    /// Session display number. Use `sessionLink?.sessionNumber` for new code.
-    public var sessionNumber: Int? { sessionLink?.sessionNumber }
 
     /// The primary label for this card based on which links are present.
     public var cardLabel: CardLabel {
-        if sessionLink != nil { return .session }
+        if slug != nil { return .session }
         if todoistId != nil { return .todoist }
         return .task
     }
@@ -155,7 +133,7 @@ public struct Link: Identifiable, Codable, Sendable {
     /// Check if two cards can be merged. Returns nil if allowed, or an error message if not.
     public static func mergeBlocked(source: Link, target: Link) -> String? {
         if source.id == target.id { return "Cannot merge a card with itself" }
-        if source.sessionLink != nil && target.sessionLink != nil {
+        if source.slug != nil && target.slug != nil {
             return "Cannot merge: both cards have sessions"
         }
         if source.tmuxLink != nil && target.tmuxLink != nil {
@@ -188,7 +166,7 @@ public struct Link: Identifiable, Codable, Sendable {
         todoistProjectId: String? = nil,
         notes: String? = nil,
         projectId: String? = nil,
-        sessionLink: SessionLink? = nil,
+        slug: String? = nil,
         tmuxLink: TmuxLink? = nil,
         queuedPrompts: [QueuedPrompt]? = nil,
         assistant: CodingAssistant? = nil,
@@ -217,7 +195,7 @@ public struct Link: Identifiable, Codable, Sendable {
         self.todoistProjectId = todoistProjectId
         self.notes = notes
         self.projectId = projectId
-        self.sessionLink = sessionLink
+        self.slug = slug
         self.tmuxLink = tmuxLink
         self.queuedPrompts = queuedPrompts
         self.assistant = assistant
@@ -230,22 +208,22 @@ public struct Link: Identifiable, Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         // Card-level
-        case id, name, projectPath, column, createdAt, updatedAt, lastActivity, lastOpenedAt
+        case id, slug, name, projectPath, column, createdAt, updatedAt, lastActivity, lastOpenedAt
         case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, isLaunching, sortOrder
         case assistant, lastTab
         // Todoist integration
         case todoistId, todoistDescription, todoistPriority, todoistDue, todoistLabels, todoistProjectId, notes, projectId
-        // Typed links (new nested format)
-        case sessionLink, tmuxLink, queuedPrompts
+        // Typed links
+        case tmuxLink, queuedPrompts
         // Old format keys (for reading legacy format)
-        case sessionId, sessionPath
-        case tmuxSession, sessionNumber, issueBody
+        case tmuxSession, issueBody
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
 
         id = try c.decode(String.self, forKey: .id)
+        slug = try c.decodeIfPresent(String.self, forKey: .slug)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         projectPath = try c.decodeIfPresent(String.self, forKey: .projectPath)
         column = try c.decodeIfPresent(ClaudeBoardColumn.self, forKey: .column) ?? .done
@@ -271,16 +249,6 @@ public struct Link: Identifiable, Codable, Sendable {
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
         projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
 
-        // Session link: try nested first, fallback to flat
-        if let sl = try c.decodeIfPresent(SessionLink.self, forKey: .sessionLink) {
-            sessionLink = sl
-        } else {
-            let sid = try c.decodeIfPresent(String.self, forKey: .sessionId)
-            let sp = try c.decodeIfPresent(String.self, forKey: .sessionPath)
-            let sn = try c.decodeIfPresent(Int.self, forKey: .sessionNumber)
-            sessionLink = sid.map { SessionLink(sessionId: $0, sessionPath: sp, sessionNumber: sn) }
-        }
-
         // Tmux link
         if let tl = try c.decodeIfPresent(TmuxLink.self, forKey: .tmuxLink) {
             tmuxLink = tl
@@ -302,6 +270,7 @@ public struct Link: Identifiable, Codable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
 
         try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(slug, forKey: .slug)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(projectPath, forKey: .projectPath)
         try c.encode(column, forKey: .column)
@@ -327,8 +296,6 @@ public struct Link: Identifiable, Codable, Sendable {
         try c.encodeIfPresent(notes, forKey: .notes)
         try c.encodeIfPresent(projectId, forKey: .projectId)
 
-        // Always write new nested format
-        try c.encodeIfPresent(sessionLink, forKey: .sessionLink)
         try c.encodeIfPresent(tmuxLink, forKey: .tmuxLink)
         try c.encodeIfPresent(queuedPrompts, forKey: .queuedPrompts)
     }
@@ -336,23 +303,19 @@ public struct Link: Identifiable, Codable, Sendable {
 
 /// Tracks which fields have been manually set by the user.
 public struct ManualOverrides: Codable, Sendable {
-    public var tmuxSession: Bool
     public var name: Bool
     public var column: Bool
 
     public init(
-        tmuxSession: Bool = false,
         name: Bool = false,
         column: Bool = false
     ) {
-        self.tmuxSession = tmuxSession
         self.name = name
         self.column = column
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        tmuxSession = try c.decodeIfPresent(Bool.self, forKey: .tmuxSession) ?? false
         name = try c.decodeIfPresent(Bool.self, forKey: .name) ?? false
         column = try c.decodeIfPresent(Bool.self, forKey: .column) ?? false
     }

@@ -168,7 +168,7 @@ struct ContentView: View {
                 if let projectPath = card.link.projectPath {
                     cmd += "cd \(projectPath) && "
                 }
-                if let sessionId = card.link.sessionLink?.sessionId {
+                if let sessionId = store.state.sessionIdByCardId[cardId] {
                     cmd += "claude --resume \(sessionId)"
                 }
                 NSPasteboard.general.clearContents()
@@ -230,7 +230,7 @@ struct ContentView: View {
                 sessionStore: assistantRegistry.store(for: card.link.effectiveAssistant) ?? store.sessionStore,
                 selectedTab: $detailTab,
                 onResume: {
-                    if card.link.sessionLink != nil {
+                    if card.link.slug != nil {
                         resumeCard(cardId: card.id)
                     } else {
                         startCard(cardId: card.id)
@@ -1608,7 +1608,8 @@ struct ContentView: View {
                 }
 
                 // Detect new session by polling for new session file
-                var sessionLink: SessionLink?
+                var detectedSessionId: String?
+                var detectedSessionPath: String?
                 for attempt in 0..<6 {
                     try? await Task.sleep(for: .milliseconds(500))
                     let currentFiles = Set(
@@ -1616,15 +1617,14 @@ struct ContentView: View {
                             .filter { $0.hasSuffix(sessionFileExt) }
                     )
                     if let newFile = currentFiles.subtracting(existingFiles).first {
-                        let sessionId = (newFile as NSString).deletingPathExtension
-                        let sessionPath = (sessionDir as NSString).appendingPathComponent(newFile)
-                        ClaudeBoardLog.info("launch", "Detected session file after \(attempt+1) attempts: \(sessionId.prefix(8))")
-                        sessionLink = SessionLink(sessionId: sessionId, sessionPath: sessionPath)
+                        detectedSessionId = (newFile as NSString).deletingPathExtension
+                        detectedSessionPath = (sessionDir as NSString).appendingPathComponent(newFile)
+                        ClaudeBoardLog.info("launch", "Detected session file after \(attempt+1) attempts: \(detectedSessionId!.prefix(8))")
                         break
                     }
                 }
 
-                store.dispatch(.launchCompleted(cardId: cardId, tmuxName: tmuxName, sessionLink: sessionLink))
+                store.dispatch(.launchCompleted(cardId: cardId, tmuxName: tmuxName, sessionId: detectedSessionId, sessionPath: detectedSessionPath))
             } catch {
                 ClaudeBoardLog.error("launch", "Launch failed for card=\(cardId.prefix(12)): \(error.localizedDescription)")
                 store.dispatch(.launchFailed(cardId: cardId, error: error.localizedDescription))
@@ -1677,15 +1677,14 @@ struct ContentView: View {
 
     /// Returns assistants the card can be migrated to (excludes current, requires both registered).
     private func migrationTargets(for card: ClaudeBoardCard) -> [CodingAssistant] {
-        guard card.link.sessionLink != nil else { return [] }
+        guard card.link.slug != nil else { return [] }
         let current = card.link.effectiveAssistant
         return assistantRegistry.available.filter { $0 != current }
     }
 
     private func executeMigration(cardId: String, targetAssistant: CodingAssistant) async {
         guard let card = store.state.cards.first(where: { $0.id == cardId }),
-              let sessionLink = card.link.sessionLink,
-              let sessionPath = sessionLink.sessionPath else { return }
+              let sessionPath = card.session?.jsonlPath else { return }
         let sourceAssistant = card.link.effectiveAssistant
         guard let sourceStore = assistantRegistry.store(for: sourceAssistant),
               let targetStore = assistantRegistry.store(for: targetAssistant) else { return }
@@ -1705,8 +1704,7 @@ struct ContentView: View {
             store.dispatch(.migrateSession(
                 cardId: cardId,
                 newAssistant: targetAssistant,
-                newSessionId: result.newSessionId,
-                newSessionPath: result.newSessionPath
+                newSessionId: result.newSessionId
             ))
             ClaudeBoardLog.info("migrate", "Migrated card=\(cardId.prefix(12)) from \(sourceAssistant) to \(targetAssistant), backup=\(result.backupPath)")
 
@@ -1746,7 +1744,7 @@ struct ContentView: View {
         if let pp = card.link.projectPath, pp != "/", !pp.isEmpty {
             return pp
         }
-        if let sp = card.link.sessionLink?.sessionPath,
+        if let sp = card.session?.jsonlPath,
            let derived = JsonlParser.projectPathFromSessionPath(sp) {
             return derived
         }
@@ -1755,7 +1753,7 @@ struct ContentView: View {
 
     private func resumeCard(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
-        let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
+        let sessionId = store.state.sessionIdByCardId[card.id] ?? card.link.id
         let projectPath = resolveProjectPath(card: card)
 
         // Clear stale terminal so TerminalCache creates a fresh one for the new tmux session
@@ -1768,7 +1766,7 @@ struct ContentView: View {
 
     private func forkCard(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }),
-              let sessionPath = card.link.sessionLink?.sessionPath else { return }
+              let sessionPath = card.session?.jsonlPath else { return }
         Task {
             do {
                 let forkProjectPath = card.link.projectPath
@@ -1790,10 +1788,11 @@ struct ContentView: View {
                     projectPath: forkProjectPath,
                     column: .waiting,
                     lastActivity: card.link.lastActivity,
-                    source: .discovered,
-                    sessionLink: SessionLink(sessionId: newSessionId, sessionPath: newPath)
+                    source: .discovered
                 )
                 store.dispatch(.createManualTask(newLink))
+                // Link the new session to the forked card
+                store.dispatch(.hookSessionLinked(cardId: newLink.id, sessionId: newSessionId, path: newPath))
                 store.dispatch(.selectCard(cardId: newLink.id))
                 shouldFocusTerminal = true
             } catch {
@@ -1804,7 +1803,7 @@ struct ContentView: View {
 
     private func executeResume(cardId: String, skipPermissions: Bool = true, commandOverride: String?, assistant: CodingAssistant = .claude) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
-        let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
+        let sessionId = store.state.sessionIdByCardId[card.id] ?? card.link.id
         let projectPath = resolveProjectPath(card: card)
 
         // Clear stale terminal so TerminalCache creates a fresh one for the new tmux session
@@ -1814,7 +1813,7 @@ struct ContentView: View {
 
         store.dispatch(.resumeCard(cardId: cardId))
         shouldFocusTerminal = true
-        ClaudeBoardLog.info("resume", "Starting resume for card=\(cardId.prefix(12)) session=\(sessionId.prefix(8)) projectPath=\(projectPath) sessionPath=\(card.link.sessionLink?.sessionPath ?? "nil")")
+        ClaudeBoardLog.info("resume", "Starting resume for card=\(cardId.prefix(12)) session=\(sessionId.prefix(8)) projectPath=\(projectPath) sessionPath=\(card.session?.jsonlPath ?? "nil")")
 
         Task {
             do {
