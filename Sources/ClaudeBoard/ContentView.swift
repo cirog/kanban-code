@@ -65,6 +65,7 @@ struct ContentView: View {
         let coordination = CoordinationStore()
         let settings = SettingsStore()
         let tmux = TmuxAdapter()
+        let hookEvents = HookEventStore()
 
         let effectHandler = EffectHandler(
             coordinationStore: coordination,
@@ -77,7 +78,8 @@ struct ContentView: View {
             coordinationStore: coordination,
             activityDetector: activityDetector,
             settingsStore: settings,
-            tmuxAdapter: tmux
+            tmuxAdapter: tmux,
+            hookEventStore: hookEvents
         )
 
         // Load Pushover from settings.json, wrap in CompositeNotifier with macOS fallback
@@ -89,6 +91,7 @@ struct ContentView: View {
             discovery: discovery,
             coordinationStore: coordination,
             activityDetector: activityDetector,
+            hookEventStore: hookEvents,
             tmux: tmux,
             notifier: notifier,
             registry: registry,
@@ -1791,8 +1794,8 @@ struct ContentView: View {
                     source: .discovered
                 )
                 store.dispatch(.createManualTask(newLink))
-                // Link the new session to the forked card
-                store.dispatch(.hookSessionLinked(cardId: newLink.id, sessionId: newSessionId, path: newPath))
+                // Immediately map session to forked card — reconciler will confirm on next cycle
+                store.dispatch(.setSessionMapping(cardId: newLink.id, sessionId: newSessionId))
                 store.dispatch(.selectCard(cardId: newLink.id))
                 shouldFocusTerminal = true
             } catch {

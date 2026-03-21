@@ -109,25 +109,11 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
 
             if !didInitialLoad {
                 // First call: consume all old events without notifying.
-                // Re-link sessions to cards via tmux name (survives app restart).
+                // Feed them to ActivityDetector for state tracking.
+                // Session-card association is handled by the reconciler.
                 ClaudeBoardLog.info("notify", "Initial load: consuming \(events.count) old events")
-                var resolvedCount = 0
                 for event in events {
                     await activityDetector.handleHookEvent(event)
-                    let normalized = HookManager.normalizeEventName(event.eventName)
-                    if normalized == "SessionStart",
-                       let tmuxName = event.tmuxSessionName, !tmuxName.isEmpty,
-                       let cardId = Self.extractCardId(from: tmuxName), let dispatch {
-                        await dispatch(.hookSessionLinked(
-                            cardId: cardId,
-                            sessionId: event.sessionId,
-                            path: event.transcriptPath
-                        ))
-                        resolvedCount += 1
-                    }
-                }
-                if resolvedCount > 0 {
-                    ClaudeBoardLog.info("notify", "Initial load: resolved \(resolvedCount) session→card links from old SessionStart events")
                 }
                 let _ = await activityDetector.resolvePendingStops()
                 await notificationDedup.clearAllPending()
@@ -148,16 +134,9 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                 let eventName = HookManager.normalizeEventName(event.eventName)
                 switch eventName {
                 case "SessionStart":
-                    // Link session to its card via tmux name (contains card ID).
+                    // Association handled by reconciler via tmux → SessionStart hook events
                     if let tmuxName = event.tmuxSessionName, !tmuxName.isEmpty {
                         ClaudeBoardLog.info("notify", "SessionStart for \(event.sessionId.prefix(8)) in tmux \(tmuxName)")
-                        if let cardId = Self.extractCardId(from: tmuxName), let dispatch {
-                            await dispatch(.hookSessionLinked(
-                                cardId: cardId,
-                                sessionId: event.sessionId,
-                                path: event.transcriptPath
-                            ))
-                        }
                     }
 
                 case "Stop":
@@ -328,14 +307,6 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     }
 
     // MARK: - Card ID Extraction
-
-    /// Extract the card ID from a tmux session name.
-    /// Format: "projectName-card_XXXX..." → "card_XXXX..."
-    /// Returns nil if the tmux name doesn't contain a card ID (external session).
-    static func extractCardId(from tmuxName: String) -> String? {
-        guard let range = tmuxName.range(of: "card_") else { return nil }
-        return String(tmuxName[range.lowerBound...])
-    }
 
     private func updateActivityStates() async {
         do {

@@ -54,6 +54,31 @@ public actor HookEventStore {
         return try readNewEvents()
     }
 
+    /// Read all events without modifying the read offset (for reconciler).
+    public func readAllStoredEvents() throws -> [HookEvent] {
+        guard FileManager.default.fileExists(atPath: filePath) else { return [] }
+        let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
+        let iso = ISO8601DateFormatter()
+        return text.components(separatedBy: "\n").compactMap { line -> HookEvent? in
+            guard !line.isEmpty,
+                  let lineData = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let sessionId = obj["sessionId"] as? String else { return nil }
+            let eventName = obj["event"] as? String ?? "unknown"
+            let transcriptPath = obj["transcriptPath"] as? String
+            let tmuxSession = obj["tmuxSession"] as? String
+            let timestampStr = obj["timestamp"] as? String
+            let timestamp = timestampStr.flatMap { iso.date(from: $0) } ?? Date()
+            return HookEvent(
+                sessionId: sessionId, eventName: eventName,
+                transcriptPath: transcriptPath,
+                tmuxSessionName: tmuxSession?.isEmpty == true ? nil : tmuxSession,
+                timestamp: timestamp
+            )
+        }
+    }
+
     /// The file path.
     public var path: String { filePath }
 }

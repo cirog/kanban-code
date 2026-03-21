@@ -423,11 +423,13 @@ struct ReducerTests {
         let snapshotTime = Date.now.addingTimeInterval(-3)
 
         // Simulate: launchCard happened, then launchCompleted happened
+        // isLaunching is still true (cleared by first reconcile with activity)
         let card = makeLink(
             id: "card_lc1",
             column: .inProgress,
             tmuxLink: TmuxLink(sessionName: "proj-card_lc1"),
-            slug: "sess_new123"
+            slug: "sess_new123",
+            isLaunching: true
             // updatedAt = .now (after snapshot)
         )
         var state = stateWith([card])
@@ -446,7 +448,7 @@ struct ReducerTests {
         )
         let _ = Reducer.reduce(state: &state, action: .reconciled(result))
 
-        // Card should NOT bounce back to backlog
+        // Card should NOT bounce back to backlog — isLaunching protects it
         #expect(state.links["card_lc1"]?.column == .inProgress)
         #expect(state.links["card_lc1"]?.tmuxLink?.sessionName == "proj-card_lc1")
         #expect(state.links["card_lc1"]?.slug == "sess_new123")
@@ -1370,58 +1372,20 @@ struct ReducerTests {
         #expect(effects.isEmpty)
     }
 
-    // MARK: - Hook Session Linked
+    // MARK: - Session Mapping
 
-    @Test("hookSessionLinked updates session map and clears isLaunching")
-    func hookSessionLinkedSetsSession() {
-        let link = makeLink(id: "card_hook1", column: .inProgress, isLaunching: true)
+    @Test("setSessionMapping updates session map")
+    func setSessionMappingSetsSession() {
+        let link = makeLink(id: "card_hook1", column: .inProgress)
         var state = stateWith([link])
 
-        let effects = reduceAndRebuild(state: &state, action: .hookSessionLinked(
+        let effects = reduceAndRebuild(state: &state, action: .setSessionMapping(
             cardId: "card_hook1",
-            sessionId: "sess-abc123",
-            path: "/path/to/session.jsonl"
+            sessionId: "sess-abc123"
         ))
 
-        let updated = state.links["card_hook1"]!
         #expect(state.sessionIdByCardId["card_hook1"] == "sess-abc123")
-        #expect(updated.isLaunching == nil)
-        #expect(effects.contains(where: { if case .upsertLink = $0 { return true }; return false }))
-        #expect(effects.contains(where: { if case .linkSession = $0 { return true }; return false }))
-    }
-
-    @Test("hookSessionLinked updates session map when card already has different sessionId")
-    func hookSessionLinkedChainsSession() {
-        let link = makeLink(
-            id: "card_hook2",
-            column: .inProgress,
-            slug: "my-slug"
-        )
-        var state = stateWith([link])
-        state.sessionIdByCardId["card_hook2"] = "old-session"
-
-        let _ = reduceAndRebuild(state: &state, action: .hookSessionLinked(
-            cardId: "card_hook2",
-            sessionId: "new-session",
-            path: "/path/to/new.jsonl"
-        ))
-
-        #expect(state.sessionIdByCardId["card_hook2"] == "new-session")
-        let updated = state.links["card_hook2"]!
-        #expect(updated.slug == "my-slug") // slug preserved
-    }
-
-    @Test("hookSessionLinked ignores unknown cardId")
-    func hookSessionLinkedUnknownCard() {
-        var state = AppState()
-
-        let effects = reduceAndRebuild(state: &state, action: .hookSessionLinked(
-            cardId: "nonexistent",
-            sessionId: "sess-abc",
-            path: nil
-        ))
-
-        #expect(effects.isEmpty)
+        #expect(effects.isEmpty) // no side effects — just state update
     }
 
 }

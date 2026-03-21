@@ -238,14 +238,16 @@ struct LaunchFlowIntegrationTests {
     @Test("Reconciliation does not reset a card that just completed launchTmuxReady")
     func reconDoesNotResetAfterTmuxReady() {
         // Timeline: launchCard → tmux started → launchTmuxReady → reconciliation fires with stale data
+        // Card has isLaunching=true (set by launchCard in production)
         let card = makeLink(
             id: "card_recon",
             column: .inProgress,
-            tmuxLink: TmuxLink(sessionName: "proj-card_recon")
+            tmuxLink: TmuxLink(sessionName: "proj-card_recon"),
+            isLaunching: true
         )
         var state = stateWith([card])
 
-        // launchTmuxReady already fired (isLaunching is nil, lastActivity is set)
+        // launchTmuxReady keeps isLaunching=true (cleared by launchCompleted)
         let _ = Reducer.reduce(state: &state, action: .launchTmuxReady(cardId: "card_recon"))
 
         // Stale reconciliation result (from before launch)

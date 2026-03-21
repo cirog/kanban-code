@@ -5,32 +5,6 @@ import Foundation
 @Suite("Session Resolution")
 struct SessionResolutionTests {
 
-    // MARK: - extractCardId
-
-    @Test("extractCardId extracts card ID from standard tmux name")
-    func extractCardIdStandard() {
-        let result = BackgroundOrchestrator.extractCardId(from: "ciro-card_3BF58La4r0WMlluVprJcjqepLUD")
-        #expect(result == "card_3BF58La4r0WMlluVprJcjqepLUD")
-    }
-
-    @Test("extractCardId works with project-prefixed tmux names")
-    func extractCardIdWithProject() {
-        let result = BackgroundOrchestrator.extractCardId(from: "myproject-card_ABC123")
-        #expect(result == "card_ABC123")
-    }
-
-    @Test("extractCardId returns nil for external tmux sessions")
-    func extractCardIdExternal() {
-        let result = BackgroundOrchestrator.extractCardId(from: "claude-a1b2c3d4")
-        #expect(result == nil)
-    }
-
-    @Test("extractCardId returns nil for plain tmux names")
-    func extractCardIdPlain() {
-        let result = BackgroundOrchestrator.extractCardId(from: "my-dev-session")
-        #expect(result == nil)
-    }
-
     // MARK: - CoordinationStore lookups (still used by doNotify/autoSend)
 
     func makeTempDir() throws -> String {
