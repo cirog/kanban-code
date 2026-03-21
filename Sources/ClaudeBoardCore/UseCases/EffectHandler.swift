@@ -15,9 +15,9 @@ public actor EffectHandler {
 
     public func execute(_ effect: Effect, dispatch: @MainActor @Sendable (Action) -> Void) async {
         switch effect {
-        case .persistLinks(let links):
+        case .persistLinks(let links, let associations):
             do {
-                try await coordinationStore.writeLinks(links)
+                try await coordinationStore.writeLinks(links, associations: associations)
             } catch {
                 ClaudeBoardLog.warn("effect", "persistLinks failed: \(error)")
             }
@@ -120,15 +120,6 @@ public actor EffectHandler {
         case .killClaudeProcess(let sessionId):
             await Self.killClaudeProcess(sessionId: sessionId)
 
-        case .linkSession(let cardId, let sessionId, let path):
-            do {
-                try await coordinationStore.linkSession(
-                    sessionId: sessionId, linkId: cardId,
-                    matchedBy: "tmux", path: path
-                )
-            } catch {
-                ClaudeBoardLog.warn("effect", "linkSession failed: \(error)")
-            }
         }
     }
 

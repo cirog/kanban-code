@@ -177,8 +177,8 @@ public actor CoordinationStore {
         return links
     }
 
-    /// Write all links (replaces entire table contents).
-    public func writeLinks(_ links: [Link]) throws {
+    /// Write all links and their session associations (replaces entire table contents).
+    public func writeLinks(_ links: [Link], associations: [CardReconciler.SessionAssociation] = []) throws {
         ensureInitialized()
         exec("BEGIN TRANSACTION")
         exec("DELETE FROM queued_prompts")
@@ -189,11 +189,29 @@ public actor CoordinationStore {
             for link in links {
                 try insertRelational(link)
             }
+            for assoc in associations {
+                try insertSessionLink(assoc)
+            }
             exec("COMMIT")
         } catch {
             exec("ROLLBACK")
             throw error
         }
+    }
+
+    private func insertSessionLink(_ assoc: CardReconciler.SessionAssociation) throws {
+        var stmt: OpaquePointer?
+        let sql = "INSERT OR REPLACE INTO session_links (session_id, link_id, matched_by, is_current, path, created_at) VALUES (?, ?, ?, 0, ?, ?)"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw CoordinationStoreError.prepareError(lastError)
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, (assoc.sessionId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, (assoc.cardId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 3, (assoc.matchedBy as NSString).utf8String, -1, nil)
+        if let path = assoc.path { sqlite3_bind_text(stmt, 4, (path as NSString).utf8String, -1, nil) } else { sqlite3_bind_null(stmt, 4) }
+        sqlite3_bind_text(stmt, 5, (dateToText(.now) as NSString).utf8String, -1, nil)
+        guard sqlite3_step(stmt) == SQLITE_DONE else { throw CoordinationStoreError.stepError(lastError) }
     }
 
     /// Upsert a link: insert or replace by id. Touches only one row + child tables.
@@ -364,6 +382,25 @@ public actor CoordinationStore {
         return result
     }
 
+    /// Read all session associations as CardReconciler.SessionAssociation structs.
+    public func allSessionAssociations() throws -> [CardReconciler.SessionAssociation] {
+        ensureInitialized()
+        var result: [CardReconciler.SessionAssociation] = []
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT session_id, link_id, matched_by, path FROM session_links", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let sessionId = String(cString: sqlite3_column_text(stmt, 0))
+            let linkId = String(cString: sqlite3_column_text(stmt, 1))
+            let matchedBy = String(cString: sqlite3_column_text(stmt, 2))
+            let path = sqlite3_column_text(stmt, 3).map { String(cString: $0) }
+            result.append(CardReconciler.SessionAssociation(
+                sessionId: sessionId, cardId: linkId, matchedBy: matchedBy, path: path
+            ))
+        }
+        return result
+    }
+
     /// Update specific fields of a link by link.id.
     public func updateLink(id: String, update: (inout Link) -> Void) throws {
         guard var link = try linkById(id) else { return }
@@ -478,8 +515,8 @@ public actor CoordinationStore {
             throw CoordinationStoreError.stepError(lastError)
         }
 
-        // Note: session links are managed via linkSession() / hookSessionLinked,
-        // not through insertRelational. The session_links table is the source of truth.
+        // Note: session_links are persisted via writeLinks() associations parameter,
+        // not through insertRelational.
 
         // Insert tmux sessions
         if let tmux = link.tmuxLink {

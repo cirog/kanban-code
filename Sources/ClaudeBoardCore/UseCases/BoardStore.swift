@@ -180,8 +180,8 @@ public enum Action: Sendable {
     case renameTerminalTab(cardId: String, sessionName: String, label: String)
     case reorderTerminalTab(cardId: String, sessionName: String, beforeSession: String?)
 
-    // Hook-authoritative session linking
-    case hookSessionLinked(cardId: String, sessionId: String, path: String?)
+    // Session mapping (immediate, e.g. fork — reconciler will confirm on next cycle)
+    case setSessionMapping(cardId: String, sessionId: String)
 
     // Background reconciliation
     case reconciled(ReconciliationResult)
@@ -222,7 +222,7 @@ public struct ReconciliationResult: Sendable {
     public let configuredProjects: [Project]
     public let excludedPaths: [String]
     public let discoveredProjectPaths: [String]
-    public let newAssociations: [CardReconciler.SessionAssociation]
+    public let associations: [CardReconciler.SessionAssociation]
     public init(
         links: [Link],
         sessions: [Session],
@@ -231,7 +231,7 @@ public struct ReconciliationResult: Sendable {
         configuredProjects: [Project] = [],
         excludedPaths: [String] = [],
         discoveredProjectPaths: [String] = [],
-        newAssociations: [CardReconciler.SessionAssociation] = []
+        associations: [CardReconciler.SessionAssociation] = []
     ) {
         self.links = links
         self.sessions = sessions
@@ -240,7 +240,7 @@ public struct ReconciliationResult: Sendable {
         self.configuredProjects = configuredProjects
         self.excludedPaths = excludedPaths
         self.discoveredProjectPaths = discoveredProjectPaths
-        self.newAssociations = newAssociations
+        self.associations = associations
     }
 }
 
@@ -248,7 +248,7 @@ public struct ReconciliationResult: Sendable {
 
 /// Side effects returned by the reducer. Executed asynchronously by EffectHandler.
 public enum Effect: Sendable {
-    case persistLinks([Link])
+    case persistLinks([Link], associations: [CardReconciler.SessionAssociation])
     case upsertLink(Link)
     case removeLink(String) // id
     case createTmuxSession(cardId: String, name: String, path: String)
@@ -264,7 +264,6 @@ public enum Effect: Sendable {
     case deleteFiles([String])
     case completeTodoistTask(todoistId: String)
     case killClaudeProcess(sessionId: String)
-    case linkSession(cardId: String, sessionId: String, path: String?)
 }
 
 // MARK: - Reducer
@@ -722,8 +721,8 @@ public enum Reducer {
 
         case .launchTmuxReady(let cardId):
             guard var link = state.links[cardId] else { return [] }
-            // Keep isLaunching=true — prevents reconciler from creating duplicates
-            // before hookSessionLinked sets the session mapping. The UI can show the
+            // Keep isLaunching=true — prevents reconciler from overriding column
+            // before the first reconcile links the session. The UI can show the
             // terminal via tmuxLink even with isLaunching still set.
             link.lastActivity = .now
             link.updatedAt = .now
@@ -807,21 +806,11 @@ public enum Reducer {
             state.links[cardId] = link
             return [.upsertLink(link)]
 
-        // MARK: Hook-Authoritative Session Linking
+        // MARK: Session Mapping
 
-        case .hookSessionLinked(let cardId, let sessionId, let path):
-            guard var link = state.links[cardId] else { return [] }
-
-            // Update the transient session map
+        case .setSessionMapping(let cardId, let sessionId):
             state.sessionIdByCardId[cardId] = sessionId
-
-            link.isLaunching = nil
-            link.lastActivity = .now
-            link.updatedAt = .now
-            state.links[cardId] = link
-            ClaudeBoardLog.info("store", "Hook linked session \(sessionId.prefix(8)) → card \(cardId.prefix(12))")
-            // Persist to session_links table via effect
-            return [.upsertLink(link), .linkSession(cardId: cardId, sessionId: sessionId, path: path)]
+            return []
 
         // MARK: Background Reconciliation
 
@@ -838,15 +827,9 @@ public enum Reducer {
             )
             state.activityMap = result.activityMap
 
-            // Update transient maps from new associations
-            for assoc in result.newAssociations {
-                state.sessionIdByCardId[assoc.cardId] = assoc.sessionId
-            }
-
             // Merge reconciled links with in-memory state.
             // In-memory wins when it has a newer updatedAt (user action during reconciliation).
             var mergedLinks = state.links
-            var preservedIds: Set<String> = []
             for link in result.links {
                 if state.deletedCardIds.contains(link.id) { continue }
                 if let sessionId = state.sessionIdByCardId[link.id], state.deletedSessionIds.contains(sessionId) { continue }
@@ -854,7 +837,6 @@ public enum Reducer {
                 if let existing = mergedLinks[link.id] {
                     // In-memory is newer — preserve it, skip stale reconciled data
                     if existing.updatedAt > link.updatedAt {
-                        preservedIds.insert(link.id)
                         continue
                     }
 
@@ -879,9 +861,9 @@ public enum Reducer {
                 }
             }
 
-            // Recompute columns — skip preserved cards (stale activity data)
+            // Recompute columns
             let liveTmuxNames = result.tmuxSessions
-            for (id, var link) in mergedLinks where link.isLaunching != true && !preservedIds.contains(id) {
+            for (id, var link) in mergedLinks where link.isLaunching != true {
                 let activity = result.activityMap[state.sessionIdByCardId[id] ?? ""]
                 let hasLiveTmux = link.tmuxLink.map { tmux in
                     guard tmux.isShellOnly != true else { return false }
@@ -915,7 +897,7 @@ public enum Reducer {
                 state.selectedCardId = nil
             }
 
-            return [.persistLinks(Array(mergedLinks.values))]
+            return [.persistLinks(Array(mergedLinks.values), associations: result.associations)]
 
         case .activityChanged(let activityMap):
             // Lightweight column update — no full reconciliation, just activity → column
@@ -935,7 +917,7 @@ public enum Reducer {
                 }
             }
             state.activityMap = activityMap
-            return changed ? [.persistLinks(Array(state.links.values))] : []
+            return changed ? [.persistLinks(Array(state.links.values), associations: [])] : []
 
         // MARK: Busy State
 
@@ -1045,7 +1027,7 @@ public enum Reducer {
                 }
             }
 
-            return [.persistLinks(Array(state.links.values))]
+            return [.persistLinks(Array(state.links.values), associations: [])]
         }
     }
 
@@ -1088,6 +1070,7 @@ public final class BoardStore: @unchecked Sendable {
     private let activityDetector: (any ActivityDetector)?
     private let settingsStore: SettingsStore?
     private let tmuxAdapter: TmuxManagerPort?
+    private let hookEventStore: HookEventStore?
 
     public let sessionStore: SessionStore
 
@@ -1098,7 +1081,8 @@ public final class BoardStore: @unchecked Sendable {
         activityDetector: (any ActivityDetector)? = nil,
         settingsStore: SettingsStore? = nil,
         tmuxAdapter: TmuxManagerPort? = nil,
-        sessionStore: SessionStore = ClaudeCodeSessionStore()
+        sessionStore: SessionStore = ClaudeCodeSessionStore(),
+        hookEventStore: HookEventStore? = nil
     ) {
         self.state = AppState()
         self.effectHandler = effectHandler
@@ -1108,6 +1092,7 @@ public final class BoardStore: @unchecked Sendable {
         self.settingsStore = settingsStore
         self.tmuxAdapter = tmuxAdapter
         self.sessionStore = sessionStore
+        self.hookEventStore = hookEventStore
     }
 
     /// Dispatch an action. Reducer runs synchronously, effects run async.
@@ -1260,33 +1245,35 @@ public final class BoardStore: @unchecked Sendable {
 
             // Reconcile
             let t3 = ContinuousClock.now
-            let ownedSessionIds = try await coordinationStore.allOwnedSessionIds()
+            let existingAssociations = try await coordinationStore.allSessionAssociations()
+            let allHookEvents: [HookEvent]
+            if let hookEventStore {
+                allHookEvents = try await hookEventStore.readAllStoredEvents()
+            } else {
+                allHookEvents = []
+            }
             let snapshot = CardReconciler.DiscoverySnapshot(
                 sessions: sessions,
                 tmuxSessions: tmuxSessions,
                 didScanTmux: tmuxAdapter != nil,
-                ownedSessionIds: ownedSessionIds
+                hookEvents: allHookEvents,
+                existingAssociations: existingAssociations
             )
             let reconcileResult = CardReconciler.reconcile(
                 existing: existingLinks,
                 snapshot: snapshot
             )
             let mergedLinks = reconcileResult.links
-            let newAssociations = reconcileResult.newAssociations
-            ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) reconciled, \(newAssociations.count) new associations)")
+            let associations = reconcileResult.associations
+            ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) reconciled, \(associations.count) associations)")
 
-            // Persist new associations to session_links table
-            for assoc in newAssociations {
-                try await coordinationStore.linkSession(
-                    sessionId: assoc.sessionId, linkId: assoc.cardId,
-                    matchedBy: assoc.matchedBy, path: assoc.path
-                )
+            // Build sessionIdByCardId from reconciler associations (latest session per card)
+            var sessionByCard: [String: String] = [:]
+            for assoc in associations {
+                sessionByCard[assoc.cardId] = assoc.sessionId // last one wins = latest
             }
-
-            // Rebuild sessionIdByCardId from session_links table
-            let ownedMap = try await coordinationStore.allSessionLinkMappings()
-            for mapping in ownedMap {
-                state.sessionIdByCardId[mapping.cardId] = mapping.sessionId
+            for (cardId, sessionId) in sessionByCard {
+                state.sessionIdByCardId[cardId] = sessionId
             }
 
             // Build activity map
@@ -1317,7 +1304,7 @@ public final class BoardStore: @unchecked Sendable {
                 configuredProjects: configuredProjects,
                 excludedPaths: excludedPaths,
                 discoveredProjectPaths: discoveredProjectPaths,
-                newAssociations: newAssociations
+                associations: associations
             )
             dispatch(.reconciled(result))
             ClaudeBoardLog.info("reconcile", "dispatch: \(t5.duration(to: .now))")
