@@ -116,14 +116,26 @@ struct SimplifiedAssignColumnTests {
         #expect(result == .waiting)
     }
 
-    @Test func noProcess_ended_goesToWaiting() {
+    @Test func noProcess_ended_discoveredGoesToDone() {
         let link = Link(source: .discovered)
+        let result = AssignColumn.assign(link: link, activityState: .ended, hasLiveTmux: false)
+        #expect(result == .done)
+    }
+
+    @Test func noProcess_ended_managedGoesToWaiting() {
+        let link = Link(source: .manual)
         let result = AssignColumn.assign(link: link, activityState: .ended, hasLiveTmux: false)
         #expect(result == .waiting)
     }
 
-    @Test func noProcess_stale_goesToWaiting() {
+    @Test func noProcess_stale_discoveredGoesToDone() {
         let link = Link(source: .discovered)
+        let result = AssignColumn.assign(link: link, activityState: .stale, hasLiveTmux: false)
+        #expect(result == .done)
+    }
+
+    @Test func noProcess_stale_managedGoesToWaiting() {
+        let link = Link(source: .manual)
         let result = AssignColumn.assign(link: link, activityState: .stale, hasLiveTmux: false)
         #expect(result == .waiting)
     }

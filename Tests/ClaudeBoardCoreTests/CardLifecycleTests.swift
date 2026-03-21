@@ -42,11 +42,18 @@ struct CardLifecycleTests {
         #expect(link.column == .done)
     }
 
-    @Test("Stale session → waiting (activity-driven)")
-    func staleToWaiting() {
-        var link = Link(column: .inProgress, slug: "s1")
+    @Test("Stale session → waiting for managed cards")
+    func staleToWaitingManaged() {
+        var link = Link(column: .inProgress, source: .manual, slug: "s1")
         UpdateCardColumn.update(link: &link, activityState: .stale)
         #expect(link.column == .waiting)
+    }
+
+    @Test("Stale session → done for discovered cards")
+    func staleToDoneDiscovered() {
+        var link = Link(column: .inProgress, slug: "s1")
+        UpdateCardColumn.update(link: &link, activityState: .stale)
+        #expect(link.column == .done)
     }
 
     @Test("Archived card becomes actively working → clears manuallyArchived and moves to inProgress")

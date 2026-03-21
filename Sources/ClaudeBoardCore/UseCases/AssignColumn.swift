@@ -36,13 +36,17 @@ public enum AssignColumn {
             return .done
         }
 
-        // --- Priority 4: Activity-driven (any known state → waiting) ---
+        // --- Priority 4: Activity-driven ---
         if let activity = activityState {
             switch activity {
             case .activelyWorking:
                 return .inProgress // Already handled, exhaustive
-            case .needsAttention, .idleWaiting, .ended, .stale:
+            case .needsAttention, .idleWaiting:
                 return .waiting
+            case .ended, .stale:
+                // Discovered cards with no live process → done (historical)
+                // Managed cards → waiting (user may resume)
+                return link.source == .discovered ? .done : .waiting
             }
         }
 
