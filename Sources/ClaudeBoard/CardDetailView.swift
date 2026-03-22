@@ -1216,13 +1216,14 @@ struct CardDetailView: View {
 
     @ViewBuilder
     private var normalHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Row 1: Title + actions (fixed height)
+            HStack {
                 Text(card.displayTitle)
                     .font(.app(.headline))
                     .textCase(nil)
-                    .lineLimit(2)
-                    .layoutPriority(0)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
                 Button(action: { showRenameSheet = true }) {
                     Image(systemName: "pencil.circle.fill")
@@ -1232,11 +1233,13 @@ struct CardDetailView: View {
                 .buttonStyle(.plain)
                 .help("Rename")
 
-                if card.link.cardLabel == .session {
-                    Text(card.relativeTime)
-                        .font(.app(.caption))
-                        .foregroundStyle(.tertiary)
+                if card.link.cardLabel != .session {
+                    CardLabelBadge(label: card.link.cardLabel)
                 }
+
+                Text(card.relativeTime)
+                    .font(.app(.caption))
+                    .foregroundStyle(.tertiary)
 
                 Spacer(minLength: 8)
 
@@ -1282,27 +1285,19 @@ struct CardDetailView: View {
                 }
                 .fixedSize()
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
 
-            if card.link.cardLabel != .session {
-                HStack(spacing: 6) {
-                    CardLabelBadge(label: card.link.cardLabel)
-                    Spacer()
-                    Text(card.relativeTime)
-                        .font(.app(.caption))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
-            // Compact metadata: only render rows that have content
+            // Row 2: Metadata (fixed height, only if content exists)
             let hasProject = card.link.projectPath != nil
-            let hasSession = card.session?.id != nil
+            let hasSessionId = card.session?.id != nil
             let hasSlug = card.link.slug != nil
-            if hasProject || hasSession || hasSlug {
+            if hasProject || hasSessionId || hasSlug {
                 HStack(spacing: 12) {
                     if let projectPath = card.link.projectPath {
                         copyableRow(icon: "folder.badge.gearshape", text: projectPath)
                     }
-                    if hasSession {
+                    if hasSessionId {
                         SessionIdRow(sessionId: card.session?.id, assistant: card.link.effectiveAssistant)
                     }
                     if let slug = card.link.slug {
@@ -1311,30 +1306,29 @@ struct CardDetailView: View {
                 }
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 6)
             }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
 
-        Divider()
+            Divider()
 
-        // Tab bar
-        HStack {
-            Picker("", selection: $selectedTab) {
-                Text("Terminal").tag(DetailTab.terminal)
-                Text("History").tag(DetailTab.history)
-                if card.link.promptBody != nil || card.link.slug != nil {
-                    Text("Prompts").tag(DetailTab.prompt)
+            // Row 3: Tab bar (fixed height)
+            HStack {
+                Picker("", selection: $selectedTab) {
+                    Text("Terminal").tag(DetailTab.terminal)
+                    Text("History").tag(DetailTab.history)
+                    if card.link.promptBody != nil || card.link.slug != nil {
+                        Text("Prompts").tag(DetailTab.prompt)
+                    }
+                    if card.link.todoistId != nil { Text("Task").tag(DetailTab.description) }
+                    if card.link.slug != nil { Text("Summary").tag(DetailTab.summary) }
                 }
-                if card.link.todoistId != nil { Text("Task").tag(DetailTab.description) }
-                if card.link.slug != nil { Text("Summary").tag(DetailTab.summary) }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 
     private var actionsMenuButton: some View {
