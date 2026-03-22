@@ -253,7 +253,7 @@ final class BatchedTerminalView: LocalProcessTerminalView {
 @MainActor
 final class TerminalCache {
     static let shared = TerminalCache()
-    static let defaultFontSize: CGFloat = 12
+    static let defaultFontSize: CGFloat = 14
     static let fontSizeKey = "sessionDetailFontSize"
 
     private var terminals: [String: BatchedTerminalView] = [:]
