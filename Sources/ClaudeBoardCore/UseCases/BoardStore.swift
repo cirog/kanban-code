@@ -1305,6 +1305,18 @@ public final class BoardStore: @unchecked Sendable {
             for assoc in associations {
                 sessionByCard[assoc.cardId] = assoc.sessionId // last one wins = latest
             }
+            // Invalidate cached chains for cards whose session association changed
+            for (cardId, newSessionId) in sessionByCard {
+                if state.sessionIdByCardId[cardId] != newSessionId {
+                    state.chainByCardId[cardId] = nil
+                }
+            }
+            // Also invalidate chains for cards that lost their session association
+            for cardId in state.sessionIdByCardId.keys {
+                if sessionByCard[cardId] == nil {
+                    state.chainByCardId[cardId] = nil
+                }
+            }
             for (cardId, sessionId) in sessionByCard {
                 state.sessionIdByCardId[cardId] = sessionId
             }
