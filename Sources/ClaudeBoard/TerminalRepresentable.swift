@@ -71,10 +71,25 @@ final class BatchedTerminalView: LocalProcessTerminalView {
     private var committedSize: NSSize = .zero
 
     override func setFrameSize(_ newSize: NSSize) {
-        let dw = abs(newSize.width - committedSize.width)
-        let dh = abs(newSize.height - committedSize.height)
-        if dw < 1.0 && dh < 1.0 && committedSize != .zero {
-            return  // swallow sub-pixel jitter
+        // Skip if same cell grid — prevents tmux SIGWINCH when SwiftUI
+        // recreates the NSViewRepresentable and frame goes 0x0 → full size.
+        if committedSize != .zero {
+            let cs = cellSize
+            if cs.width > 0 && cs.height > 0 {
+                let oldCols = Int(committedSize.width / cs.width)
+                let oldRows = Int(committedSize.height / cs.height)
+                let newCols = Int(newSize.width / cs.width)
+                let newRows = Int(newSize.height / cs.height)
+                if oldCols == newCols && oldRows == newRows {
+                    return  // same cell grid — no SIGWINCH needed
+                }
+            } else {
+                let dw = abs(newSize.width - committedSize.width)
+                let dh = abs(newSize.height - committedSize.height)
+                if dw < 1.0 && dh < 1.0 {
+                    return  // sub-pixel jitter fallback
+                }
+            }
         }
         committedSize = newSize
         super.setFrameSize(newSize)
@@ -257,7 +272,6 @@ final class TerminalCache {
     static let fontSizeKey = "sessionDetailFontSize"
 
     private var terminals: [String: BatchedTerminalView] = [:]
-    var cachedContainer: TerminalContainerNSView?
     private var shiftEnterMonitor: Any?
     private var scrollWheelMonitor: Any?
     private var fontSizeObserver: Any?
@@ -539,40 +553,62 @@ struct TerminalContainerView: NSViewRepresentable, Equatable {
             && lhs.activeSession == rhs.activeSession
     }
 
-    func makeNSView(context: Context) -> TerminalContainerNSView {
-        ClaudeBoardLog.info("terminal-view", "makeNSView: sessions=\(sessions) active=\(activeSession)")
-        if let cached = TerminalCache.shared.cachedContainer {
-            return cached
-        }
+    /// Coordinator owns the TerminalContainerNSView. Created once per SwiftUI
+    /// structural identity — survives across updateNSView calls. Eliminates the
+    /// singleton container pattern where ghost views fought over shared state.
+    @MainActor
+    class Coordinator {
         let container = TerminalContainerNSView()
-        TerminalCache.shared.cachedContainer = container
+        var lastSessions: [String] = []
+        var lastActiveSession: String = ""
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> TerminalContainerNSView {
+        let container = context.coordinator.container
         for session in sessions {
             container.ensureTerminal(for: session)
         }
         container.showTerminal(for: activeSession, grabFocus: grabFocus)
+        context.coordinator.lastSessions = sessions
+        context.coordinator.lastActiveSession = activeSession
         return container
     }
 
     func updateNSView(_ nsView: TerminalContainerNSView, context: Context) {
-        ClaudeBoardLog.info("terminal-view", "updateNSView called: sessions=\(sessions) active=\(activeSession) grabFocus=\(grabFocus)")
+        let coordinator = context.coordinator
+
         // When sessions are empty (terminal not yet created), just clean up and return.
         guard !sessions.isEmpty, !activeSession.isEmpty else {
             nsView.removeTerminalsNotIn([])
+            coordinator.lastSessions = []
+            coordinator.lastActiveSession = ""
             return
         }
-        // Add any new sessions (idempotent — reuses cached terminals)
-        for session in sessions {
-            nsView.ensureTerminal(for: session)
+
+        // Only add/remove sessions if the list changed
+        if coordinator.lastSessions != sessions {
+            for session in sessions {
+                nsView.ensureTerminal(for: session)
+            }
+            nsView.removeTerminalsNotIn(Set(sessions))
+            coordinator.lastSessions = sessions
         }
-        // Remove terminals that are no longer in the list
-        nsView.removeTerminalsNotIn(Set(sessions))
-        // Switch visible terminal
-        nsView.showTerminal(for: activeSession, grabFocus: grabFocus)
+
+        // Only switch active session if it changed
+        if coordinator.lastActiveSession != activeSession || grabFocus {
+            nsView.showTerminal(for: activeSession, grabFocus: grabFocus)
+            coordinator.lastActiveSession = activeSession
+        }
     }
 
-    static func dismantleNSView(_ nsView: TerminalContainerNSView, coordinator: ()) {
-        // No-op: singleton container survives SwiftUI teardown.
-        // Terminals live on in TerminalCache and will be reparented when the drawer reopens.
+    static func dismantleNSView(_ nsView: TerminalContainerNSView, coordinator: Coordinator) {
+        // Detach terminals from this container but don't terminate them.
+        // They live in TerminalCache and will be re-parented by the next Coordinator.
+        nsView.detachAll()
     }
 }
 
@@ -584,6 +620,8 @@ final class TerminalContainerNSView: NSView {
     /// Ordered list of session names managed by this container.
     private var managedSessions: [String] = []
     fileprivate private(set) var activeSession: String?
+    /// Timestamp of last session switch — prevents oscillation from SwiftUI ghost views.
+    private var lastSwitchTime: ContinuousClock.Instant = .now
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -621,6 +659,20 @@ final class TerminalContainerNSView: NSView {
 
     /// Show only the terminal for `sessionName`, hide all others.
     func showTerminal(for sessionName: String, grabFocus: Bool = false) {
+        // Skip if already showing this session
+        if activeSession == sessionName && !grabFocus {
+            let terminal = TerminalCache.shared.terminal(for: sessionName, frame: bounds)
+            if !terminal.isHidden { return }
+        }
+        // Debounce rapid switches — SwiftUI ghost views during card rebuilds
+        // cause two different cards to alternate showTerminal calls. Only
+        // allow a switch to a DIFFERENT session if >200ms since last switch.
+        if activeSession != nil && activeSession != sessionName && !grabFocus {
+            if lastSwitchTime.duration(to: .now) < .milliseconds(200) {
+                return  // suppress ghost view oscillation
+            }
+        }
+        lastSwitchTime = .now
         activeSession = sessionName
         for name in managedSessions {
             let terminal = TerminalCache.shared.terminal(for: name, frame: bounds)

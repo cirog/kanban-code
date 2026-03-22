@@ -196,35 +196,44 @@ struct CardDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             normalHeader
 
-            // Content
-            switch selectedTab {
-            case .terminal:
+            // Content: terminal always mounted (stable structural identity),
+            // other tabs overlaid on top when active.
+            ZStack {
                 terminalView
-            case .history:
-                VStack(spacing: 0) {
-                    if sessionChain?.hasMore == true {
-                        loadEarlierSessionsButton
-                    }
-                    HistoryPlusView(turns: turns, segments: sessionSegments)
-                    HistoryPlusInputBar(onSend: { text in onSendReplyText(text) })
-                }
-                .onChange(of: sessionChain?.segments.count) {
-                    if hasChainedSessions {
-                        Task { await loadFullHistory() }
-                    }
-                }
-            case .prompt:
-                promptTabView
-                    .onChange(of: sessionChain?.segments.count) {
-                        if hasChainedSessions {
-                            promptsCardId = nil  // force reload
-                            Task { await loadPrompts() }
+                    .opacity(selectedTab == .terminal ? 1 : 0)
+                    .allowsHitTesting(selectedTab == .terminal)
+
+                if selectedTab != .terminal {
+                    switch selectedTab {
+                    case .terminal:
+                        EmptyView()
+                    case .history:
+                        VStack(spacing: 0) {
+                            if sessionChain?.hasMore == true {
+                                loadEarlierSessionsButton
+                            }
+                            HistoryPlusView(turns: turns, segments: sessionSegments)
+                            HistoryPlusInputBar(onSend: { text in onSendReplyText(text) })
                         }
+                        .onChange(of: sessionChain?.segments.count) {
+                            if hasChainedSessions {
+                                Task { await loadFullHistory() }
+                            }
+                        }
+                    case .prompt:
+                        promptTabView
+                            .onChange(of: sessionChain?.segments.count) {
+                                if hasChainedSessions {
+                                    promptsCardId = nil  // force reload
+                                    Task { await loadPrompts() }
+                                }
+                            }
+                    case .description:
+                        descriptionTabView
+                    case .summary:
+                        summaryTabView
                     }
-            case .description:
-                descriptionTabView
-            case .summary:
-                summaryTabView
+                }
             }
         }
         .frame(maxWidth: .infinity)
