@@ -304,6 +304,59 @@ struct CoordinationStoreTests {
         #expect(try await store.readLinks().count == 1)
     }
 
+    // MARK: - Chain segment queries
+
+    @Test("chainSegments returns sessions for a card")
+    func chainSegmentsForCard() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        let link = Link(id: "card-1", column: .waiting, source: .manual)
+        try await store.writeLinks([link], associations: [
+            CardReconciler.SessionAssociation(sessionId: "s1", cardId: "card-1", matchedBy: "tmux", path: "/s1.jsonl"),
+            CardReconciler.SessionAssociation(sessionId: "s2", cardId: "card-1", matchedBy: "tmux", path: "/s2.jsonl"),
+            CardReconciler.SessionAssociation(sessionId: "s3", cardId: "card-1", matchedBy: "discovered", path: "/s3.jsonl"),
+        ])
+
+        let segments = try await store.chainSegments(forCardId: "card-1")
+        #expect(segments.count == 3)
+        #expect(segments.allSatisfy { $0.cardId == "card-1" })
+    }
+
+    @Test("chainSegments respects limit")
+    func chainSegmentsLimit() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        let link = Link(id: "card-1", column: .waiting, source: .manual)
+        try await store.writeLinks([link], associations: [
+            CardReconciler.SessionAssociation(sessionId: "s1", cardId: "card-1", matchedBy: "tmux", path: "/s1.jsonl"),
+            CardReconciler.SessionAssociation(sessionId: "s2", cardId: "card-1", matchedBy: "tmux", path: "/s2.jsonl"),
+            CardReconciler.SessionAssociation(sessionId: "s3", cardId: "card-1", matchedBy: "tmux", path: "/s3.jsonl"),
+        ])
+
+        let segments = try await store.chainSegments(forCardId: "card-1", limit: 2)
+        #expect(segments.count == 2)
+    }
+
+    @Test("chainSegmentCount returns total for a card")
+    func chainSegmentCount() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+        let store = CoordinationStore(basePath: dir)
+
+        let link = Link(id: "card-1", column: .waiting, source: .manual)
+        try await store.writeLinks([link], associations: [
+            CardReconciler.SessionAssociation(sessionId: "s1", cardId: "card-1", matchedBy: "tmux", path: "/s1.jsonl"),
+            CardReconciler.SessionAssociation(sessionId: "s2", cardId: "card-1", matchedBy: "tmux", path: "/s2.jsonl"),
+        ])
+
+        #expect(try await store.chainSegmentCount(forCardId: "card-1") == 2)
+        #expect(try await store.chainSegmentCount(forCardId: "card-other") == 0)
+    }
+
     @Test("writeLinks replaces all links")
     func writeLinksReplaces() async throws {
         let dir = try makeTempDir()

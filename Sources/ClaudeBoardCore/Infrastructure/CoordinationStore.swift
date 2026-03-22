@@ -356,6 +356,45 @@ public actor CoordinationStore {
         return result
     }
 
+    /// Row data for chain segment construction.
+    public struct ChainSegmentRow: Sendable {
+        public let sessionId: String
+        public let cardId: String
+        public let matchedBy: String
+        public let path: String?
+    }
+
+    /// Get session_links rows for a specific card, ordered by created_at DESC (most recent first).
+    public func chainSegments(forCardId cardId: String, limit: Int = Int.max) -> [ChainSegmentRow] {
+        ensureInitialized()
+        var result: [ChainSegmentRow] = []
+        var stmt: OpaquePointer?
+        let sql = "SELECT session_id, link_id, matched_by, path FROM session_links WHERE link_id = ? ORDER BY created_at DESC LIMIT ?"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, (cardId as NSString).utf8String, -1, nil)
+        sqlite3_bind_int(stmt, 2, Int32(min(limit, Int(Int32.max))))
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let sessionId = String(cString: sqlite3_column_text(stmt, 0))
+            let linkId = String(cString: sqlite3_column_text(stmt, 1))
+            let matchedBy = String(cString: sqlite3_column_text(stmt, 2))
+            let path = sqlite3_column_text(stmt, 3).map { String(cString: $0) }
+            result.append(ChainSegmentRow(sessionId: sessionId, cardId: linkId, matchedBy: matchedBy, path: path))
+        }
+        return result
+    }
+
+    /// Count total session_links rows for a card.
+    public func chainSegmentCount(forCardId cardId: String) -> Int {
+        ensureInitialized()
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM session_links WHERE link_id = ?", -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, (cardId as NSString).utf8String, -1, nil)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int(stmt, 0))
+    }
+
     /// Update specific fields of a link by link.id.
     public func updateLink(id: String, update: (inout Link) -> Void) throws {
         guard var link = try linkById(id) else { return }
