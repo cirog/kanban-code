@@ -310,8 +310,8 @@ struct ContentView: View {
                     store.dispatch(.setLastTab(cardId: card.id, tab: tab))
                 },
                 sessionChain: store.state.chainByCardId[card.id],
-                onLoadChain: {
-                    store.dispatch(.loadChain(cardId: card.id))
+                onLoadChain: { limit in
+                    store.dispatch(.loadChain(cardId: card.id, limit: limit))
                 },
                 actionsMenuProvider: actionsMenuProvider,
                 focusTerminal: $shouldFocusTerminal,

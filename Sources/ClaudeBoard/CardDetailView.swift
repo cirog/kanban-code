@@ -83,7 +83,7 @@ struct CardDetailView: View {
     var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
     var onSetLastTab: (String) -> Void = { _ in }
     var sessionChain: SessionChain?
-    var onLoadChain: () -> Void = {}
+    var onLoadChain: (Int) -> Void = { _ in }
     var actionsMenuProvider: ActionsMenuProvider?
     @Binding var focusTerminal: Bool
     @Binding var isDroppingImage: Bool
@@ -157,7 +157,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: ClaudeBoardCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping () -> Void = {}, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, onSendReplyText: @escaping (String) -> Void = { _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, onSetLastTab: @escaping (String) -> Void = { _ in }, sessionChain: SessionChain? = nil, onLoadChain: @escaping () -> Void = {}, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
+    init(card: ClaudeBoardCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping () -> Void = {}, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, onSendReplyText: @escaping (String) -> Void = { _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, onSetLastTab: @escaping (String) -> Void = { _ in }, sessionChain: SessionChain? = nil, onLoadChain: @escaping (Int) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -202,6 +202,9 @@ struct CardDetailView: View {
                 terminalView
             case .history:
                 VStack(spacing: 0) {
+                    if sessionChain?.hasMore == true {
+                        loadEarlierSessionsButton
+                    }
                     HistoryPlusView(turns: turns, segments: sessionSegments)
                     HistoryPlusInputBar(onSend: { text in onSendReplyText(text) })
                 }
@@ -236,7 +239,7 @@ struct CardDetailView: View {
             terminalGrabFocus = false
             // Ensure chain is loaded for History/Prompts tabs
             if sessionChain == nil {
-                onLoadChain()
+                onLoadChain(5)
             }
             // Reset tab to a valid one for this card (skip auto-focus)
             suppressTerminalFocus = true
@@ -941,6 +944,24 @@ struct CardDetailView: View {
     // MARK: - Prompt Tab
 
     @ViewBuilder
+    private var loadEarlierSessionsButton: some View {
+        Button {
+            let loaded = sessionChain?.segments.count ?? 0
+            onLoadChain(loaded + 5)
+        } label: {
+            HStack {
+                Image(systemName: "arrow.up.circle")
+                let remaining = (sessionChain?.totalSegments ?? 0) - (sessionChain?.segments.count ?? 0)
+                Text("Load \(remaining) earlier sessions")
+            }
+            .font(.app(.caption))
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
+
     private var promptTabView: some View {
         promptTimelineView
     }
@@ -976,6 +997,10 @@ struct CardDetailView: View {
             .padding(.vertical, 8)
 
             Divider()
+
+            if sessionChain?.hasMore == true {
+                loadEarlierSessionsButton
+            }
 
             if isLoadingPrompts {
                 VStack {
