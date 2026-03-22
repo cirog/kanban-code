@@ -27,22 +27,24 @@ public enum HistoryPlusHTMLBuilder {
 
     /// Build HTML message divs from conversation turns.
     /// Text blocks become chat bubbles (user-msg / assistant-msg).
-    /// Visible tool_use blocks become compact activity-msg indicators.
+    /// Visible tool_use blocks become compact activity-msg indicators, but only when
+    /// trailing — activity lines are stripped once a text or skill message follows.
     /// The caller must load marked.js and then run the render script to parse data-md.
     public static func buildMessagesHTML(
         from turns: [ConversationTurn],
         transformMarkdown: ((String) -> String)? = nil
     ) -> String {
-        var parts: [String] = []
+        // Two-pass: build all parts tagged as activity or content, then strip non-trailing activity.
+        var tagged: [(html: String, isActivity: Bool)] = []
 
         for turn in turns {
             // 1. Skill invocations take full priority — render as skill-msg, skip rest
             let skillName = detectSkill(in: turn)
             if let skill = skillName {
                 let escaped = escapeForAttribute(skill)
-                parts.append("""
+                tagged.append(("""
                 <div class="message skill-msg" data-md="\(escaped)"></div>
-                """)
+                """, false))
                 continue
             }
 
@@ -58,9 +60,9 @@ public enum HistoryPlusHTMLBuilder {
                 }
                 let attrEscaped = escapeForAttribute(markdown)
                 let cssClass = turn.role == "user" ? "user-msg" : "assistant-msg"
-                parts.append("""
+                tagged.append(("""
                 <div class="message \(cssClass)" data-md="\(attrEscaped)"></div>
-                """)
+                """, false))
             }
 
             // 3. Collect visible tool_use blocks → activity indicators
@@ -73,15 +75,21 @@ public enum HistoryPlusHTMLBuilder {
             for block in visibleTools {
                 if case .toolUse(let name, _) = block.kind {
                     let gerund = gerundLabels[name] ?? name
-                    // Extract the parenthesized args from display text (e.g., "Read(.../file)" → ".../file")
                     let args = extractArgs(from: block.text)
                     let label = args.isEmpty ? gerund : "\(gerund) \(args)"
                     let escaped = escapeForAttribute(label)
-                    parts.append("""
+                    tagged.append(("""
                     <div class="message activity-msg" data-md="\(escaped)"></div>
-                    """)
+                    """, true))
                 }
             }
+        }
+
+        // Strip non-trailing activity: find last content index, remove all activity before it.
+        let lastContentIndex = tagged.lastIndex(where: { !$0.isActivity }) ?? -1
+        let parts: [String] = tagged.enumerated().compactMap { i, entry -> String? in
+            if entry.isActivity && i < lastContentIndex { return nil }
+            return entry.html
         }
 
         return parts.joined(separator: "\n")

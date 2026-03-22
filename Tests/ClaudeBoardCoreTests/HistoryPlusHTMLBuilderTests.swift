@@ -5,7 +5,7 @@ import Foundation
 @Suite("HistoryPlusHTMLBuilder")
 struct HistoryPlusHTMLBuilderTests {
 
-    @Test("Renders text blocks and tool activity, filters tool-result and thinking")
+    @Test("Activity lines hidden when followed by text; tool-result and thinking always hidden")
     func filtersNonTextBlocks() {
         let turns: [ConversationTurn] = [
             ConversationTurn(
@@ -51,9 +51,8 @@ struct HistoryPlusHTMLBuilderTests {
         // Assistant text blocks present
         #expect(html.contains("Let me read that file."))
         #expect(html.contains("Here is the fix."))
-        // Tool activity rendered as activity-msg
-        #expect(html.contains("activity-msg"))
-        #expect(html.contains("Reading"))
+        // Activity lines hidden — text follows in turn 4
+        #expect(!html.contains("activity-msg"))
         // Tool-result and thinking content NOT present
         #expect(!html.contains("file contents..."))
         #expect(!html.contains("Let me think about this..."))
@@ -269,8 +268,8 @@ struct HistoryPlusHTMLBuilderTests {
         #expect(html.isEmpty)
     }
 
-    @Test("Mixed turn renders both text bubble and activity indicators")
-    func mixedTurnRendersTextAndActivity() {
+    @Test("Trailing tool activity after text is shown (last content in conversation)")
+    func trailingActivityAfterTextShown() {
         let turns: [ConversationTurn] = [
             ConversationTurn(
                 index: 0, lineNumber: 0, role: "assistant",
@@ -284,11 +283,40 @@ struct HistoryPlusHTMLBuilderTests {
         ]
 
         let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        // Text bubble present
         #expect(html.contains("assistant-msg"))
         #expect(html.contains("I found the issue."))
+        // Activity shown — these are trailing (nothing follows)
         #expect(html.contains("activity-msg"))
         #expect(html.contains("Reading"))
         #expect(html.contains("Editing"))
+    }
+
+    @Test("Activity hidden when followed by text in a later turn")
+    func activityHiddenWhenTextFollows() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "assistant",
+                textPreview: "Reading",
+                contentBlocks: [
+                    ContentBlock(kind: .toolUse(name: "Read", input: [:]), text: "Read(file.swift)"),
+                    ContentBlock(kind: .toolUse(name: "Grep", input: [:]), text: "Grep(pattern)"),
+                ]
+            ),
+            ConversationTurn(
+                index: 1, lineNumber: 1, role: "assistant",
+                textPreview: "Found it!",
+                contentBlocks: [
+                    ContentBlock(kind: .text, text: "Found it!"),
+                ]
+            ),
+        ]
+
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        // Text present
+        #expect(html.contains("Found it!"))
+        // Activity hidden — text follows
+        #expect(!html.contains("activity-msg"))
     }
 
     @Test("Activity indicators use gerund labels for known tools")
