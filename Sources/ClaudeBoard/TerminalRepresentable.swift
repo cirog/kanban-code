@@ -409,7 +409,8 @@ final class TerminalCache {
         let newSize = stored > 0 ? CGFloat(stored) : Self.defaultFontSize
         guard newSize != currentFontSize else { return }
         currentFontSize = newSize
-        let font = NSFont.monospacedSystemFont(ofSize: newSize, weight: .regular)
+        let font = NSFont(name: "JetBrains Mono", size: newSize)
+            ?? NSFont.monospacedSystemFont(ofSize: newSize, weight: .regular)
         for terminal in terminals.values {
             terminal.font = font
         }
@@ -457,7 +458,8 @@ final class TerminalCache {
             c(0xFF, 0xFF, 0xFF),  // bright white
         ])
 
-        terminal.font = NSFont.monospacedSystemFont(ofSize: currentFontSize, weight: .regular)
+        terminal.font = NSFont(name: "JetBrains Mono", size: currentFontSize)
+            ?? NSFont.monospacedSystemFont(ofSize: currentFontSize, weight: .regular)
 
         // Do NOT set autoresizingMask — we manage frame explicitly in layout()
         // to avoid intermediate sizes triggering tmux redraws during animations.
