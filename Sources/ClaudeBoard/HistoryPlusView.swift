@@ -4,7 +4,7 @@ import ClaudeBoardCore
 
 /// WKWebView-based chat renderer for History+ tab.
 /// Shows full conversation with user messages as pink bubbles (right) and
-/// assistant text as Dracula-styled markdown (left). Tool/thinking blocks filtered.
+/// assistant text as Dracula-styled markdown (left), and tool activity as compact green indicators.
 struct HistoryPlusView: NSViewRepresentable {
     let turns: [ConversationTurn]
     /// Optional session segments with divider HTML. When provided, renders segmented view with dividers.
@@ -22,15 +22,15 @@ struct HistoryPlusView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let coord = context.coordinator
-        let currentCount = turns.count
-        guard currentCount != coord.lastTurnCount else { return }
+        let currentLine = turns.last?.lineNumber ?? -1
+        guard currentLine != coord.lastLineNumber else { return }
         loadHTML(into: webView, coordinator: coord)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     private func loadHTML(into webView: WKWebView, coordinator: Coordinator) {
-        coordinator.lastTurnCount = turns.count
+        coordinator.lastLineNumber = turns.last?.lineNumber ?? -1
 
         let messagesHTML: String
         if let segments {
@@ -58,7 +58,7 @@ struct HistoryPlusView: NSViewRepresentable {
     }
 
     class Coordinator: NSObject, WKNavigationDelegate {
-        var lastTurnCount: Int = 0
+        var lastLineNumber: Int = -1
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             if navigationAction.navigationType == .other { return .allow }

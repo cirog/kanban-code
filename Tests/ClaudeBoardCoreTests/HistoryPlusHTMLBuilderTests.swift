@@ -5,7 +5,7 @@ import Foundation
 @Suite("HistoryPlusHTMLBuilder")
 struct HistoryPlusHTMLBuilderTests {
 
-    @Test("Filters out tool-use, tool-result, and thinking blocks")
+    @Test("Renders text blocks and tool activity, filters tool-result and thinking")
     func filtersNonTextBlocks() {
         let turns: [ConversationTurn] = [
             ConversationTurn(
@@ -51,15 +51,16 @@ struct HistoryPlusHTMLBuilderTests {
         // Assistant text blocks present
         #expect(html.contains("Let me read that file."))
         #expect(html.contains("Here is the fix."))
-        // Tool/thinking content NOT present
+        // Tool activity rendered as activity-msg
+        #expect(html.contains("activity-msg"))
+        #expect(html.contains("Reading"))
+        // Tool-result and thinking content NOT present
         #expect(!html.contains("file contents..."))
         #expect(!html.contains("Let me think about this..."))
-        // Tool-use text NOT rendered
-        #expect(!html.contains("Read /foo"))
     }
 
-    @Test("Skips turns with no text blocks")
-    func skipsTurnsWithOnlyToolBlocks() {
+    @Test("Visible tool-only turns render as activity, not as assistant messages")
+    func visibleToolOnlyTurns() {
         let turns: [ConversationTurn] = [
             ConversationTurn(
                 index: 0, lineNumber: 0, role: "assistant",
@@ -72,9 +73,13 @@ struct HistoryPlusHTMLBuilderTests {
         ]
 
         let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
-        #expect(!html.contains("ls -la"))
+        // Bash is a visible tool → activity-msg present
+        #expect(html.contains("activity-msg"))
+        #expect(html.contains("Running"))
+        // Tool result content NOT rendered
         #expect(!html.contains("total 0"))
-        #expect(!html.contains("message"))
+        // No assistant-msg bubble (no text blocks)
+        #expect(!html.contains("assistant-msg"))
     }
 
     @Test("User messages get user-msg class")
@@ -243,6 +248,119 @@ struct HistoryPlusHTMLBuilderTests {
         #expect(css.contains(".user-msg"))
         #expect(css.contains(".assistant-msg"))
         #expect(css.contains("255, 121, 198"))  // Dracula pink (#ff79c6) in rgba
+    }
+
+    // MARK: - Tool Activity Indicators
+
+    @Test("Hidden bookkeeping tools produce no output")
+    func hiddenToolsAreFiltered() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "assistant",
+                textPreview: "TaskCreate",
+                contentBlocks: [
+                    ContentBlock(kind: .toolUse(name: "TaskCreate", input: ["subject": "Do stuff"]), text: "TaskCreate(Do stuff)"),
+                    ContentBlock(kind: .toolUse(name: "TaskUpdate", input: ["taskId": "1"]), text: "TaskUpdate(1)"),
+                ]
+            ),
+        ]
+
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        #expect(html.isEmpty)
+    }
+
+    @Test("Mixed turn renders both text bubble and activity indicators")
+    func mixedTurnRendersTextAndActivity() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "assistant",
+                textPreview: "I found the issue.",
+                contentBlocks: [
+                    ContentBlock(kind: .text, text: "I found the issue."),
+                    ContentBlock(kind: .toolUse(name: "Read", input: ["file_path": "foo.swift"]), text: "Read(.../foo.swift)"),
+                    ContentBlock(kind: .toolUse(name: "Edit", input: ["file_path": "foo.swift"]), text: "Edit(.../foo.swift)"),
+                ]
+            ),
+        ]
+
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        #expect(html.contains("assistant-msg"))
+        #expect(html.contains("I found the issue."))
+        #expect(html.contains("activity-msg"))
+        #expect(html.contains("Reading"))
+        #expect(html.contains("Editing"))
+    }
+
+    @Test("Activity indicators use gerund labels for known tools")
+    func activityMsgUsesGerundLabel() {
+        let tools: [(String, String)] = [
+            ("Read", "Reading"),
+            ("Write", "Writing"),
+            ("Edit", "Editing"),
+            ("Bash", "Running"),
+            ("Grep", "Searching"),
+            ("Glob", "Finding files"),
+            ("Agent", "Delegating"),
+            ("WebFetch", "Fetching"),
+            ("WebSearch", "Searching web"),
+        ]
+        for (toolName, expectedGerund) in tools {
+            let turns: [ConversationTurn] = [
+                ConversationTurn(
+                    index: 0, lineNumber: 0, role: "assistant",
+                    textPreview: toolName,
+                    contentBlocks: [
+                        ContentBlock(kind: .toolUse(name: toolName, input: [:]), text: "\(toolName)(args)"),
+                    ]
+                ),
+            ]
+            let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+            #expect(html.contains(expectedGerund), "Tool '\(toolName)' should produce gerund '\(expectedGerund)'")
+        }
+    }
+
+    @Test("Chat CSS contains activity-msg rules with Dracula green")
+    func chatCSSContainsActivityMsgRules() {
+        let css = HistoryPlusHTMLBuilder.chatCSS
+        #expect(css.contains(".activity-msg"))
+        #expect(css.contains("80, 250, 123"))  // Dracula green (#50fa7b) in rgba
+    }
+
+    @Test("Skill tool_use takes priority over activity indicator")
+    func skillTurnsTakePriorityOverActivity() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "assistant",
+                textPreview: "Skill(ic:status)",
+                contentBlocks: [
+                    ContentBlock(kind: .toolUse(name: "Skill", input: ["skill": "ic:status"]), text: "Skill(ic:status)"),
+                    ContentBlock(kind: .toolUse(name: "Read", input: [:]), text: "Read(file)"),
+                ]
+            ),
+        ]
+
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        #expect(html.contains("skill-msg"))
+        #expect(!html.contains("activity-msg"))
+    }
+
+    @Test("Thinking-only and toolResult-only turns produce no output")
+    func thinkingAndToolResultStillHidden() {
+        let turns: [ConversationTurn] = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "assistant",
+                textPreview: "Thinking",
+                contentBlocks: [ContentBlock(kind: .thinking, text: "deep thought")]
+            ),
+            ConversationTurn(
+                index: 1, lineNumber: 1, role: "assistant",
+                textPreview: "Result",
+                contentBlocks: [ContentBlock(kind: .toolResult(toolName: "Bash"), text: "output")]
+            ),
+        ]
+
+        let html = HistoryPlusHTMLBuilder.buildMessagesHTML(from: turns)
+        #expect(html.isEmpty)
     }
 
     // MARK: - Session Dividers

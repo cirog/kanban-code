@@ -1,13 +1,33 @@
 import Foundation
 
 /// Pure function: transforms conversation turns into chat-bubble HTML for History+ tab.
-/// Filters out tool-use, tool-result, and thinking blocks — only renders text.
+/// Renders text as chat bubbles and tool activity as compact status indicators.
+/// Filters out tool-result and thinking blocks.
 public enum HistoryPlusHTMLBuilder {
 
+    /// Tools that are bookkeeping noise — never shown as activity indicators.
+    private static let hiddenTools: Set<String> = [
+        "TaskCreate", "TaskUpdate", "TaskGet", "TaskList",
+        "TodoWrite", "SendMessage", "CronCreate", "CronDelete", "CronList",
+        "TeamCreate", "TeamDelete", "ToolSearch",
+    ]
+
+    /// Maps tool names to friendly gerund labels for activity display.
+    private static let gerundLabels: [String: String] = [
+        "Read": "Reading",
+        "Write": "Writing",
+        "Edit": "Editing",
+        "Bash": "Running",
+        "Grep": "Searching",
+        "Glob": "Finding files",
+        "Agent": "Delegating",
+        "WebFetch": "Fetching",
+        "WebSearch": "Searching web",
+    ]
+
     /// Build HTML message divs from conversation turns.
-    /// Each turn becomes a div with class "message user-msg" or "message assistant-msg"
-    /// and a `data-md` attribute containing the escaped markdown.
-    /// Turns with no text blocks are skipped entirely.
+    /// Text blocks become chat bubbles (user-msg / assistant-msg).
+    /// Visible tool_use blocks become compact activity-msg indicators.
     /// The caller must load marked.js and then run the render script to parse data-md.
     public static func buildMessagesHTML(
         from turns: [ConversationTurn],
@@ -16,7 +36,7 @@ public enum HistoryPlusHTMLBuilder {
         var parts: [String] = []
 
         for turn in turns {
-            // Check for skill invocations first
+            // 1. Skill invocations take full priority — render as skill-msg, skip rest
             let skillName = detectSkill(in: turn)
             if let skill = skillName {
                 let escaped = escapeForAttribute(skill)
@@ -26,25 +46,54 @@ public enum HistoryPlusHTMLBuilder {
                 continue
             }
 
+            // 2. Collect text blocks → chat bubble
             let textBlocks = turn.contentBlocks.filter {
                 if case .text = $0.kind { return true }
                 return false
             }
-            guard !textBlocks.isEmpty else { continue }
-
-            var markdown = textBlocks.map(\.text).joined(separator: "\n\n")
-            if let transform = transformMarkdown {
-                markdown = transform(markdown)
+            if !textBlocks.isEmpty {
+                var markdown = textBlocks.map(\.text).joined(separator: "\n\n")
+                if let transform = transformMarkdown {
+                    markdown = transform(markdown)
+                }
+                let attrEscaped = escapeForAttribute(markdown)
+                let cssClass = turn.role == "user" ? "user-msg" : "assistant-msg"
+                parts.append("""
+                <div class="message \(cssClass)" data-md="\(attrEscaped)"></div>
+                """)
             }
-            let attrEscaped = escapeForAttribute(markdown)
 
-            let cssClass = turn.role == "user" ? "user-msg" : "assistant-msg"
-            parts.append("""
-            <div class="message \(cssClass)" data-md="\(attrEscaped)"></div>
-            """)
+            // 3. Collect visible tool_use blocks → activity indicators
+            let visibleTools = turn.contentBlocks.filter { block in
+                if case .toolUse(let name, _) = block.kind {
+                    return !hiddenTools.contains(name) && name != "Skill"
+                }
+                return false
+            }
+            for block in visibleTools {
+                if case .toolUse(let name, _) = block.kind {
+                    let gerund = gerundLabels[name] ?? name
+                    // Extract the parenthesized args from display text (e.g., "Read(.../file)" → ".../file")
+                    let args = extractArgs(from: block.text)
+                    let label = args.isEmpty ? gerund : "\(gerund) \(args)"
+                    let escaped = escapeForAttribute(label)
+                    parts.append("""
+                    <div class="message activity-msg" data-md="\(escaped)"></div>
+                    """)
+                }
+            }
         }
 
         return parts.joined(separator: "\n")
+    }
+
+    /// Extract parenthesized arguments from tool display text like "Read(.../file.swift)".
+    private static func extractArgs(from displayText: String) -> String {
+        guard let openParen = displayText.firstIndex(of: "("),
+              let closeParen = displayText.lastIndex(of: ")"),
+              openParen < closeParen else { return "" }
+        let start = displayText.index(after: openParen)
+        return String(displayText[start..<closeParen])
     }
 
     /// JavaScript to render all data-md divs via marked.parse(). Run after marked.js loads.
@@ -81,6 +130,15 @@ public enum HistoryPlusHTMLBuilder {
             background: rgba(139, 233, 253, 0.12);
             border: 1px solid rgba(139, 233, 253, 0.25);
             font-size: 0.9em;
+        }
+        .activity-msg {
+            margin: 2px 0;
+            padding: 4px 12px;
+            border-radius: 0;
+            font-size: 0.78em;
+            font-family: monospace;
+            color: rgba(80, 250, 123, 0.7);
+            border-left: 2px solid rgba(80, 250, 123, 0.3);
         }
         .session-divider {
             display: flex;

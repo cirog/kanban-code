@@ -270,9 +270,9 @@ struct CardDetailView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeBoardHistoryChanged)) { _ in
             guard selectedTab == .history else { return }
-            // Debounce: only reload if >0.5s since last reload
+            // Debounce: only reload if >0.2s since last reload
             let now = Date()
-            guard now.timeIntervalSince(lastReloadTime) > 0.5 else { return }
+            guard now.timeIntervalSince(lastReloadTime) > 0.2 else { return }
             lastReloadTime = now
             if selectedTab == .history {
                 Task { await loadHistory() }
@@ -1586,10 +1586,10 @@ struct CardDetailView: View {
         let source = Self.makeHistorySource(fd: fd)
         historyWatcherSource = source
 
-        // Periodic poll as fallback (every 3s) in case DispatchSource misses events
+        // Periodic poll as fallback (every 1.5s) in case DispatchSource misses events
         historyPollTask = Task { @MainActor in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
+                try? await Task.sleep(for: .seconds(1.5))
                 guard !Task.isCancelled, selectedTab == .history else { break }
                 await loadHistory()
             }
