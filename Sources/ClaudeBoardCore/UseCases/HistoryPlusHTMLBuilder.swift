@@ -134,6 +134,90 @@ public enum HistoryPlusHTMLBuilder {
         return parts.joined(separator: "\n")
     }
 
+    // MARK: - Prompts HTML
+
+    /// Build HTML for the prompts tab: user messages grouped by session with collapsible sections.
+    public static func buildPromptsHTML(
+        groups: [(sessionLabel: String, dividerHTML: String?, prompts: [ConversationTurn])]
+    ) -> String {
+        var parts: [String] = []
+
+        for (i, group) in groups.enumerated() {
+            if let divider = group.dividerHTML, i > 0 {
+                parts.append(divider)
+            }
+
+            if groups.count > 1 {
+                parts.append("""
+                <details \(i == groups.count - 1 ? "open" : "")>
+                    <summary class="session-header">\(escapeForAttribute(group.sessionLabel))</summary>
+                """)
+            }
+
+            for prompt in group.prompts {
+                let textBlocks = prompt.contentBlocks.filter { if case .text = $0.kind { true } else { false } }
+                guard !textBlocks.isEmpty else { continue }
+                let markdown = textBlocks.map(\.text).joined(separator: "\n\n")
+                let escaped = escapeForAttribute(markdown)
+                let ts = prompt.timestamp ?? ""
+                let tsEscaped = escapeForAttribute(ts)
+
+                parts.append("""
+                <div class="prompt-entry">
+                    <span class="prompt-ts">\(tsEscaped)</span>
+                    <div class="prompt-body" data-md="\(escaped)"></div>
+                </div>
+                """)
+            }
+
+            if groups.count > 1 {
+                parts.append("</details>")
+            }
+        }
+
+        return parts.joined(separator: "\n")
+    }
+
+    /// CSS for prompts tab.
+    public static let promptsCSS: String = """
+        .session-header {
+            color: rgba(98, 114, 164, 0.8);
+            font-size: 0.85em;
+            cursor: pointer;
+            padding: 8px 0;
+            font-style: italic;
+        }
+        .session-header:hover { color: rgba(139, 233, 253, 0.8); }
+        details { margin: 8px 0; }
+        .prompt-entry {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(68, 71, 90, 0.5);
+        }
+        .prompt-ts {
+            display: block;
+            font-size: 0.75em;
+            color: rgba(98, 114, 164, 0.6);
+            font-family: monospace;
+            margin-bottom: 6px;
+        }
+        .prompt-body {
+            line-height: 1.6;
+        }
+        .prompt-body p { margin: 0.3em 0; }
+        .prompt-body code {
+            background: rgba(68, 71, 90, 0.5);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        .prompt-body pre {
+            background: rgba(40, 42, 54, 0.8);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+    """
+
     // MARK: - Helpers
 
     /// Detect if a turn is a skill invocation. Returns formatted skill display text or nil.

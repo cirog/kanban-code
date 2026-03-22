@@ -304,4 +304,112 @@ struct HistoryPlusHTMLBuilderTests {
         #expect(css.contains(".divider-line"))
         #expect(css.contains(".divider-text"))
     }
+
+    // MARK: - Prompts HTML Builder
+
+    @Test("Prompts HTML renders prompt entries with data-md and timestamp")
+    func promptsHTMLBasic() {
+        let prompts = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "Fix the bug",
+                timestamp: "2026-03-22T10:00:00Z",
+                contentBlocks: [ContentBlock(kind: .text, text: "Fix the bug")]
+            ),
+        ]
+        let groups: [(sessionLabel: String, dividerHTML: String?, prompts: [ConversationTurn])] = [
+            ("Current session", nil, prompts),
+        ]
+        let html = HistoryPlusHTMLBuilder.buildPromptsHTML(groups: groups)
+        #expect(html.contains("prompt-entry"))
+        #expect(html.contains("prompt-ts"))
+        #expect(html.contains("prompt-body"))
+        #expect(html.contains("data-md="))
+        #expect(html.contains("Fix the bug"))
+        #expect(html.contains("2026-03-22T10:00:00Z"))
+    }
+
+    @Test("Prompts HTML skips turns with no text blocks")
+    func promptsHTMLSkipsNonText() {
+        let prompts = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "Tool result",
+                contentBlocks: [ContentBlock(kind: .toolResult(toolName: "Bash"), text: "output")]
+            ),
+        ]
+        let groups: [(sessionLabel: String, dividerHTML: String?, prompts: [ConversationTurn])] = [
+            ("Current session", nil, prompts),
+        ]
+        let html = HistoryPlusHTMLBuilder.buildPromptsHTML(groups: groups)
+        #expect(!html.contains("prompt-entry"))
+    }
+
+    @Test("Prompts HTML single group does NOT wrap in details")
+    func promptsHTMLSingleGroupNoDetails() {
+        let prompts = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "Hello",
+                contentBlocks: [ContentBlock(kind: .text, text: "Hello")]
+            ),
+        ]
+        let groups: [(sessionLabel: String, dividerHTML: String?, prompts: [ConversationTurn])] = [
+            ("Current session", nil, prompts),
+        ]
+        let html = HistoryPlusHTMLBuilder.buildPromptsHTML(groups: groups)
+        #expect(!html.contains("<details"))
+        #expect(!html.contains("</details>"))
+        #expect(!html.contains("session-header"))
+    }
+
+    @Test("Prompts HTML multiple groups use collapsible details sections")
+    func promptsHTMLMultipleGroupsCollapsible() {
+        let prompts1 = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "Hello",
+                contentBlocks: [ContentBlock(kind: .text, text: "Hello")]
+            ),
+        ]
+        let prompts2 = [
+            ConversationTurn(
+                index: 1, lineNumber: 1, role: "user",
+                textPreview: "World",
+                contentBlocks: [ContentBlock(kind: .text, text: "World")]
+            ),
+        ]
+        let divider = HistoryPlusHTMLBuilder.buildSessionDividerHTML(
+            reason: "Resumed", gap: "1h gap", timestamp: "10:00"
+        )
+        let groups: [(sessionLabel: String, dividerHTML: String?, prompts: [ConversationTurn])] = [
+            ("Session 1", nil, prompts1),
+            ("Session 2", divider, prompts2),
+        ]
+        let html = HistoryPlusHTMLBuilder.buildPromptsHTML(groups: groups)
+        // First group closed, last group open
+        #expect(html.contains("<details >"))   // first group NOT open
+        #expect(html.contains("details open"))  // last group open
+        #expect(html.contains("session-header"))
+        #expect(html.contains("Session 1"))
+        #expect(html.contains("Session 2"))
+        #expect(html.contains("session-divider"))
+        #expect(html.contains("Hello"))
+        #expect(html.contains("World"))
+    }
+
+    @Test("Prompts HTML returns empty for empty groups")
+    func promptsHTMLEmpty() {
+        let html = HistoryPlusHTMLBuilder.buildPromptsHTML(groups: [])
+        #expect(html.isEmpty)
+    }
+
+    @Test("Prompts CSS contains required classes")
+    func promptsCSSContainsRules() {
+        let css = HistoryPlusHTMLBuilder.promptsCSS
+        #expect(css.contains(".session-header"))
+        #expect(css.contains(".prompt-entry"))
+        #expect(css.contains(".prompt-ts"))
+        #expect(css.contains(".prompt-body"))
+    }
 }

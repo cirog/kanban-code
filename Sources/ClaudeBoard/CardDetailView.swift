@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import ClaudeBoardCore
 import MarkdownUI
 
@@ -120,6 +121,7 @@ struct CardDetailView: View {
 
     // Prompt timeline
     @State private var promptTurns: [ConversationTurn] = []
+    @State private var promptsHTML: String = ""
     @State private var isLoadingPrompts = false
     @State private var promptsCardId: String?
 
@@ -210,6 +212,12 @@ struct CardDetailView: View {
                 }
             case .prompt:
                 promptTabView
+                    .onChange(of: sessionChain?.segments.count) {
+                        if hasChainedSessions {
+                            promptsCardId = nil  // force reload
+                            Task { await loadPrompts() }
+                        }
+                    }
             case .description:
                 descriptionTabView
             case .summary:
@@ -983,58 +991,7 @@ struct CardDetailView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            // Original prompt (from card.link.promptBody) if present
-                            if let original = card.link.promptBody, !original.isEmpty {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Original Prompt")
-                                        .font(.app(.caption, weight: .medium))
-                                        .foregroundStyle(.secondary)
-                                    Text(original)
-                                        .font(.app(.body))
-                                        .textSelection(.enabled)
-                                        .lineLimit(5)
-                                }
-                                .padding()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.draculaCurrentLine)
-
-                                Divider()
-                            }
-
-                            // Chronological prompts
-                            ForEach(Array(promptTurns.enumerated()), id: \.offset) { _, turn in
-                                HStack(alignment: .top, spacing: 8) {
-                                    Text(formatPromptTimestamp(turn.timestamp))
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.tertiary)
-                                        .frame(width: 80, alignment: .trailing)
-
-                                    Text(turn.textPreview)
-                                        .font(.app(.body))
-                                        .textSelection(.enabled)
-                                        .lineLimit(3)
-                                }
-                                .padding(.horizontal)
-                                .padding(.vertical, 6)
-
-                                if turn.index != promptTurns.last?.index {
-                                    Divider().padding(.leading, 96)
-                                }
-                            }
-
-                            Color.clear.frame(height: 1).id("prompts-bottom")
-                        }
-                    }
-                    .onAppear {
-                        scrollPromptsToBottom(proxy: proxy)
-                    }
-                    .onChange(of: promptTurns.count) {
-                        scrollPromptsToBottom(proxy: proxy)
-                    }
-                }
+                PromptsWebView(html: promptsHTML)
             }
         }
         .task(id: card.id) {
@@ -1042,58 +999,67 @@ struct CardDetailView: View {
         }
     }
 
-    private func scrollPromptsToBottom(proxy: ScrollViewProxy) {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(50))
-            proxy.scrollTo("prompts-bottom", anchor: .bottom)
-        }
-    }
-
     private func loadPrompts() async {
         let paths = allSessionPaths
         guard !paths.isEmpty else {
             promptTurns = []
+            promptsHTML = ""
             return
         }
-        guard promptsCardId != card.id else { return } // already loaded
+        guard promptsCardId != card.id else { return }
         isLoadingPrompts = true
         promptsCardId = card.id
 
-        var allTurns: [ConversationTurn] = []
-        for path in paths {
+        var groups: [(sessionLabel: String, dividerHTML: String?, prompts: [ConversationTurn])] = []
+        var allPrompts: [ConversationTurn] = []
+
+        for (i, path) in paths.enumerated() {
+            var sessionPrompts: [ConversationTurn] = []
             for await turn in TranscriptReader.streamAllTurns(from: path) {
-                allTurns.append(turn)
+                if turn.role == "user" && !turn.textPreview.hasPrefix("[tool result") {
+                    sessionPrompts.append(turn)
+                }
             }
+            allPrompts.append(contentsOf: sessionPrompts)
+
+            let segment = sessionChain.flatMap { chain in
+                i < chain.segments.count ? chain.segments[i] : nil
+            }
+            let label: String
+            let divider: String?
+
+            if let seg = segment {
+                let formatter = DateFormatter()
+                if Calendar.current.isDateInToday(seg.firstTimestamp) {
+                    formatter.dateFormat = "HH:mm"
+                } else {
+                    formatter.dateFormat = "MMM d, HH:mm"
+                }
+                let tsStr = formatter.string(from: seg.firstTimestamp)
+
+                label = [seg.transitionReason.label, seg.transitionReason.gapDescription, tsStr]
+                    .compactMap { $0 }.joined(separator: " · ")
+
+                if i > 0 {
+                    divider = HistoryPlusHTMLBuilder.buildSessionDividerHTML(
+                        reason: seg.transitionReason.label,
+                        gap: seg.transitionReason.gapDescription,
+                        timestamp: tsStr
+                    )
+                } else {
+                    divider = nil
+                }
+            } else {
+                label = "Current session"
+                divider = nil
+            }
+
+            groups.append((sessionLabel: label, dividerHTML: divider, prompts: sessionPrompts))
         }
 
-        promptTurns = allTurns.filter { turn in
-            turn.role == "user" && !turn.textPreview.hasPrefix("[tool result")
-        }
+        promptsHTML = HistoryPlusHTMLBuilder.buildPromptsHTML(groups: groups)
+        promptTurns = allPrompts
         isLoadingPrompts = false
-    }
-
-    private func formatPromptTimestamp(_ timestamp: String?) -> String {
-        guard let timestamp, !timestamp.isEmpty else { return "" }
-
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = iso.date(from: timestamp) else {
-            // Try without fractional seconds
-            iso.formatOptions = [.withInternetDateTime]
-            guard let date = iso.date(from: timestamp) else { return "" }
-            return formatDate(date)
-        }
-        return formatDate(date)
-    }
-
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        if Calendar.current.isDateInToday(date) {
-            formatter.dateFormat = "HH:mm"
-        } else {
-            formatter.dateFormat = "MMM dd, HH:mm"
-        }
-        return formatter.string(from: date)
     }
 
     // MARK: - Summary Tab
@@ -2146,4 +2112,46 @@ private struct EditPromptSheet: View {
     }
 }
 
+// MARK: - PromptsWebView
 
+private struct PromptsWebView: NSViewRepresentable {
+    let html: String
+
+    func makeNSView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.preferences.isElementFullscreenEnabled = false
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = context.coordinator
+        webView.setValue(false, forKey: "drawsBackground")
+        loadContent(into: webView, coordinator: context.coordinator)
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        let coord = context.coordinator
+        guard html != coord.lastHTML else { return }
+        loadContent(into: webView, coordinator: coord)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    private func loadContent(into webView: WKWebView, coordinator: Coordinator) {
+        coordinator.lastHTML = html
+        let page = ReplyTabView.htmlPage(body: """
+            <style>\(HistoryPlusHTMLBuilder.chatCSS)</style>
+            <style>\(HistoryPlusHTMLBuilder.promptsCSS)</style>
+            <div id="content">\(html)</div>
+            <script>\(ReplyTabView.markedJs)</script>
+            <script>\(HistoryPlusHTMLBuilder.renderScript)</script>
+            """)
+        webView.loadHTMLString(page, baseURL: nil)
+    }
+
+    class Coordinator: NSObject, WKNavigationDelegate {
+        var lastHTML: String?
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+            if navigationAction.navigationType == .other { return .allow }
+            return .cancel
+        }
+    }
+}
