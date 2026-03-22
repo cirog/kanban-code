@@ -1297,9 +1297,7 @@ struct CardDetailView: View {
                 if let projectPath = card.link.projectPath {
                     copyableRow(icon: "folder.badge.gearshape", text: projectPath)
                 }
-                if let sessionId = card.session?.id {
-                    SessionIdRow(sessionId: sessionId, assistant: card.link.effectiveAssistant)
-                }
+                SessionIdRow(sessionId: card.session?.id, assistant: card.link.effectiveAssistant)
                 if let slug = card.link.slug {
                     copyableRow(icon: "link", text: slug)
                 }
@@ -1787,7 +1785,7 @@ struct CardDetailView: View {
 }
 
 private struct SessionIdRow: View {
-    let sessionId: String
+    let sessionId: String?
     let assistant: CodingAssistant
     @State private var copied = false
 
@@ -1797,29 +1795,33 @@ private struct SessionIdRow: View {
                 AssistantIcon(assistant: assistant)
                     .frame(width: CGFloat(12).scaled, height: CGFloat(12).scaled)
                     .foregroundStyle(Color.primary.opacity(0.4))
-                Text(sessionId)
-                    .font(.app(.caption))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                if let sessionId {
+                    Text(sessionId)
+                        .font(.app(.caption))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
 
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(sessionId, forType: .string)
-                copied = true
-                Task {
-                    try? await Task.sleep(for: .seconds(1.5))
-                    copied = false
+            if let sessionId {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(sessionId, forType: .string)
+                    copied = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        copied = false
+                    }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.app(.caption2))
+                        .foregroundStyle(.secondary)
+                        .frame(width: CGFloat(12).scaled, height: CGFloat(12).scaled)
                 }
-            } label: {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.app(.caption2))
-                    .foregroundStyle(.secondary)
-                    .frame(width: CGFloat(12).scaled, height: CGFloat(12).scaled)
+                .buttonStyle(.borderless)
+                .help("Copy to clipboard")
             }
-            .buttonStyle(.borderless)
-            .help("Copy to clipboard")
         }
     }
 }

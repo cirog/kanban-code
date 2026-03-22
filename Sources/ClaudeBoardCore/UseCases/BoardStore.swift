@@ -836,11 +836,17 @@ public enum Reducer {
             state.excludedPaths = result.excludedPaths
             state.discoveredProjectPaths = result.discoveredProjectPaths
 
-            // Rebuild sessions map
-            state.sessions = Dictionary(
+            // Merge sessions: update existing, add new, but never remove a previously
+            // known session. This prevents transient file I/O gaps from causing
+            // session → nil → session flicker, which triggers header height oscillation
+            // and terminal SIGWINCH repaints.
+            let incoming = Dictionary(
                 result.sessions.map { ($0.id, $0) },
                 uniquingKeysWith: { a, _ in a }
             )
+            for (id, session) in incoming {
+                state.sessions[id] = session
+            }
             state.activityMap = result.activityMap
 
             // Merge reconciled links with in-memory state.

@@ -161,7 +161,7 @@ final class BatchedTerminalView: LocalProcessTerminalView {
     }
 
     /// Cell dimensions matching SwiftTerm's internal calculation.
-    private var cellSize: CGSize {
+    fileprivate var cellSize: CGSize {
         let f = font
         let glyph = f.glyph(withName: "W")
         let cw = f.advancement(forGlyph: glyph).width
@@ -685,14 +685,32 @@ final class TerminalContainerNSView: NSView {
         guard inset.width > 0, inset.height > 0 else { return }
 
         for sub in subviews {
-            // Only resize if the change is >= 1px to avoid tmux SIGWINCH
-            // from sub-pixel layout jitter during background state updates.
-            let delta = abs(sub.frame.origin.x - inset.origin.x)
-                + abs(sub.frame.origin.y - inset.origin.y)
-                + abs(sub.frame.width - inset.width)
-                + abs(sub.frame.height - inset.height)
-            if delta >= 1.0 {
-                ClaudeBoardLog.info("terminal-layout", "RESIZE delta=\(String(format: "%.1f", delta))px old=\(sub.frame) new=\(inset) sessions=\(managedSessions)")
+            if let terminal = sub as? BatchedTerminalView {
+                let cs = terminal.cellSize
+                guard cs.width > 0, cs.height > 0 else { continue }
+
+                // Quantize to cell grid: round dimensions down to whole cell multiples.
+                // This prevents oscillation where layout alternates between N and N+1 rows
+                // due to header content changes — tmux only sees stable grid dimensions.
+                let cols = Int(inset.width / cs.width)
+                let rows = Int(inset.height / cs.height)
+                let quantizedWidth = CGFloat(cols) * cs.width
+                let quantizedHeight = CGFloat(rows) * cs.height
+                let quantized = NSRect(
+                    x: inset.origin.x,
+                    y: inset.origin.y + (inset.height - quantizedHeight),
+                    width: quantizedWidth,
+                    height: quantizedHeight
+                )
+
+                let oldCols = Int(sub.frame.width / cs.width)
+                let oldRows = Int(sub.frame.height / cs.height)
+                guard oldCols != cols || oldRows != rows else { continue }
+                ClaudeBoardLog.info("terminal-layout", "RESIZE \(oldCols)x\(oldRows) → \(cols)x\(rows)")
+                sub.frame = quantized
+            } else {
+                let delta = abs(sub.frame.width - inset.width) + abs(sub.frame.height - inset.height)
+                guard delta >= 1.0 else { continue }
                 sub.frame = inset
             }
         }
