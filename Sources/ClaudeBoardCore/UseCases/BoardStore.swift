@@ -1310,10 +1310,25 @@ public final class BoardStore: @unchecked Sendable {
             let associations = reconcileResult.associations
             ClaudeBoardLog.info("reconcile", "reconciler: \(t3.duration(to: .now)) (\(existingLinks.count) existing → \(mergedLinks.count) reconciled, \(associations.count) associations)")
 
-            // Build sessionIdByCardId from reconciler associations (latest session per card)
+            // Build sessionIdByCardId: pick the most recently modified session per card.
+            // A card can have multiple associations (session chaining). Dictionary iteration
+            // order is non-deterministic, so we must compare by mtime, not insertion order.
+            let sessionMtimes: [String: Date] = Dictionary(
+                sessions.map { ($0.id, $0.modifiedTime) },
+                uniquingKeysWith: { a, b in max(a, b) }
+            )
             var sessionByCard: [String: String] = [:]
             for assoc in associations {
-                sessionByCard[assoc.cardId] = assoc.sessionId // last one wins = latest
+                let existingId = sessionByCard[assoc.cardId]
+                if let existingId {
+                    let existingMtime = sessionMtimes[existingId] ?? .distantPast
+                    let newMtime = sessionMtimes[assoc.sessionId] ?? .distantPast
+                    if newMtime > existingMtime {
+                        sessionByCard[assoc.cardId] = assoc.sessionId
+                    }
+                } else {
+                    sessionByCard[assoc.cardId] = assoc.sessionId
+                }
             }
             // Invalidate cached chains for cards whose session association changed
             for (cardId, newSessionId) in sessionByCard {
