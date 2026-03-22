@@ -244,4 +244,64 @@ struct HistoryPlusHTMLBuilderTests {
         #expect(css.contains(".assistant-msg"))
         #expect(css.contains("255, 121, 198"))  // Dracula pink (#ff79c6) in rgba
     }
+
+    // MARK: - Session Dividers
+
+    @Test("Session divider HTML is generated correctly")
+    func sessionDividerHTML() {
+        let divider = HistoryPlusHTMLBuilder.buildSessionDividerHTML(
+            reason: "Resumed", gap: "2h gap", timestamp: "Mar 21, 14:30"
+        )
+        #expect(divider.contains("session-divider"))
+        #expect(divider.contains("Resumed"))
+        #expect(divider.contains("2h gap"))
+        #expect(divider.contains("Mar 21, 14:30"))
+    }
+
+    @Test("Session divider without gap omits gap text")
+    func sessionDividerNoGap() {
+        let divider = HistoryPlusHTMLBuilder.buildSessionDividerHTML(
+            reason: "Started", gap: nil, timestamp: "Mar 21, 09:00"
+        )
+        #expect(divider.contains("Started"))
+        #expect(!divider.contains("gap"))
+    }
+
+    @Test("Segmented messages HTML includes dividers between groups")
+    func segmentedMessagesHTML() {
+        let turns1 = [
+            ConversationTurn(
+                index: 0, lineNumber: 0, role: "user",
+                textPreview: "Hello",
+                contentBlocks: [ContentBlock(kind: .text, text: "Hello")]
+            ),
+        ]
+        let turns2 = [
+            ConversationTurn(
+                index: 1, lineNumber: 1, role: "assistant",
+                textPreview: "World",
+                contentBlocks: [ContentBlock(kind: .text, text: "World")]
+            ),
+        ]
+        let dividerHTML = HistoryPlusHTMLBuilder.buildSessionDividerHTML(
+            reason: "Resumed", gap: "1h gap", timestamp: "Mar 21, 10:00"
+        )
+        let segments: [(dividerHTML: String?, turns: [ConversationTurn])] = [
+            (nil, turns1),
+            (dividerHTML, turns2),
+        ]
+        let html = HistoryPlusHTMLBuilder.buildSegmentedMessagesHTML(segments: segments)
+        #expect(html.contains("Hello"))
+        #expect(html.contains("World"))
+        #expect(html.contains("session-divider"))
+        #expect(html.contains("Resumed"))
+    }
+
+    @Test("Chat CSS contains session-divider rules")
+    func chatCSSContainsDividerRules() {
+        let css = HistoryPlusHTMLBuilder.chatCSS
+        #expect(css.contains(".session-divider"))
+        #expect(css.contains(".divider-line"))
+        #expect(css.contains(".divider-text"))
+    }
 }

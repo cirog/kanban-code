@@ -7,6 +7,8 @@ import ClaudeBoardCore
 /// assistant text as Dracula-styled markdown (left). Tool/thinking blocks filtered.
 struct HistoryPlusView: NSViewRepresentable {
     let turns: [ConversationTurn]
+    /// Optional session segments with divider HTML. When provided, renders segmented view with dividers.
+    var segments: [(dividerHTML: String?, turns: [ConversationTurn])]?
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -30,10 +32,18 @@ struct HistoryPlusView: NSViewRepresentable {
     private func loadHTML(into webView: WKWebView, coordinator: Coordinator) {
         coordinator.lastTurnCount = turns.count
 
-        let messagesHTML = HistoryPlusHTMLBuilder.buildMessagesHTML(
-            from: turns,
-            transformMarkdown: ReplyTabView.transformInsightBlocks
-        )
+        let messagesHTML: String
+        if let segments {
+            messagesHTML = HistoryPlusHTMLBuilder.buildSegmentedMessagesHTML(
+                segments: segments,
+                transformMarkdown: ReplyTabView.transformInsightBlocks
+            )
+        } else {
+            messagesHTML = HistoryPlusHTMLBuilder.buildMessagesHTML(
+                from: turns,
+                transformMarkdown: ReplyTabView.transformInsightBlocks
+            )
+        }
 
         let html = ReplyTabView.htmlPage(body: """
             <style>\(HistoryPlusHTMLBuilder.chatCSS)</style>

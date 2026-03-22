@@ -82,7 +82,57 @@ public enum HistoryPlusHTMLBuilder {
             border: 1px solid rgba(139, 233, 253, 0.25);
             font-size: 0.9em;
         }
+        .session-divider {
+            display: flex;
+            align-items: center;
+            margin: 24px 0;
+            gap: 12px;
+        }
+        .divider-line {
+            flex: 1;
+            height: 1px;
+            background: rgba(98, 114, 164, 0.4);
+        }
+        .divider-text {
+            color: rgba(98, 114, 164, 0.8);
+            font-size: 0.8em;
+            white-space: nowrap;
+            font-style: italic;
+        }
     """
+
+    // MARK: - Session Dividers
+
+    /// Build HTML for a session transition divider.
+    public static func buildSessionDividerHTML(reason: String, gap: String?, timestamp: String) -> String {
+        var parts: [String] = [reason]
+        if let gap { parts.append(gap) }
+        parts.append(timestamp)
+        let text = parts.joined(separator: " · ")
+
+        return """
+        <div class="session-divider">
+            <span class="divider-line"></span>
+            <span class="divider-text">\(escapeForAttribute(text))</span>
+            <span class="divider-line"></span>
+        </div>
+        """
+    }
+
+    /// Build HTML with session dividers inserted between groups.
+    public static func buildSegmentedMessagesHTML(
+        segments: [(dividerHTML: String?, turns: [ConversationTurn])],
+        transformMarkdown: ((String) -> String)? = nil
+    ) -> String {
+        var parts: [String] = []
+        for segment in segments {
+            if let divider = segment.dividerHTML {
+                parts.append(divider)
+            }
+            parts.append(buildMessagesHTML(from: segment.turns, transformMarkdown: transformMarkdown))
+        }
+        return parts.joined(separator: "\n")
+    }
 
     // MARK: - Helpers
 

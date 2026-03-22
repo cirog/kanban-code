@@ -91,6 +91,7 @@ struct CardDetailView: View {
     @AppStorage("sessionDetailFontSize") private var sessionDetailFontSize: Double = 12
 
     @State private var turns: [ConversationTurn] = []
+    @State private var sessionSegments: [(dividerHTML: String?, turns: [ConversationTurn])]?
     @State private var isLoadingHistory = false
     @State private var hasMoreTurns = false
     @State private var isLoadingMore = false
@@ -199,7 +200,7 @@ struct CardDetailView: View {
                 terminalView
             case .history:
                 VStack(spacing: 0) {
-                    HistoryPlusView(turns: turns)
+                    HistoryPlusView(turns: turns, segments: sessionSegments)
                     HistoryPlusInputBar(onSend: { text in onSendReplyText(text) })
                 }
                 .onChange(of: sessionChain?.segments.count) {
@@ -1440,16 +1441,39 @@ struct CardDetailView: View {
 
     private static let pageSize = 80
 
+    private static let dividerDateFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateFormat = "MMM d, HH:mm"
+        return df
+    }()
+
     private func loadFullHistory() async {
         let paths = allSessionPaths
         guard !paths.isEmpty else { return }
         isLoadingHistory = true
         var allTurns: [ConversationTurn] = []
+        let segments = sessionChain?.segments ?? []
 
-        for path in paths {
-            if let sessionTurns = try? await TranscriptReader.readTurns(from: path) {
-                allTurns.append(contentsOf: sessionTurns)
+        var builtSegments: [(dividerHTML: String?, turns: [ConversationTurn])] = []
+
+        for (i, path) in paths.enumerated() {
+            guard let sessionTurns = try? await TranscriptReader.readTurns(from: path),
+                  !sessionTurns.isEmpty else { continue }
+
+            // Build divider HTML for non-first segments
+            var dividerHTML: String? = nil
+            if i < segments.count, segments[i].transitionReason != .initial, i > 0 {
+                let seg = segments[i]
+                let reason = seg.transitionReason.label
+                let gap = seg.transitionReason.gapDescription
+                let timestamp = Self.dividerDateFormatter.string(from: seg.firstTimestamp)
+                dividerHTML = HistoryPlusHTMLBuilder.buildSessionDividerHTML(
+                    reason: reason, gap: gap, timestamp: timestamp
+                )
             }
+
+            builtSegments.append((dividerHTML, sessionTurns))
+            allTurns.append(contentsOf: sessionTurns)
         }
 
         // Re-index turns sequentially so scroll/search works correctly
@@ -1463,6 +1487,24 @@ struct CardDetailView: View {
                 contentBlocks: turn.contentBlocks
             )
         }
+
+        // Re-index segment turns to match
+        var offset = 0
+        sessionSegments = builtSegments.map { divider, segTurns in
+            let reindexed = segTurns.enumerated().map { idx, turn in
+                ConversationTurn(
+                    index: offset + idx,
+                    lineNumber: turn.lineNumber,
+                    role: turn.role,
+                    textPreview: turn.textPreview,
+                    timestamp: turn.timestamp,
+                    contentBlocks: turn.contentBlocks
+                )
+            }
+            offset += segTurns.count
+            return (divider, reindexed)
+        }
+
         hasMoreTurns = false
         isLoadingHistory = false
     }
