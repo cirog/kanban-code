@@ -96,7 +96,10 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
                     session.projectPath = indexEntry?.projectPath
                     session.jsonlPath = filePath
                     session.modifiedTime = mtime
-                    session.messageCount = metadata.messageCount
+                    // Preserve messageCount: never regress to 0 if previously had messages
+                    // (file may be temporarily unreadable during Claude Code writes)
+                    let previousCount = cachedSessions[sessionId]?.messageCount ?? 0
+                    session.messageCount = max(metadata.messageCount, previousCount)
 
                     if session.firstPrompt == nil {
                         session.firstPrompt = metadata.firstPrompt

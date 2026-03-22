@@ -847,7 +847,11 @@ public enum Reducer {
             for (id, session) in incoming {
                 state.sessions[id] = session
             }
-            state.activityMap = result.activityMap
+            // Merge activity: update known sessions, preserve existing entries
+            // for sessions not in this cycle (same rationale as session merge).
+            for (id, activity) in result.activityMap {
+                state.activityMap[id] = activity
+            }
 
             // Merge reconciled links with in-memory state.
             // In-memory wins when it has a newer updatedAt (user action during reconciliation).
