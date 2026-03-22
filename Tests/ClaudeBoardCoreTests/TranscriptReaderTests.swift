@@ -502,6 +502,55 @@ struct TranscriptReaderTests {
         #expect(turns[0].textPreview.contains("abc123"))
     }
 
+    // MARK: - readBoundaryMetadata
+
+    @Test("readBoundaryMetadata extracts first/last timestamps and last line text")
+    func readBoundaryMetadata() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+
+        let path = (dir as NSString).appendingPathComponent("test.jsonl")
+        try [
+            #"{"type":"user","sessionId":"s1","message":{"content":"Hello"},"cwd":"/test","timestamp":"2026-01-01T10:00:00Z"}"#,
+            #"{"type":"assistant","sessionId":"s1","message":{"content":[{"type":"text","text":"Hi!"}]},"timestamp":"2026-01-01T10:01:00Z"}"#,
+            #"{"type":"user","sessionId":"s1","message":{"content":"Fix bug"},"cwd":"/test","timestamp":"2026-01-01T11:30:00Z"}"#,
+            #"{"type":"assistant","sessionId":"s1","message":{"content":[{"type":"text","text":"Done!"}]},"timestamp":"2026-01-01T11:45:00Z"}"#,
+        ].joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+
+        let meta = try await TranscriptReader.readBoundaryMetadata(from: path)
+        #expect(meta != nil)
+        #expect(meta!.firstTimestamp == "2026-01-01T10:00:00Z")
+        #expect(meta!.lastTimestamp == "2026-01-01T11:45:00Z")
+        #expect(meta!.lastLineText == "Done!")
+    }
+
+    @Test("readBoundaryMetadata returns nil for empty file")
+    func boundaryMetadataEmpty() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+
+        let path = (dir as NSString).appendingPathComponent("empty.jsonl")
+        try "".write(toFile: path, atomically: true, encoding: .utf8)
+
+        let meta = try await TranscriptReader.readBoundaryMetadata(from: path)
+        #expect(meta == nil)
+    }
+
+    @Test("readBoundaryMetadata detects interrupted session")
+    func boundaryMetadataInterrupted() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+
+        let path = (dir as NSString).appendingPathComponent("test.jsonl")
+        try [
+            #"{"type":"user","sessionId":"s1","message":{"content":"Hello"},"cwd":"/test","timestamp":"2026-01-01T10:00:00Z"}"#,
+            #"{"type":"assistant","sessionId":"s1","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]},"timestamp":"2026-01-01T10:05:00Z"}"#,
+        ].joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+
+        let meta = try await TranscriptReader.readBoundaryMetadata(from: path)
+        #expect(meta!.lastLineText == "[Request interrupted by user]")
+    }
+
     @Test("Shows command stdout as assistant-style turn in history")
     func showsStdoutAsAssistant() async throws {
         let dir = try makeTempDir()

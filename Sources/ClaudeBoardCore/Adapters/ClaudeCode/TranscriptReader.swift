@@ -301,6 +301,69 @@ public enum TranscriptReader {
         return turns
     }
 
+    // MARK: - Boundary metadata for chain construction
+
+    /// Metadata from the first and last conversation turns in a file.
+    public struct BoundaryMetadata: Sendable {
+        public let firstTimestamp: String
+        public let lastTimestamp: String
+        public let lastLineText: String    // textPreview of the last turn
+        public let slug: String?           // slug from first turn (if present)
+    }
+
+    /// Read only the first and last turn's timestamps and the last turn's text.
+    /// Lightweight — scans the file but only fully parses the boundaries.
+    public static func readBoundaryMetadata(from filePath: String) async throws -> BoundaryMetadata? {
+        guard FileManager.default.fileExists(atPath: filePath) else { return nil }
+
+        let url = URL(fileURLWithPath: filePath)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        var firstTimestamp: String?
+        var lastTimestamp: String?
+        var lastLineText: String?
+        var slug: String?
+
+        for try await line in handle.bytes.lines {
+            guard !line.isEmpty, line.contains("\"type\"") else { continue }
+
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = obj["type"] as? String,
+                  type == "user" || type == "assistant" else { continue }
+
+            if type == "user" && JsonlParser.isCaveatMessage(obj) { continue }
+
+            let timestamp = obj["timestamp"] as? String
+
+            if firstTimestamp == nil {
+                firstTimestamp = timestamp
+                slug = obj["slug"] as? String
+            }
+
+            if let ts = timestamp { lastTimestamp = ts }
+
+            // Track last turn's text preview
+            let blocks: [ContentBlock]
+            let role: String
+            if type == "user" && (JsonlParser.isLocalCommandStdout(obj) || JsonlParser.isTaskNotification(obj)) {
+                role = "assistant"
+            } else {
+                role = type
+            }
+            if type == "user" {
+                blocks = extractUserBlocks(from: obj)
+            } else {
+                blocks = extractAssistantBlocks(from: obj)
+            }
+            lastLineText = buildTextPreview(blocks: blocks, role: role)
+        }
+
+        guard let first = firstTimestamp, let last = lastTimestamp, let text = lastLineText else { return nil }
+        return BoundaryMetadata(firstTimestamp: first, lastTimestamp: last, lastLineText: text, slug: slug)
+    }
+
     // MARK: - Reply text extraction
 
     /// Result of extracting text blocks from assistant turns since the last user message.
