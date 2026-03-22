@@ -16,22 +16,33 @@ import ClaudeBoardCore
 /// with a short delay so multiple chunks accumulate before flushing.
 final class BatchedTerminalView: LocalProcessTerminalView {
     private var pendingData: [UInt8] = []
+    private var pendingOffset: Int = 0  // O(1) offset instead of O(n) removeFirst
     private var flushScheduled = false
 
-    // 8ms batching window: LocalProcess dispatches dataReceived via
-    // DispatchQueue.main.sync, so plain .async flushes interleave with
-    // sync calls — each read gets its own flush, defeating batching.
-    // asyncAfter lets many sync'd reads pile up before firing.
+    // Batch delay for large bursts. Small interactive chunks (<256 bytes)
+    // bypass this entirely and render immediately for zero-latency keystroke echo.
     private static let batchDelay: DispatchTimeInterval = .milliseconds(8)
 
     // Process in a loop with a time budget: keep feeding 32KB chunks
-    // until we've spent ~4ms on the main thread, then yield. Most tmux
-    // screen redraws (~50KB) finish in one shot (no flicker), but truly
-    // huge batches yield periodically (no UI freeze).
+    // until we've spent ~4ms on the main thread, then yield.
     private static let chunkSize = 32 * 1024
     private static let maxBlockSeconds: Double = 0.004  // 4ms
 
+    // Frame dropping: when backlog exceeds this threshold, skip to the
+    // last chunkSize bytes. Only the final screen state matters — intermediate
+    // frames cause visible "scrolling old content" flicker during tmux repaints.
+    private static let frameDropThreshold = 32 * 1024
+
     override func dataReceived(slice: ArraySlice<UInt8>) {
+        // Interactive fast path: small chunks with no pending data render
+        // immediately — zero scheduling overhead for keystroke echo.
+        let pending = pendingData.count - pendingOffset
+        if slice.count < 256 && pending == 0 && !flushScheduled {
+            feed(byteArray: slice)
+            return
+        }
+
+        // Large burst or already batching: accumulate and schedule flush
         pendingData.append(contentsOf: slice)
         guard !flushScheduled else { return }
         flushScheduled = true
@@ -41,20 +52,31 @@ final class BatchedTerminalView: LocalProcessTerminalView {
     }
 
     private func processNextChunk() {
-        guard !pendingData.isEmpty else {
+        let remaining = pendingData.count - pendingOffset
+        guard remaining > 0 else {
+            compactBuffer()
             flushScheduled = false
             return
         }
 
+        // Frame dropping: if backlog is huge (tmux full-screen repaint),
+        // skip to the tail — only render the final screen state.
+        if remaining > Self.frameDropThreshold {
+            let skipTo = pendingData.count - Self.chunkSize
+            if skipTo > pendingOffset {
+                pendingOffset = skipTo
+            }
+        }
+
         let start = CACurrentMediaTime()
 
-        while !pendingData.isEmpty {
-            let count = min(Self.chunkSize, pendingData.count)
-            let chunk = pendingData[..<count]
+        while pendingOffset < pendingData.count {
+            let end = min(pendingOffset + Self.chunkSize, pendingData.count)
+            let chunk = pendingData[pendingOffset..<end]
             feed(byteArray: chunk)
-            pendingData.removeFirst(count)
+            pendingOffset = end
 
-            if !pendingData.isEmpty && CACurrentMediaTime() - start > Self.maxBlockSeconds {
+            if pendingOffset < pendingData.count && CACurrentMediaTime() - start > Self.maxBlockSeconds {
                 // Yield to runloop so the UI stays responsive
                 DispatchQueue.main.async { [weak self] in
                     self?.processNextChunk()
@@ -63,7 +85,13 @@ final class BatchedTerminalView: LocalProcessTerminalView {
             }
         }
 
+        compactBuffer()
         flushScheduled = false
+    }
+
+    private func compactBuffer() {
+        pendingData.removeAll(keepingCapacity: pendingData.capacity <= 256 * 1024)
+        pendingOffset = 0
     }
 
     /// Committed frame size — blocks sub-pixel resizes from reaching SwiftTerm's
@@ -641,14 +669,11 @@ final class TerminalContainerNSView: NSView {
         let terminal = TerminalCache.shared.terminal(for: sessionName, frame: bounds)
         if terminal.superview !== self {
             // Pre-set the correct inset frame BEFORE adding to the view hierarchy.
-            // This prevents the initial layout pass from triggering a resize from
-            // (0,0,full_bounds) → (inset) which would cause SIGWINCH.
             let inset = bounds.insetBy(dx: Self.terminalPadding, dy: Self.terminalPadding)
             if inset.width > 0 && inset.height > 0 {
                 terminal.frame = inset
             }
             // addSubview atomically re-parents: removes from old superview + adds here
-            // in one operation, preventing a gap where the terminal has no superview.
             addSubview(terminal)
         }
         // Show immediately with old content — no hiding/alpha tricks.
@@ -665,12 +690,10 @@ final class TerminalContainerNSView: NSView {
             let terminal = TerminalCache.shared.terminal(for: sessionName, frame: bounds)
             if !terminal.isHidden { return }
         }
-        // Debounce rapid switches — SwiftUI ghost views during card rebuilds
-        // cause two different cards to alternate showTerminal calls. Only
-        // allow a switch to a DIFFERENT session if >200ms since last switch.
+        // Debounce rapid switches
         if activeSession != nil && activeSession != sessionName && !grabFocus {
             if lastSwitchTime.duration(to: .now) < .milliseconds(200) {
-                return  // suppress ghost view oscillation
+                return
             }
         }
         lastSwitchTime = .now
