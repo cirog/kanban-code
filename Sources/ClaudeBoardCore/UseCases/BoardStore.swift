@@ -45,10 +45,8 @@ public struct AppState: Sendable {
     /// Lazily-built session chains per card. Populated when History/Prompts tab opens.
     public var chainByCardId: [String: SessionChain] = [:]
 
-    /// Reverse index: sessionId → cardId, derived from sessionIdByCardId.
-    public var cardIdBySessionId: [String: String] {
-        Dictionary(sessionIdByCardId.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a })
-    }
+    /// Reverse index: sessionId → cardId, rebuilt in rebuildCards().
+    public internal(set) var cardIdBySessionId: [String: String] = [:]
 
 
     // MARK: - Derived
@@ -56,7 +54,7 @@ public struct AppState: Sendable {
     /// Cached cards array — rebuilt by BoardStore after each dispatch.
     public internal(set) var cards: [ClaudeBoardCard] = []
 
-    /// Rebuild the cached cards array from current state.
+    /// Rebuild the cached cards array and reverse session index from current state.
     mutating func rebuildCards() {
         cards = links.values.map { link in
             let sessionId = sessionIdByCardId[link.id]
@@ -64,6 +62,10 @@ public struct AppState: Sendable {
             let activity = sessionId.flatMap { activityMap[$0] }
             return ClaudeBoardCard(link: link, session: session, activityState: activity, isBusy: busyCards.contains(link.id))
         }
+        cardIdBySessionId = Dictionary(
+            sessionIdByCardId.map { ($0.value, $0.key) },
+            uniquingKeysWith: { a, _ in a }
+        )
     }
 
     /// Cards visible after project filtering.

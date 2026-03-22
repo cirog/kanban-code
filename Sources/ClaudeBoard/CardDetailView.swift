@@ -1063,13 +1063,7 @@ struct CardDetailView: View {
             let divider: String?
 
             if let seg = segment {
-                let formatter = DateFormatter()
-                if Calendar.current.isDateInToday(seg.firstTimestamp) {
-                    formatter.dateFormat = "HH:mm"
-                } else {
-                    formatter.dateFormat = "MMM d, HH:mm"
-                }
-                let tsStr = formatter.string(from: seg.firstTimestamp)
+                let tsStr = Self.formatDividerTimestamp(seg.firstTimestamp)
 
                 label = [seg.transitionReason.label, seg.transitionReason.gapDescription, tsStr]
                     .compactMap { $0 }.joined(separator: " · ")
@@ -1444,11 +1438,21 @@ struct CardDetailView: View {
 
     private static let pageSize = 80
 
-    private static let dividerDateFormatter: DateFormatter = {
+    private static let dividerDateFormatterShort: DateFormatter = {
+        let df = DateFormatter()
+        df.dateFormat = "HH:mm"
+        return df
+    }()
+    private static let dividerDateFormatterFull: DateFormatter = {
         let df = DateFormatter()
         df.dateFormat = "MMM d, HH:mm"
         return df
     }()
+    private static func formatDividerTimestamp(_ date: Date) -> String {
+        Calendar.current.isDateInToday(date)
+            ? dividerDateFormatterShort.string(from: date)
+            : dividerDateFormatterFull.string(from: date)
+    }
 
     private func loadFullHistory() async {
         let paths = allSessionPaths
@@ -1469,7 +1473,7 @@ struct CardDetailView: View {
                 let seg = segments[i]
                 let reason = seg.transitionReason.label
                 let gap = seg.transitionReason.gapDescription
-                let timestamp = Self.dividerDateFormatter.string(from: seg.firstTimestamp)
+                let timestamp = Self.formatDividerTimestamp(seg.firstTimestamp)
                 dividerHTML = HistoryPlusHTMLBuilder.buildSessionDividerHTML(
                     reason: reason, gap: gap, timestamp: timestamp
                 )

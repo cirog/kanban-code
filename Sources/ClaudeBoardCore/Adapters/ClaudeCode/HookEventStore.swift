@@ -5,12 +5,16 @@ public actor HookEventStore {
     private let filePath: String
     private var lastReadOffset: UInt64 = 0
 
+    /// Cached events for the reconciler — incrementally updated via readAllStoredEvents().
+    private var cachedEvents: [HookEvent] = []
+    private var cachedOffset: UInt64 = 0
+
     public init(basePath: String? = nil) {
         let base = basePath ?? (NSHomeDirectory() as NSString).appendingPathComponent(".claude-board")
         self.filePath = (base as NSString).appendingPathComponent("hook-events.jsonl")
     }
 
-    /// Read new events since the last read.
+    /// Read new events since the last read (for notification processing).
     public func readNewEvents() throws -> [HookEvent] {
         guard FileManager.default.fileExists(atPath: filePath) else { return [] }
 
@@ -22,32 +26,7 @@ public actor HookEventStore {
         lastReadOffset = handle.offsetInFile
 
         guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return [] }
-
-        let iso = ISO8601DateFormatter()
-        return text.components(separatedBy: "\n").compactMap { line -> HookEvent? in
-            guard !line.isEmpty,
-                  let lineData = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  let sessionId = obj["sessionId"] as? String else {
-                return nil
-            }
-
-            let eventName = obj["event"] as? String ?? "unknown"
-            let transcriptPath = obj["transcriptPath"] as? String
-            let tmuxSession = obj["tmuxSession"] as? String
-            let pid = obj["pid"] as? Int
-            let timestampStr = obj["timestamp"] as? String
-            let timestamp = timestampStr.flatMap { iso.date(from: $0) } ?? Date()
-
-            return HookEvent(
-                sessionId: sessionId,
-                eventName: eventName,
-                transcriptPath: transcriptPath,
-                tmuxSessionName: tmuxSession?.isEmpty == true ? nil : tmuxSession,
-                pid: pid,
-                timestamp: timestamp
-            )
-        }
+        return Self.parseEvents(from: text)
     }
 
     /// Read all events (for initial load).
@@ -56,29 +35,48 @@ public actor HookEventStore {
         return try readNewEvents()
     }
 
-    /// Read all events without modifying the read offset (for reconciler).
+    /// Read all events incrementally — caches previously parsed events and only
+    /// parses new data appended since the last call. Called every 5s by the reconciler.
     public func readAllStoredEvents() throws -> [HookEvent] {
-        guard FileManager.default.fileExists(atPath: filePath) else { return [] }
-        let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
-        guard let text = String(data: data, encoding: .utf8) else { return [] }
+        guard FileManager.default.fileExists(atPath: filePath) else { return cachedEvents }
+
+        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: filePath))
+        defer { try? handle.close() }
+
+        // File was truncated/rotated — re-read from start
+        let fileSize = handle.seekToEndOfFile()
+        if fileSize < cachedOffset {
+            cachedEvents = []
+            cachedOffset = 0
+        }
+
+        guard fileSize > cachedOffset else { return cachedEvents }
+
+        handle.seek(toFileOffset: cachedOffset)
+        let data = handle.readDataToEndOfFile()
+        cachedOffset = handle.offsetInFile
+
+        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return cachedEvents }
+        let newEvents = Self.parseEvents(from: text)
+        cachedEvents.append(contentsOf: newEvents)
+        return cachedEvents
+    }
+
+    private static func parseEvents(from text: String) -> [HookEvent] {
         let iso = ISO8601DateFormatter()
         return text.components(separatedBy: "\n").compactMap { line -> HookEvent? in
             guard !line.isEmpty,
                   let lineData = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   let sessionId = obj["sessionId"] as? String else { return nil }
-            let eventName = obj["event"] as? String ?? "unknown"
-            let transcriptPath = obj["transcriptPath"] as? String
             let tmuxSession = obj["tmuxSession"] as? String
-            let pid = obj["pid"] as? Int
-            let timestampStr = obj["timestamp"] as? String
-            let timestamp = timestampStr.flatMap { iso.date(from: $0) } ?? Date()
             return HookEvent(
-                sessionId: sessionId, eventName: eventName,
-                transcriptPath: transcriptPath,
+                sessionId: sessionId,
+                eventName: obj["event"] as? String ?? "unknown",
+                transcriptPath: obj["transcriptPath"] as? String,
                 tmuxSessionName: tmuxSession?.isEmpty == true ? nil : tmuxSession,
-                pid: pid,
-                timestamp: timestamp
+                pid: obj["pid"] as? Int,
+                timestamp: (obj["timestamp"] as? String).flatMap { iso.date(from: $0) } ?? Date()
             )
         }
     }

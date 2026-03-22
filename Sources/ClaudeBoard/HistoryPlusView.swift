@@ -38,7 +38,6 @@ struct HistoryPlusView: NSViewRepresentable {
     /// Full HTML load — used only for the initial render.
     private func loadHTML(into webView: WKWebView, coordinator: Coordinator) {
         coordinator.lastLineNumber = turns.last?.lineNumber ?? -1
-        coordinator.lastTurnCount = turns.count
 
         let messagesHTML = buildCurrentHTML()
 
@@ -59,7 +58,6 @@ struct HistoryPlusView: NSViewRepresentable {
     /// Avoids WKWebView page reload which causes visible scroll-to-top flash.
     private func incrementalUpdate(webView: WKWebView, coordinator: Coordinator) {
         coordinator.lastLineNumber = turns.last?.lineNumber ?? -1
-        coordinator.lastTurnCount = turns.count
 
         let messagesHTML = buildCurrentHTML()
         // Escape for JS string literal (backslash, backtick, dollar sign)
@@ -99,7 +97,6 @@ struct HistoryPlusView: NSViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate {
         var lastLineNumber: Int = -1
-        var lastTurnCount: Int = 0
         var didInitialLoad = false
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
