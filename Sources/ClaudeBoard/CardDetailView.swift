@@ -1293,17 +1293,28 @@ struct CardDetailView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                if let projectPath = card.link.projectPath {
-                    copyableRow(icon: "folder.badge.gearshape", text: projectPath)
+            // Compact metadata: only render rows that have content
+            let hasProject = card.link.projectPath != nil
+            let hasSession = card.session?.id != nil
+            let hasSlug = card.link.slug != nil
+            if hasProject || hasSession || hasSlug {
+                HStack(spacing: 12) {
+                    if let projectPath = card.link.projectPath {
+                        copyableRow(icon: "folder.badge.gearshape", text: projectPath)
+                    }
+                    if hasSession {
+                        SessionIdRow(sessionId: card.session?.id, assistant: card.link.effectiveAssistant)
+                    }
+                    if let slug = card.link.slug {
+                        copyableRow(icon: "link", text: slug)
+                    }
                 }
-                SessionIdRow(sessionId: card.session?.id, assistant: card.link.effectiveAssistant)
-                if let slug = card.link.slug {
-                    copyableRow(icon: "link", text: slug)
-                }
+                .lineLimit(1)
+                .truncationMode(.middle)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
 
         Divider()
 
