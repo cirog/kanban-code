@@ -120,8 +120,59 @@ public actor EffectHandler {
         case .killClaudeProcess(let sessionId):
             await Self.killClaudeProcess(sessionId: sessionId)
 
-        case .loadChain:
-            break // TODO: Task 6 — EffectHandler chain loading
+        case .loadChain(let cardId, let limit):
+            do {
+                let rows = await coordinationStore.chainSegments(forCardId: cardId, limit: limit)
+                let totalCount = await coordinationStore.chainSegmentCount(forCardId: cardId)
+
+                var rawSegments: [SessionChainBuilder.RawSegment] = []
+                for row in rows {
+                    guard let path = row.path else { continue }
+
+                    let meta = try? await TranscriptReader.readBoundaryMetadata(from: path)
+
+                    let firstDate: Date
+                    let lastDate: Date
+
+                    if let meta {
+                        let iso = ISO8601DateFormatter()
+                        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+                        func parseDate(_ str: String) -> Date? {
+                            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                            if let d = iso.date(from: str) { return d }
+                            iso.formatOptions = [.withInternetDateTime]
+                            return iso.date(from: str)
+                        }
+
+                        if let fd = parseDate(meta.firstTimestamp) {
+                            firstDate = fd
+                            lastDate = parseDate(meta.lastTimestamp) ?? fd
+                        } else {
+                            let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+                            firstDate = attrs?[.modificationDate] as? Date ?? .distantPast
+                            lastDate = firstDate
+                        }
+                    } else {
+                        let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+                        firstDate = attrs?[.modificationDate] as? Date ?? .distantPast
+                        lastDate = firstDate
+                    }
+
+                    rawSegments.append(SessionChainBuilder.RawSegment(
+                        sessionId: row.sessionId, path: path, matchedBy: row.matchedBy,
+                        slug: meta?.slug, firstTimestamp: firstDate, lastTimestamp: lastDate,
+                        lastLineText: meta?.lastLineText
+                    ))
+                }
+
+                let chain = SessionChainBuilder.build(
+                    cardId: cardId, rawSegments: rawSegments, totalCount: totalCount
+                )
+                await dispatch(.chainLoaded(cardId, chain))
+            } catch {
+                ClaudeBoardLog.warn("effect", "loadChain failed for \(cardId): \(error)")
+            }
         }
     }
 
