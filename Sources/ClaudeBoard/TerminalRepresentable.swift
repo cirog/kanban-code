@@ -606,9 +606,9 @@ struct TerminalContainerView: NSViewRepresentable, Equatable {
     }
 
     static func dismantleNSView(_ nsView: TerminalContainerNSView, coordinator: Coordinator) {
-        // Detach terminals from this container but don't terminate them.
-        // They live in TerminalCache and will be re-parented by the next Coordinator.
-        nsView.detachAll()
+        // No-op: terminals stay as subviews of the dying container until
+        // the next Coordinator's ensureTerminal() calls addSubview(), which
+        // atomically re-parents them (no gap where they have no superview).
     }
 }
 
@@ -640,7 +640,6 @@ final class TerminalContainerNSView: NSView {
         guard !managedSessions.contains(sessionName) else { return }
         let terminal = TerminalCache.shared.terminal(for: sessionName, frame: bounds)
         if terminal.superview !== self {
-            terminal.removeFromSuperview()
             // Pre-set the correct inset frame BEFORE adding to the view hierarchy.
             // This prevents the initial layout pass from triggering a resize from
             // (0,0,full_bounds) → (inset) which would cause SIGWINCH.
@@ -648,6 +647,8 @@ final class TerminalContainerNSView: NSView {
             if inset.width > 0 && inset.height > 0 {
                 terminal.frame = inset
             }
+            // addSubview atomically re-parents: removes from old superview + adds here
+            // in one operation, preventing a gap where the terminal has no superview.
             addSubview(terminal)
         }
         // Show immediately with old content — no hiding/alpha tricks.
