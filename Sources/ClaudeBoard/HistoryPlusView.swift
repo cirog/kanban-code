@@ -24,26 +24,23 @@ struct HistoryPlusView: NSViewRepresentable {
         let coord = context.coordinator
         let currentLine = turns.last?.lineNumber ?? -1
         guard currentLine != coord.lastLineNumber else { return }
-        loadHTML(into: webView, coordinator: coord)
+
+        if coord.didInitialLoad {
+            // Incremental update: replace content via JS — no page reload, no scroll jump.
+            incrementalUpdate(webView: webView, coordinator: coord)
+        } else {
+            loadHTML(into: webView, coordinator: coord)
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    /// Full HTML load — used only for the initial render.
     private func loadHTML(into webView: WKWebView, coordinator: Coordinator) {
         coordinator.lastLineNumber = turns.last?.lineNumber ?? -1
+        coordinator.lastTurnCount = turns.count
 
-        let messagesHTML: String
-        if let segments {
-            messagesHTML = HistoryPlusHTMLBuilder.buildSegmentedMessagesHTML(
-                segments: segments,
-                transformMarkdown: ReplyTabView.transformInsightBlocks
-            )
-        } else {
-            messagesHTML = HistoryPlusHTMLBuilder.buildMessagesHTML(
-                from: turns,
-                transformMarkdown: ReplyTabView.transformInsightBlocks
-            )
-        }
+        let messagesHTML = buildCurrentHTML()
 
         let html = ReplyTabView.htmlPage(body: """
             <style>\(HistoryPlusHTMLBuilder.chatCSS)</style>
@@ -55,10 +52,55 @@ struct HistoryPlusView: NSViewRepresentable {
             """)
 
         webView.loadHTMLString(html, baseURL: nil)
+        coordinator.didInitialLoad = true
+    }
+
+    /// Incremental update — replaces #content innerHTML via JavaScript.
+    /// Avoids WKWebView page reload which causes visible scroll-to-top flash.
+    private func incrementalUpdate(webView: WKWebView, coordinator: Coordinator) {
+        coordinator.lastLineNumber = turns.last?.lineNumber ?? -1
+        coordinator.lastTurnCount = turns.count
+
+        let messagesHTML = buildCurrentHTML()
+        // Escape for JS string literal (backslash, backtick, dollar sign)
+        let jsEscaped = messagesHTML
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "$", with: "\\$")
+
+        let js = """
+        (function() {
+            var c = document.getElementById('content');
+            if (!c) return;
+            c.innerHTML = `\(jsEscaped)`;
+            document.querySelectorAll('[data-md]').forEach(function(el) {
+                el.innerHTML = marked.parse(el.getAttribute('data-md'));
+            });
+            window.scrollTo(0, document.body.scrollHeight);
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    /// Build the messages HTML for current state.
+    private func buildCurrentHTML() -> String {
+        if let segments {
+            return HistoryPlusHTMLBuilder.buildSegmentedMessagesHTML(
+                segments: segments,
+                transformMarkdown: ReplyTabView.transformInsightBlocks
+            )
+        } else {
+            return HistoryPlusHTMLBuilder.buildMessagesHTML(
+                from: turns,
+                transformMarkdown: ReplyTabView.transformInsightBlocks
+            )
+        }
     }
 
     class Coordinator: NSObject, WKNavigationDelegate {
         var lastLineNumber: Int = -1
+        var lastTurnCount: Int = 0
+        var didInitialLoad = false
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             if navigationAction.navigationType == .other { return .allow }
