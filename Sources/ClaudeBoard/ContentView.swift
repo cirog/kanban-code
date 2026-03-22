@@ -309,6 +309,10 @@ struct ContentView: View {
                 onSetLastTab: { tab in
                     store.dispatch(.setLastTab(cardId: card.id, tab: tab))
                 },
+                sessionChain: store.state.chainByCardId[card.id],
+                onLoadChain: {
+                    store.dispatch(.loadChain(cardId: card.id))
+                },
                 actionsMenuProvider: actionsMenuProvider,
                 focusTerminal: $shouldFocusTerminal,
                 isDroppingImage: $isDroppingImage

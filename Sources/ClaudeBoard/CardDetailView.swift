@@ -81,6 +81,8 @@ struct CardDetailView: View {
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
     var onSetLastTab: (String) -> Void = { _ in }
+    var sessionChain: SessionChain?
+    var onLoadChain: () -> Void = {}
     var actionsMenuProvider: ActionsMenuProvider?
     @Binding var focusTerminal: Bool
     @Binding var isDroppingImage: Bool
@@ -152,7 +154,7 @@ struct CardDetailView: View {
 
     let sessionStore: SessionStore
 
-    init(card: ClaudeBoardCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping () -> Void = {}, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, onSendReplyText: @escaping (String) -> Void = { _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, onSetLastTab: @escaping (String) -> Void = { _ in }, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
+    init(card: ClaudeBoardCard, sessionStore: SessionStore = ClaudeCodeSessionStore(), selectedTab: Binding<DetailTab>, onResume: @escaping () -> Void = {}, onRename: @escaping (String) -> Void = { _ in }, onFork: @escaping () -> Void = {}, onDismiss: @escaping () -> Void = {}, onUnlink: @escaping (Action.LinkType) -> Void = { _ in }, onDeleteCard: @escaping () -> Void = {}, onCreateTerminal: @escaping () -> Void = {}, onKillTerminal: @escaping (String) -> Void = { _ in }, onRenameTerminal: @escaping (String, String) -> Void = { _, _ in }, onReorderTerminal: @escaping (String, String?) -> Void = { _, _ in }, onCancelLaunch: @escaping () -> Void = {}, onAddQueuedPrompt: @escaping (QueuedPrompt) -> Void = { _ in }, onUpdateQueuedPrompt: @escaping (String, String, Bool) -> Void = { _, _, _ in }, onRemoveQueuedPrompt: @escaping (String) -> Void = { _ in }, onSendQueuedPrompt: @escaping (String) -> Void = { _ in }, onEditingQueuedPrompt: @escaping (String?) -> Void = { _ in }, onUpdatePrompt: @escaping (String, [String]?) -> Void = { _, _ in }, onSendReplyText: @escaping (String) -> Void = { _ in }, availableProjects: [(name: String, path: String)] = [], onMoveToProject: @escaping (String) -> Void = { _ in }, onMoveToFolder: @escaping () -> Void = {}, enabledAssistants: [CodingAssistant] = [], onMigrateAssistant: @escaping (CodingAssistant) -> Void = { _ in }, onSetLastTab: @escaping (String) -> Void = { _ in }, sessionChain: SessionChain? = nil, onLoadChain: @escaping () -> Void = {}, actionsMenuProvider: ActionsMenuProvider? = nil, focusTerminal: Binding<Bool> = .constant(false), isDroppingImage: Binding<Bool> = .constant(false)) {
         self.card = card
         self.sessionStore = sessionStore
         self.onResume = onResume
@@ -179,6 +181,8 @@ struct CardDetailView: View {
         self.enabledAssistants = enabledAssistants
         self.onMigrateAssistant = onMigrateAssistant
         self.onSetLastTab = onSetLastTab
+        self.sessionChain = sessionChain
+        self.onLoadChain = onLoadChain
         self.actionsMenuProvider = actionsMenuProvider
         self._focusTerminal = focusTerminal
         self._isDroppingImage = isDroppingImage
@@ -198,6 +202,11 @@ struct CardDetailView: View {
                     HistoryPlusView(turns: turns)
                     HistoryPlusInputBar(onSend: { text in onSendReplyText(text) })
                 }
+                .onChange(of: sessionChain?.segments.count) {
+                    if hasChainedSessions {
+                        Task { await loadFullHistory() }
+                    }
+                }
             case .prompt:
                 promptTabView
             case .description:
@@ -216,6 +225,10 @@ struct CardDetailView: View {
             checkpointMode = false
             selectedTerminalSession = nil
             terminalGrabFocus = false
+            // Ensure chain is loaded for History/Prompts tabs
+            if sessionChain == nil {
+                onLoadChain()
+            }
             // Reset tab to a valid one for this card (skip auto-focus)
             suppressTerminalFocus = true
             selectedTab = defaultTab(for: card)
@@ -1407,10 +1420,12 @@ struct CardDetailView: View {
 
     // MARK: - History loading
 
-    /// All session paths in chronological order (previous sessions + current).
-    /// Note: With session_links table, previous session paths are no longer stored on Link.
-    /// This now only returns the current session path.
+    /// All session paths from the chain, ordered oldest → newest.
     private var allSessionPaths: [String] {
+        if let chain = sessionChain, !chain.segments.isEmpty {
+            return chain.segments.map(\.path)
+        }
+        // Fallback: current session only (chain not loaded yet)
         if let current = card.session?.jsonlPath {
             return [current]
         }
@@ -1418,29 +1433,25 @@ struct CardDetailView: View {
     }
 
     /// Whether this card has chained sessions (slug continuation via --resume).
-    /// Note: With session_links table, chain detection would need DB access.
-    /// For now, always false — full history loads the current session only.
     private var hasChainedSessions: Bool {
-        false
+        guard let chain = sessionChain else { return false }
+        return chain.segments.count > 1
     }
 
     private static let pageSize = 80
 
     private func loadFullHistory() async {
-        guard let currentPath = card.session?.jsonlPath else { return }
+        let paths = allSessionPaths
+        guard !paths.isEmpty else { return }
         isLoadingHistory = true
         var allTurns: [ConversationTurn] = []
-        // Load previous chained sessions first (oldest to newest)
-        // Note: previousSessionPaths removed with SessionLink. Chain history via session_links is TBD.
-        for prevPath in [String]() {
-            if let prev = try? await TranscriptReader.readTurns(from: prevPath) {
-                allTurns.append(contentsOf: prev)
+
+        for path in paths {
+            if let sessionTurns = try? await TranscriptReader.readTurns(from: path) {
+                allTurns.append(contentsOf: sessionTurns)
             }
         }
-        // Load current session
-        if let current = try? await TranscriptReader.readTurns(from: currentPath) {
-            allTurns.append(contentsOf: current)
-        }
+
         // Re-index turns sequentially so scroll/search works correctly
         turns = allTurns.enumerated().map { idx, turn in
             ConversationTurn(
