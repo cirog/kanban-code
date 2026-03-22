@@ -42,6 +42,9 @@ public struct AppState: Sendable {
     /// Source of truth is the session_links DB table; this is just an in-memory cache.
     public var sessionIdByCardId: [String: String] = [:]
 
+    /// Lazily-built session chains per card. Populated when History/Prompts tab opens.
+    public var chainByCardId: [String: SessionChain] = [:]
+
     /// Reverse index: sessionId → cardId, derived from sessionIdByCardId.
     public var cardIdBySessionId: [String: String] {
         Dictionary(sessionIdByCardId.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a })
@@ -205,6 +208,11 @@ public enum Action: Sendable {
     // Tab memory
     case setLastTab(cardId: String, tab: String)
 
+    // Chains
+    case loadChain(cardId: String, limit: Int = 5)
+    case chainLoaded(String, SessionChain) // (cardId, chain)
+    case chainInvalidated(String) // cardId
+
     // Todoist sync
     case todoistSyncCompleted([TodoistTask])
 
@@ -270,6 +278,7 @@ public enum Effect: Sendable {
     case deleteFiles([String])
     case completeTodoistTask(todoistId: String)
     case killClaudeProcess(sessionId: String)
+    case loadChain(cardId: String, limit: Int)
 }
 
 // MARK: - Reducer
@@ -985,6 +994,19 @@ public enum Reducer {
 
         case .setLoading(let loading):
             state.isLoading = loading
+            return []
+
+        // MARK: Chains
+
+        case .loadChain(let cardId, let limit):
+            return [.loadChain(cardId: cardId, limit: limit)]
+
+        case .chainLoaded(let cardId, let chain):
+            state.chainByCardId[cardId] = chain
+            return []
+
+        case .chainInvalidated(let cardId):
+            state.chainByCardId[cardId] = nil
             return []
 
         // MARK: Todoist Sync

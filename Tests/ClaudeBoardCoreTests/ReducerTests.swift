@@ -1381,4 +1381,38 @@ struct ReducerTests {
         #expect(effects.isEmpty) // no side effects — just state update
     }
 
+    // MARK: - Chain Actions
+
+    @Test("chainLoaded stores chain in state")
+    func chainLoaded() {
+        var state = AppState()
+        let chain = SessionChain(cardId: "card-1", segments: [], totalSegments: 0)
+
+        let effects = Reducer.reduce(state: &state, action: .chainLoaded("card-1", chain))
+
+        #expect(state.chainByCardId["card-1"] != nil)
+        #expect(state.chainByCardId["card-1"]?.cardId == "card-1")
+        #expect(effects.isEmpty)
+    }
+
+    @Test("chainInvalidated removes chain from state")
+    func chainInvalidated() {
+        var state = AppState()
+        state.chainByCardId["card-1"] = SessionChain(cardId: "card-1", segments: [], totalSegments: 0)
+
+        let effects = Reducer.reduce(state: &state, action: .chainInvalidated("card-1"))
+
+        #expect(state.chainByCardId["card-1"] == nil)
+        #expect(effects.isEmpty)
+    }
+
+    @Test("loadChain dispatches loadChain effect")
+    func loadChainEffect() {
+        var state = AppState()
+
+        let effects = Reducer.reduce(state: &state, action: .loadChain(cardId: "card-1", limit: 5))
+
+        #expect(effects.count == 1)
+    }
+
 }

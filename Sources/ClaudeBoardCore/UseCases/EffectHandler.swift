@@ -120,6 +120,8 @@ public actor EffectHandler {
         case .killClaudeProcess(let sessionId):
             await Self.killClaudeProcess(sessionId: sessionId)
 
+        case .loadChain:
+            break // TODO: Task 6 — EffectHandler chain loading
         }
     }
 
