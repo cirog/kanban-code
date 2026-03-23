@@ -263,11 +263,11 @@ struct CardDetailView: View {
             // Reset tab to a valid one for this card (skip auto-focus)
             suppressTerminalFocus = true
             selectedTab = defaultTab(for: card)
+            // Always load history — needed by multiple tabs and prevents empty-history
+            // bug when the tab binding doesn't change from SwiftUI's perspective
+            await loadFullHistory()
             if selectedTab == .history {
-                await loadFullHistory()
                 startHistoryWatcher()
-            } else {
-                await loadHistory()
             }
             // After setup, focus terminal if this card has one and landed on terminal tab
             if selectedTab == .terminal && card.link.tmuxLink != nil {
