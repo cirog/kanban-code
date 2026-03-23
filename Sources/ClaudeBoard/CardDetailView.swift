@@ -15,9 +15,19 @@ enum DetailTab: String {
     static func initialTab(for card: ClaudeBoardCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
         if card.link.slug != nil { return .history }
-        if card.link.todoistId != nil { return .description }
-        if card.link.promptBody != nil { return .prompt }
-        return .history
+        return .prompt
+    }
+
+    static func defaultTab(for card: ClaudeBoardCard) -> DetailTab {
+        if let saved = card.link.lastTab, let tab = DetailTab(rawValue: saved) {
+            switch tab {
+            case .terminal where card.link.tmuxLink != nil: return tab
+            case .history, .prompt, .summary: return tab
+            case .description where card.link.todoistId != nil: return tab
+            default: break
+            }
+        }
+        return initialTab(for: card)
     }
 }
 
@@ -870,15 +880,7 @@ struct CardDetailView: View {
     }
 
     private func defaultTab(for card: ClaudeBoardCard) -> DetailTab {
-        // Restore persisted tab if valid for this card
-        if let saved = card.link.lastTab, let tab = DetailTab(rawValue: saved) {
-            switch tab {
-            case .terminal where card.link.tmuxLink != nil: return tab
-            case .history: return tab
-            default: break
-            }
-        }
-        return DetailTab.initialTab(for: card)
+        DetailTab.defaultTab(for: card)
     }
 
 
