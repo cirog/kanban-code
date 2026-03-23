@@ -30,8 +30,7 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
             var built = assistant.cliCommand
             if skipPermissions { built += " \(assistant.autoApproveFlag)" }
 
-            // Prepend environment variables (SHELL override + KANBAN_CODE_* vars)
-            let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv)
+            let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv, tmuxSessionName: sessionName)
             if !envPrefix.isEmpty {
                 built = envPrefix + " " + built
             }
@@ -78,7 +77,7 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
             var built = assistant.cliCommand
             if skipPermissions { built += " \(assistant.autoApproveFlag)" }
             built += " \(assistant.resumeFlag) \(sessionId)"
-            let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv)
+            let envPrefix = buildEnvPrefix(shellOverride: shellOverride, extraEnv: extraEnv, tmuxSessionName: sessionName)
             if !envPrefix.isEmpty {
                 built = envPrefix + " " + built
             }
@@ -99,8 +98,13 @@ public final class LaunchSession: SessionLauncher, @unchecked Sendable {
     // MARK: - Private
 
     /// Build a string of VAR=value assignments to prepend to the command.
-    private func buildEnvPrefix(shellOverride: String?, extraEnv: [String: String]) -> String {
+    /// Includes CLAUDE_BOARD_TMUX so hooks can identify the owning tmux session.
+    private func buildEnvPrefix(shellOverride: String?, extraEnv: [String: String], tmuxSessionName: String? = nil) -> String {
         var parts: [String] = []
+
+        if let tmuxSessionName {
+            parts.append("CLAUDE_BOARD_TMUX=\(shellEscape(tmuxSessionName))")
+        }
 
         if let shellOverride {
             parts.append("SHELL=\(shellOverride)")

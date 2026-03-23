@@ -151,31 +151,29 @@ public enum HookManager {
     EVENTS_DIR="${HOME}/.claude-board"
     EVENTS_FILE="${EVENTS_DIR}/hook-events.jsonl"
 
-    # Ensure directory exists
     mkdir -p "$EVENTS_DIR"
 
-    # Read the JSON payload from stdin
     input=$(cat)
 
-    # Extract fields using lightweight parsing (no jq dependency)
     session_id=$(echo "$input" | grep -o '"session_id":"[^"]*"' | head -1 | cut -d'"' -f4)
     hook_event=$(echo "$input" | grep -o '"hook_event_name":"[^"]*"' | head -1 | cut -d'"' -f4)
     transcript=$(echo "$input" | grep -o '"transcript_path":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-    # Fallback: try sessionId (different hook formats)
     if [ -z "$session_id" ]; then
         session_id=$(echo "$input" | grep -o '"sessionId":"[^"]*"' | head -1 | cut -d'"' -f4)
     fi
 
-    # Skip if we couldn't extract a session ID
     [ -z "$session_id" ] && exit 0
 
-    # Get current timestamp
+    # CLAUDE_BOARD_TMUX is set by ClaudeBoard when launching a session in tmux.
+    # Sessions not launched by ClaudeBoard (cloud desktop, standalone CLI) won't
+    # have this variable, so tmux_session stays empty — preventing mis-assignment.
+    tmux_session="${CLAUDE_BOARD_TMUX:-}"
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    claude_pid=$PPID
 
-    # Append event line
-    printf '{"sessionId":"%s","event":"%s","timestamp":"%s","transcriptPath":"%s"}\\n' \\
-        "$session_id" "$hook_event" "$timestamp" "$transcript" >> "$EVENTS_FILE"
+    printf '{"sessionId":"%s","event":"%s","timestamp":"%s","transcriptPath":"%s","tmuxSession":"%s","pid":%d}\\n' \\
+        "$session_id" "$hook_event" "$timestamp" "$transcript" "$tmux_session" "$claude_pid" >> "$EVENTS_FILE"
     """
 
     /// Settings file path per assistant.
