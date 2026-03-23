@@ -23,10 +23,15 @@ struct HistoryPlusView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         let coord = context.coordinator
         let currentLine = turns.last?.lineNumber ?? -1
-        guard currentLine != coord.lastLineNumber else { return }
+        if currentLine == coord.lastLineNumber {
+            return
+        }
 
-        if coord.didInitialLoad {
-            // Incremental update: replace content via JS — no page reload, no scroll jump.
+        // Use incremental JS update only when the page is already loaded and
+        // we're appending to the same card's conversation. On card switch the
+        // coordinator is reset (lastLineNumber = -1) so we always do a full
+        // HTML load, avoiding JS injection on a stale/loading page.
+        if coord.didInitialLoad && coord.lastLineNumber != -1 {
             incrementalUpdate(webView: webView, coordinator: coord)
         } else {
             loadHTML(into: webView, coordinator: coord)

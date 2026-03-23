@@ -226,9 +226,7 @@ struct CardDetailView: View {
                             HistoryPlusInputBar(onSend: { text in onSendReplyText(text) })
                         }
                         .onChange(of: sessionChain?.segments.count) {
-                            if hasChainedSessions {
-                                Task { await loadFullHistory() }
-                            }
+                            Task { await loadFullHistory() }
                         }
                     case .prompt:
                         promptTabView
