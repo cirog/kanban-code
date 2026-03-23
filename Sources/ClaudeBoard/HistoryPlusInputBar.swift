@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 struct HistoryPlusInputBar: View {
     @State private var inputText = ""

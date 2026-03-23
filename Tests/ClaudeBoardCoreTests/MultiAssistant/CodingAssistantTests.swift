@@ -47,13 +47,6 @@ struct CodingAssistantTests {
         #expect(CodingAssistant.claude.configDirName == ".claude")
     }
 
-    // MARK: - Install Command
-
-    @Test("Claude install command")
-    func claudeInstallCommand() {
-        #expect(CodingAssistant.claude.installCommand.contains("claude-code"))
-    }
-
     // MARK: - Codable
 
     @Test("CodingAssistant Codable round-trip")

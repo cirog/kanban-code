@@ -57,11 +57,4 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
         case .claude: "❯"
         }
     }
-
-    /// npm package name for installation.
-    public var installCommand: String {
-        switch self {
-        case .claude: "npm install -g @anthropic-ai/claude-code"
-        }
-    }
 }

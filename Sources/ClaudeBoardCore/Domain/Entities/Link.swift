@@ -116,11 +116,6 @@ public struct Link: Identifiable, Codable, Sendable {
         return id
     }
 
-    // MARK: - Backward-compat computed properties
-
-    /// Tmux session name. Use `tmuxLink?.sessionName` for new code.
-    public var tmuxSession: String? { tmuxLink?.sessionName }
-
     /// The primary label for this card based on which links are present.
     public var cardLabel: CardLabel {
         if slug != nil { return .session }
@@ -324,7 +319,6 @@ public struct ManualOverrides: Codable, Sendable {
 /// How a link was created.
 public enum LinkSource: String, Codable, Sendable {
     case discovered // Found via session scanning
-    case hook // Created via Claude hook event
     case manual // User-created task
     case todoist // Synced from Todoist
 

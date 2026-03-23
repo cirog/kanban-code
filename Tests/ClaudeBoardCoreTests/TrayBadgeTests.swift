@@ -65,9 +65,6 @@ struct TrayBadgeTests {
         // Select project /b — only card B is visible in filtered view
         state.selectedProjectPath = "/b"
 
-        // Filtered count should exclude card A (different project)
-        #expect(state.cardCount(in: .waiting) == 0)
-
         // Global count should still see card A
         #expect(state.globalCardCount(in: .waiting) == 1)
         #expect(state.globalCardCount(in: .inProgress) == 1)

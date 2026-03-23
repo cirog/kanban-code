@@ -27,8 +27,4 @@ public final class CompositeNotifier: NotifierPort, @unchecked Sendable {
         true // Always configured — fallback is always available
     }
 
-    /// Hot-swap the primary notifier (e.g. when settings change).
-    public func updatePrimary(_ notifier: NotifierPort?) {
-        self.primary = notifier
-    }
 }

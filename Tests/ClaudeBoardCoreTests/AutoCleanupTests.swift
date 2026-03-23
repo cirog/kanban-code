@@ -14,10 +14,10 @@ struct AutoCleanupTests {
             updatedAt: Date.now.addingTimeInterval(-25 * 3600),
             source: .manual
         )
-        let oldHook = Link(
+        let oldTodoist = Link(
             column: .done,
             updatedAt: Date.now.addingTimeInterval(-25 * 3600),
-            source: .hook
+            source: .todoist
         )
         let recentDiscovered = Link(
             column: .done,
@@ -25,12 +25,12 @@ struct AutoCleanupTests {
             source: .discovered
         )
 
-        let result = AutoCleanup.clean(links: [oldDiscovered, oldManual, oldHook, recentDiscovered])
+        let result = AutoCleanup.clean(links: [oldDiscovered, oldManual, oldTodoist, recentDiscovered])
 
         #expect(result.count == 3) // only oldDiscovered removed
         #expect(!result.contains(where: { $0.id == oldDiscovered.id }))
         #expect(result.contains(where: { $0.id == oldManual.id }))
-        #expect(result.contains(where: { $0.id == oldHook.id }))
+        #expect(result.contains(where: { $0.id == oldTodoist.id }))
         #expect(result.contains(where: { $0.id == recentDiscovered.id }))
     }
 

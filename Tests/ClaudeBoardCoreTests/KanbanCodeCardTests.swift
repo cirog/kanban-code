@@ -27,21 +27,6 @@ struct ClaudeBoardCardTests {
         #expect(card.displayTitle == "card_test123")
     }
 
-    @Test("Project name extracted from path")
-    func projectName() {
-        let link = Link(projectPath: "/Users/test/Projects/my-cool-app", slug: "s1")
-        let card = ClaudeBoardCard(link: link)
-        #expect(card.projectName == "my-cool-app")
-    }
-
-    @Test("Project name from session when link has none")
-    func projectNameFromSession() {
-        let link = Link(slug: "s1")
-        let session = Session(id: "s1", projectPath: "/Users/test/Projects/langwatch")
-        let card = ClaudeBoardCard(link: link, session: session)
-        #expect(card.projectName == "langwatch")
-    }
-
     @Test("Relative time formats correctly")
     func relativeTime() {
         #expect(ClaudeBoardCard.formatRelativeTime(Date.now) == "just now")

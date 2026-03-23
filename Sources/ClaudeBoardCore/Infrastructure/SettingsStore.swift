@@ -139,12 +139,6 @@ public actor SettingsStore {
         self.decoder = JSONDecoder()
     }
 
-    /// Invalidate the in-memory cache so the next read() re-reads from disk.
-    public func invalidateCache() {
-        cachedSettings = nil
-        cachedMtime = nil
-    }
-
     /// Read settings, creating defaults if file doesn't exist.
     /// Returns cached value if the file hasn't changed since last read.
     public func read() throws -> Settings {

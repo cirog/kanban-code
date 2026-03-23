@@ -90,10 +90,6 @@ public struct AppState: Sendable {
             }
     }
 
-    public func cardCount(in column: ClaudeBoardColumn) -> Int {
-        filteredCards.filter { $0.column == column }.count
-    }
-
     /// Count of cards in a column across ALL projects (no filtering).
     /// Used by the system tray badge/visibility — the menu bar icon is global.
     public func globalCardCount(in column: ClaudeBoardColumn) -> Int {

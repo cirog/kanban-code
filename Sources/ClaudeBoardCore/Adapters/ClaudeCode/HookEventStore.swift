@@ -29,12 +29,6 @@ public actor HookEventStore {
         return Self.parseEvents(from: text)
     }
 
-    /// Read all events (for initial load).
-    public func readAllEvents() throws -> [HookEvent] {
-        lastReadOffset = 0
-        return try readNewEvents()
-    }
-
     /// Read all events incrementally — caches previously parsed events and only
     /// parses new data appended since the last call. Called every 5s by the reconciler.
     public func readAllStoredEvents() throws -> [HookEvent] {

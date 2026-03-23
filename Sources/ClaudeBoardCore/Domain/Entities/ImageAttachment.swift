@@ -13,15 +13,6 @@ public struct ImageAttachment: Identifiable, Sendable {
         self.tempPath = tempPath
     }
 
-    /// Save image data to a temp file. Returns the path.
-    @discardableResult
-    public mutating func saveToTemp() throws -> String {
-        let path = "/tmp/kanban-code-img-\(id).png"
-        try data.write(to: URL(fileURLWithPath: path))
-        tempPath = path
-        return path
-    }
-
     /// Save image data to persistent storage (~/.kanban-code/images/). Returns the path.
     @discardableResult
     public mutating func saveToPersistent() throws -> String {

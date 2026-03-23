@@ -118,26 +118,6 @@ struct CoordinationStoreTests {
         #expect(links.isEmpty)
     }
 
-    @Test("Update link with closure via session ID")
-    func updateLink() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-        let store = CoordinationStore(basePath: dir)
-
-        let link = Link(column: .backlog, slug: "upd-slug")
-        try await store.upsertLink(link)
-        try await store.linkSession(sessionId: "sess-upd-1", linkId: link.id, matchedBy: "test", path: nil)
-
-        try await store.updateLink(sessionId: "sess-upd-1") { link in
-            link.column = .inProgress
-            link.tmuxLink = TmuxLink(sessionName: "feat-login")
-        }
-
-        let found = try await store.linkForSession("sess-upd-1")
-        #expect(found?.column == .inProgress)
-        #expect(found?.tmuxSession == "feat-login")
-    }
-
     @Test("linkForSession returns correct link")
     func linkForSession() async throws {
         let dir = try makeTempDir()
@@ -171,44 +151,6 @@ struct CoordinationStoreTests {
 
         let notFound = try await store.linkById("nonexistent")
         #expect(notFound == nil)
-    }
-
-    @Test("modifyLinks transforms all links atomically")
-    func modifyLinks() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-        let store = CoordinationStore(basePath: dir)
-
-        try await store.writeLinks([
-            Link(name: "A", column: .backlog),
-            Link(name: "B", column: .backlog),
-        ])
-
-        try await store.modifyLinks { links in
-            for i in links.indices {
-                links[i].column = .done
-            }
-        }
-
-        let links = try await store.readLinks()
-        #expect(links.allSatisfy { $0.column == .done })
-    }
-
-    @Test("removeOrphans is a no-op (session paths in session_links)")
-    func removeOrphans() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-        let store = CoordinationStore(basePath: dir)
-
-        try await store.writeLinks([
-            Link(column: .done, slug: "s1"),
-            Link(column: .done, slug: "s2"),
-        ])
-
-        // removeOrphans is now a no-op
-        try await store.removeOrphans()
-        let links = try await store.readLinks()
-        #expect(links.count == 2)
     }
 
     // MARK: - Relational schema tests
@@ -263,23 +205,7 @@ struct CoordinationStoreTests {
         #expect(card.queuedPrompts?[0].body == "next task")
     }
 
-    @Test("Relational: findBySlug returns correct card")
-    func relationalFindBySlug() async throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-        let store = CoordinationStore(basePath: dir)
 
-        var link = Link(id: "card-1", name: "Found", column: .done)
-        link.slug = "my-slug"
-        try await store.upsertLink(link)
-
-        let found = try await store.findBySlug("my-slug")
-        #expect(found?.id == "card-1")
-        #expect(found?.name == "Found")
-
-        let notFound = try await store.findBySlug("nonexistent")
-        #expect(notFound == nil)
-    }
 
     @Test("Relational: CASCADE delete removes child rows")
     func relationalCascadeDelete() async throws {

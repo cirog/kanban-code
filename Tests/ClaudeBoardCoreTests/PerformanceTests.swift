@@ -254,46 +254,6 @@ struct PerformanceTests {
             }
         }
 
-        @Test("findBySlug")
-        func findBySlug() async throws {
-            let dir = makeTempDir("coord-slug")
-            defer { cleanup(dir) }
-            let store = CoordinationStore(basePath: dir)
-            let links = makeLinks(100)
-            try await store.writeLinks(links)
-
-            try await measureMedian(limitMs: 3) {
-                _ = try await store.findBySlug("slug-50")
-            }
-        }
-
-        @Test("removeLink")
-        func removeLink() async throws {
-            let dir = makeTempDir("coord-remove")
-            defer { cleanup(dir) }
-            let store = CoordinationStore(basePath: dir)
-            let links = makeLinks(100)
-            try await store.writeLinks(links)
-
-            try await measureMedian(limitMs: 10) {
-                // Remove then re-insert so the next iteration has something to remove
-                try await store.removeLink(id: "card-50")
-                try await store.upsertLink(links[50])
-            }
-        }
-
-        @Test("modifyLinks_100")
-        func modifyLinks100() async throws {
-            let dir = makeTempDir("coord-modify")
-            defer { cleanup(dir) }
-            let store = CoordinationStore(basePath: dir)
-            let links = makeLinks(100)
-            try await store.writeLinks(links)
-
-            try await measureMedian(limitMs: 300) {
-                try await store.modifyLinks { _ in }
-            }
-        }
     }
 
     // MARK: - Group 2: SettingsStore (JSON file)
@@ -324,8 +284,8 @@ struct PerformanceTests {
             try await store.write(settings)
 
             try await measureMedian(limitMs: 10) {
-                await store.invalidateCache()
-                _ = try await store.read()
+                let freshStore = SettingsStore(basePath: dir)
+                _ = try await freshStore.read()
             }
         }
 
@@ -356,7 +316,7 @@ struct PerformanceTests {
             let store = HookEventStore(basePath: dir)
 
             try await measureMedian(limitMs: 150) {
-                _ = try await store.readAllEvents()
+                _ = try await store.readAllStoredEvents()
             }
         }
 
@@ -369,7 +329,7 @@ struct PerformanceTests {
             let store = HookEventStore(basePath: dir)
 
             // Read all first to set offset
-            _ = try await store.readAllEvents()
+            _ = try await store.readAllStoredEvents()
 
             // Append 50 new lines
             let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: filePath))

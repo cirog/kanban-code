@@ -108,41 +108,6 @@ struct HookManagerTests {
         #expect(entries.count == 1)
     }
 
-    @Test("Uninstall removes only kanban hooks")
-    func uninstall() throws {
-        let dir = try makeTempDir()
-        defer { cleanup(dir) }
-
-        let settingsPath = (dir as NSString).appendingPathComponent("settings.json")
-        let existing = """
-        {
-            "hooks": {
-                "Stop": [
-                    {
-                        "matcher": "",
-                        "hooks": [
-                            {"type": "command", "command": "/usr/local/bin/other-hook.sh"},
-                            {"type": "command", "command": "/home/user/.claude-board/hook.sh"}
-                        ]
-                    }
-                ]
-            }
-        }
-        """
-        try existing.write(toFile: settingsPath, atomically: true, encoding: .utf8)
-
-        try HookManager.uninstall(claudeSettingsPath: settingsPath)
-
-        let data = try Data(contentsOf: URL(fileURLWithPath: settingsPath))
-        let root = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        let hooks = root["hooks"] as! [String: Any]
-        let stopGroups = hooks["Stop"] as! [[String: Any]]
-        let entries = stopGroups[0]["hooks"] as! [[String: Any]]
-
-        #expect(entries.count == 1)
-        #expect((entries[0]["command"] as! String).contains("other-hook"))
-    }
-
     @Test("isInstalled returns false for missing hooks")
     func notInstalled() {
         let installed = HookManager.isInstalled(claudeSettingsPath: "/nonexistent/path")

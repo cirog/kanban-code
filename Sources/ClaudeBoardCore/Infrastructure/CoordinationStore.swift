@@ -278,24 +278,6 @@ public actor CoordinationStore {
         return try linkById(linkId)
     }
 
-    /// Find a link by its tmux session name.
-    public func findByTmuxSessionName(_ name: String) throws -> Link? {
-        ensureInitialized()
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT link_id FROM tmux_sessions WHERE session_name = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK else { return nil }
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        let linkId = String(cString: sqlite3_column_text(stmt, 0))
-        return try linkById(linkId)
-    }
-
-    /// Find a link by its slug.
-    public func findBySlug(_ slug: String) throws -> Link? {
-        ensureInitialized()
-        return try queryOneLink("SELECT id, slug, name, project_path, \"column\", created_at, updated_at, last_activity, last_opened_at, source, manually_archived, prompt_body, prompt_image_paths, todoist_id, todoist_description, todoist_priority, todoist_due, todoist_labels, todoist_project_id, notes, project_id, assistant, last_tab, is_launching, sort_order, override_tmux, override_name, override_column FROM links WHERE slug = ?", bindings: [slug])
-    }
-
     /// Link a session to a card. If the session already exists, UPDATE to new card.
     public func linkSession(sessionId: String, linkId: String, matchedBy: String, path: String?) throws {
         ensureInitialized()
@@ -395,22 +377,6 @@ public actor CoordinationStore {
         return Int(sqlite3_column_int(stmt, 0))
     }
 
-    /// Update specific fields of a link by link.id.
-    public func updateLink(id: String, update: (inout Link) -> Void) throws {
-        guard var link = try linkById(id) else { return }
-        update(&link)
-        link.updatedAt = .now
-        try upsertLink(link)
-    }
-
-    /// Update specific fields of a link by session ID.
-    public func updateLink(sessionId: String, update: (inout Link) -> Void) throws {
-        guard var link = try linkForSession(sessionId) else { return }
-        update(&link)
-        link.updatedAt = .now
-        try upsertLink(link)
-    }
-
     /// Remove a link by its id. CASCADE deletes child rows.
     public func removeLink(id: String) throws {
         ensureInitialized()
@@ -422,21 +388,6 @@ public actor CoordinationStore {
         ensureInitialized()
         guard let link = try linkForSession(sessionId) else { return }
         try removeLink(id: link.id)
-    }
-
-    /// Remove orphaned links whose .jsonl files no longer exist.
-    /// Note: With session_links table, orphan cleanup is handled by the reconciler.
-    /// This method is a no-op for now.
-    public func removeOrphans() throws {
-        // No-op: session paths are now in session_links table, not on Link.
-        // The reconciler handles cleanup.
-    }
-
-    /// Atomic read-modify-write within the actor.
-    public func modifyLinks(_ transform: (inout [Link]) -> Void) throws {
-        var links = try readLinks()
-        transform(&links)
-        try writeLinks(links)
     }
 
     /// The database path for debugging.

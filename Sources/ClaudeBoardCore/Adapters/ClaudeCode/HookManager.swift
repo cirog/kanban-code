@@ -125,49 +125,6 @@ public enum HookManager {
         try install(for: .claude, settingsPath: claudeSettingsPath, hookScriptPath: hookScriptPath)
     }
 
-    // MARK: - Uninstall
-
-    /// Remove Kanban hooks from the given assistant's settings.
-    public static func uninstall(for assistant: CodingAssistant, settingsPath: String? = nil) throws {
-        let resolvedSettingsPath = settingsPath ?? defaultSettingsPath(for: assistant)
-
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: resolvedSettingsPath)),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var hooks = root["hooks"] as? [String: Any] else {
-            return
-        }
-
-        for eventName in requiredHooks(for: assistant) {
-            if var groups = hooks[eventName] as? [[String: Any]] {
-                for i in groups.indices {
-                    if var entries = groups[i]["hooks"] as? [[String: Any]] {
-                        entries.removeAll { ($0["command"] as? String)?.contains(".claude-board/hook.sh") == true }
-                        groups[i]["hooks"] = entries
-                    }
-                }
-                groups.removeAll { group in
-                    guard let entries = group["hooks"] as? [[String: Any]] else { return true }
-                    return entries.isEmpty
-                }
-                if groups.isEmpty {
-                    hooks.removeValue(forKey: eventName)
-                } else {
-                    hooks[eventName] = groups
-                }
-            }
-        }
-
-        root["hooks"] = hooks
-
-        let newData = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-        try newData.write(to: URL(fileURLWithPath: resolvedSettingsPath))
-    }
-
-    /// Backward-compatible: uninstall Claude hooks only.
-    public static func uninstall(claudeSettingsPath: String? = nil) throws {
-        try uninstall(for: .claude, settingsPath: claudeSettingsPath)
-    }
-
     // MARK: - Private
 
     private static func deployHookScript(to path: String) throws {

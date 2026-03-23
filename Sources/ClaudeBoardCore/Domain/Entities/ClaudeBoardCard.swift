@@ -34,12 +34,6 @@ public struct ClaudeBoardCard: Identifiable, Sendable {
         return link.displayTitle
     }
 
-    /// Project name extracted from project path.
-    public var projectName: String? {
-        guard let path = link.projectPath ?? session?.projectPath else { return nil }
-        return (path as NSString).lastPathComponent
-    }
-
     /// Relative time since last activity.
     public var relativeTime: String {
         let date = link.lastActivity ?? link.updatedAt
