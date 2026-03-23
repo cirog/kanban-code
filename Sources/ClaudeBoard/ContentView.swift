@@ -340,19 +340,7 @@ struct ContentView: View {
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .navigationTitle("")
             .onChange(of: store.state.selectedCardId) {
-                if let cardId = store.state.selectedCardId,
-                   let card = store.state.cards.first(where: { $0.id == cardId }) {
-                    // Restore persisted tab if valid for this card
-                    if let saved = card.link.lastTab, let tab = DetailTab(rawValue: saved) {
-                        switch tab {
-                        case .terminal where card.link.tmuxLink != nil: detailTab = tab
-                        case .history: detailTab = tab
-                        default: detailTab = DetailTab.initialTab(for: card)
-                        }
-                    } else {
-                        detailTab = DetailTab.initialTab(for: card)
-                    }
-                }
+                // Tab selection is handled by CardDetailView.task(id:)
             }
             .overlay {
                 FolderDropZone(isTargeted: $isDroppingFolder) { url in
