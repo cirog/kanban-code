@@ -897,12 +897,17 @@ public enum Reducer {
                     lastHookEvent: hookEvent
                 )
 
-                // Copy session's firstPrompt into link.promptBody
-                if link.promptBody == nil,
-                   let sessionId = state.sessionIdByCardId[id],
-                   let session = result.sessions.first(where: { $0.id == sessionId }),
-                   let firstPrompt = session.firstPrompt, !firstPrompt.isEmpty {
-                    link.promptBody = firstPrompt
+                // Backfill slug and promptBody from session when missing
+                // (e.g., scheduled tasks created externally without tmux)
+                if let sessionId = state.sessionIdByCardId[id],
+                   let session = result.sessions.first(where: { $0.id == sessionId }) {
+                    if link.slug == nil, let slug = session.slug {
+                        link.slug = slug
+                    }
+                    if link.promptBody == nil,
+                       let firstPrompt = session.firstPrompt, !firstPrompt.isEmpty {
+                        link.promptBody = firstPrompt
+                    }
                 }
 
                 mergedLinks[id] = link
