@@ -14,7 +14,7 @@ enum DetailTab: String {
 
     static func initialTab(for card: ClaudeBoardCard) -> DetailTab {
         if card.link.tmuxLink != nil { return .terminal }
-        if card.link.slug != nil { return .history }
+        if card.session != nil { return .history }
         return .prompt
     }
 
@@ -469,7 +469,7 @@ struct CardDetailView: View {
 
     /// Whether the tab bar should be visible.
     private var showTabBar: Bool {
-        card.link.tmuxLink != nil || card.link.slug != nil ||
+        card.link.tmuxLink != nil || card.session != nil ||
         card.link.isLaunching == true
     }
 
@@ -757,7 +757,7 @@ struct CardDetailView: View {
                 .controlSize(.small)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if card.link.slug != nil {
+        } else if card.session != nil {
             VStack(spacing: 12) {
                 AssistantIcon(assistant: assistant)
                     .frame(width: CGFloat(32).scaled, height: CGFloat(32).scaled)
@@ -1248,7 +1248,7 @@ struct CardDetailView: View {
 
                 HStack(spacing: 8) {
                     if card.link.tmuxLink == nil {
-                        let hasSession = card.link.slug != nil
+                        let hasSession = card.session != nil
                         let isStart = card.column == .backlog || !hasSession
                         Button(action: onResume) {
                             Label(isStart ? "Start" : "Resume", systemImage: "play.fill")
@@ -1320,11 +1320,11 @@ struct CardDetailView: View {
                 Picker("", selection: userTabBinding) {
                     Text("Terminal").tag(DetailTab.terminal)
                     Text("History").tag(DetailTab.history)
-                    if card.link.promptBody != nil || card.link.slug != nil {
+                    if card.link.promptBody != nil || card.session != nil {
                         Text("Prompts").tag(DetailTab.prompt)
                     }
                     if card.link.todoistId != nil { Text("Task").tag(DetailTab.description) }
-                    if card.link.slug != nil { Text("Summary").tag(DetailTab.summary) }
+                    if card.session != nil { Text("Summary").tag(DetailTab.summary) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -1375,7 +1375,7 @@ struct CardDetailView: View {
             menu.addActionItem("Copy Tmux Command", image: "terminal") { [self] in copyToClipboard("tmux attach -t \(tmux)") }
         }
 
-        if card.link.slug != nil {
+        if card.session != nil {
             let currentPath = card.link.projectPath
             let otherProjects = availableProjects.filter { $0.path != currentPath }
             menu.addItem(NSMenuItem.separator())
@@ -1394,7 +1394,7 @@ struct CardDetailView: View {
             menu.addItem(moveItem)
         }
 
-        if card.link.slug != nil {
+        if card.session != nil {
             let migrationTargets = enabledAssistants.filter { $0 != card.link.effectiveAssistant }
             if !migrationTargets.isEmpty {
                 menu.addItem(NSMenuItem.separator())

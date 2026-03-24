@@ -20,10 +20,10 @@ enum CardDropIntent: Equatable {
             if card.link.tmuxLink != nil {
                 return .invalid("Session is already running - card moves to In Progress automatically when Claude is actively working")
             }
-            if card.column == .backlog && card.link.slug == nil {
+            if card.column == .backlog && card.session == nil {
                 return .start
             }
-            if card.link.slug != nil {
+            if card.session != nil {
                 return .resume
             }
             return .move

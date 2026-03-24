@@ -233,7 +233,7 @@ struct ContentView: View {
                 sessionStore: assistantRegistry.store(for: card.link.effectiveAssistant) ?? store.sessionStore,
                 selectedTab: $detailTab,
                 onResume: {
-                    if card.link.slug != nil {
+                    if card.session != nil {
                         resumeCard(cardId: card.id)
                     } else {
                         startCard(cardId: card.id)
@@ -1672,7 +1672,7 @@ struct ContentView: View {
 
     /// Returns assistants the card can be migrated to (excludes current, requires both registered).
     private func migrationTargets(for card: ClaudeBoardCard) -> [CodingAssistant] {
-        guard card.link.slug != nil else { return [] }
+        guard card.session != nil else { return [] }
         let current = card.link.effectiveAssistant
         return assistantRegistry.available.filter { $0 != current }
     }
