@@ -1317,7 +1317,7 @@ struct CardDetailView: View {
 
             // Row 3: Tab bar (fixed height)
             HStack {
-                Picker("", selection: $selectedTab) {
+                Picker("", selection: userTabBinding) {
                     Text("Terminal").tag(DetailTab.terminal)
                     Text("History").tag(DetailTab.history)
                     if card.link.promptBody != nil || card.link.slug != nil {
@@ -1640,12 +1640,21 @@ struct CardDetailView: View {
         historyPollTask = nil
     }
 
+    /// Binding for the segmented Picker — user clicks persist the tab choice.
+    /// Programmatic `selectedTab = X` assignments bypass persistence.
+    private var userTabBinding: Binding<DetailTab> {
+        Binding(
+            get: { selectedTab },
+            set: { newTab in
+                selectedTab = newTab
+                onSetLastTab(newTab.rawValue)
+            }
+        )
+    }
+
     // MARK: - Tab change handler
 
     private func handleTabChange() {
-        // Persist tab selection
-        onSetLastTab(selectedTab.rawValue)
-
         if selectedTab == .terminal {
             if suppressTerminalFocus {
                 suppressTerminalFocus = false
