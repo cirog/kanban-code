@@ -597,7 +597,7 @@ struct ContentView: View {
             }
             .task(id: "refresh-timer") {
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(3))
+                    try? await Task.sleep(for: .seconds(30))
                     guard !Task.isCancelled else { break }
                     guard store.appIsActive else { continue }
                     await store.reconcile()

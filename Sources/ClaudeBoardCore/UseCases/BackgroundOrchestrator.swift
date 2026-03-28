@@ -62,7 +62,7 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
                 if self?.appIsActive ?? false {
                     await self?.backgroundTick()
                 }
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(30))
             }
         }
 
