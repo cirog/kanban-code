@@ -10,6 +10,7 @@ extension Notification.Name {
 @Observable
 public final class BackgroundOrchestrator: @unchecked Sendable {
     public var isRunning = false
+    public var appIsActive = true
 
     private let discovery: SessionDiscovery
     private let coordinationStore: CoordinationStore
@@ -58,7 +59,9 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
 
         backgroundTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.backgroundTick()
+                if self?.appIsActive ?? false {
+                    await self?.backgroundTick()
+                }
                 try? await Task.sleep(for: .seconds(5))
             }
         }

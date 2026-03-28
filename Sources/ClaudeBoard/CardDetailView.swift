@@ -1681,6 +1681,10 @@ struct CardDetailView: View {
         pathPollTask = Task {
             let tmux = TerminalCache.tmuxPath
             while !Task.isCancelled {
+                guard NSApp.isActive else {
+                    try? await Task.sleep(for: .milliseconds(1500))
+                    continue
+                }
                 // Query panes for extra shell sessions (base-sh1, base-sh2, ...).
                 // Skip the primary session — it always shows the assistant name.
                 if let result = try? await ShellCommand.run(

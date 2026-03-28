@@ -599,6 +599,7 @@ struct ContentView: View {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(3))
                     guard !Task.isCancelled else { break }
+                    guard store.appIsActive else { continue }
                     await store.reconcile()
                     systemTray.update()
                 }
@@ -606,7 +607,9 @@ struct ContentView: View {
             .task(id: "usage-poll") {
                 await usageService.start()
                 while !Task.isCancelled {
-                    usageData = await usageService.currentUsage()
+                    if store.appIsActive {
+                        usageData = await usageService.currentUsage()
+                    }
                     try? await Task.sleep(for: .seconds(5))
                 }
             }
@@ -670,6 +673,7 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 store.appIsActive = true
+                orchestrator.appIsActive = true
                 Task {
                     await store.reconcile()
                     systemTray.update()
@@ -677,6 +681,7 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                 store.appIsActive = false
+                orchestrator.appIsActive = false
             }
     }
 
