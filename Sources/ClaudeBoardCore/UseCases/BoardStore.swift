@@ -913,6 +913,12 @@ public enum Reducer {
                 mergedLinks[id] = link
             }
 
+            // Prune old Done cards from the fully-merged set
+            let prunedIds = Set(AutoCleanup.clean(links: Array(mergedLinks.values)).map(\.id))
+            for id in mergedLinks.keys where !prunedIds.contains(id) {
+                mergedLinks.removeValue(forKey: id)
+            }
+
             state.links = mergedLinks
             state.lastRefresh = Date()
             state.isLoading = false
@@ -1386,13 +1392,10 @@ public final class BoardStore: @unchecked Sendable {
                 configuredProjects: configuredProjects
             )
 
-            // Prune old Done cards before dispatching
-            let prunedLinks = AutoCleanup.clean(links: mergedLinks)
-
             // Dispatch reconciled result — reducer handles all state mutations atomically
             let t5 = ContinuousClock.now
             let result = ReconciliationResult(
-                links: prunedLinks,
+                links: mergedLinks,
                 sessions: sessions,
                 isClaudeRunning: isClaudeRunningMap,
                 lastHookEvent: latestEventBySession,

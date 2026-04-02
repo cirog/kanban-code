@@ -14,7 +14,24 @@ public enum ClaudeBoardLog {
         (logDir as NSString).appendingPathComponent("kanban-code.log")
     }()
 
+    private static let rotatedPath: String = {
+        (logDir as NSString).appendingPathComponent("kanban-code.log.1")
+    }()
+
     private static let queue = DispatchQueue(label: "kanban-code.log", qos: .utility)
+
+    /// Reusable formatter — ISO8601DateFormatter init is expensive (ICU setup).
+    /// Only accessed from `queue` (serial) — safe despite non-Sendable type.
+    private nonisolated(unsafe) static let formatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        return f
+    }()
+
+    /// Persistent file handle — opened once, reused for all writes.
+    private nonisolated(unsafe) static var handle: FileHandle?
+
+    /// Maximum log size before rotation (10 MB).
+    private static let maxSize: UInt64 = 10 * 1024 * 1024
 
     /// Log a message with a subsystem tag.
     /// Example: `ClaudeBoardLog.info("reconciler", "Matched session \(id) to card \(cardId)")`
@@ -33,17 +50,41 @@ public enum ClaudeBoardLog {
     }
 
     private nonisolated static func write(_ level: String, _ subsystem: String, _ message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let timestamp = formatter.string(from: Date())
         let line = "[\(timestamp)] [\(level)] [\(subsystem)] \(message)\n"
 
         queue.async {
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(line.data(using: .utf8) ?? Data())
-                handle.closeFile()
-            } else {
-                FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
+            // Open handle if needed
+            if handle == nil {
+                rotateIfNeeded()
+                if !FileManager.default.fileExists(atPath: logPath) {
+                    FileManager.default.createFile(atPath: logPath, contents: nil)
+                }
+                handle = FileHandle(forWritingAtPath: logPath)
+                handle?.seekToEndOfFile()
+            }
+
+            guard let h = handle, let data = line.data(using: .utf8) else { return }
+            h.write(data)
+
+            // Check size — cheap on an open fd (just reads the offset)
+            if h.offsetInFile > maxSize {
+                h.closeFile()
+                handle = nil
+                rotateIfNeeded()
             }
         }
+    }
+
+    /// Rotate: delete .1, move current → .1.
+    private static func rotateIfNeeded() {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: logPath),
+              let attrs = try? fm.attributesOfItem(atPath: logPath),
+              let size = attrs[.size] as? UInt64,
+              size > maxSize else { return }
+
+        try? fm.removeItem(atPath: rotatedPath)
+        try? fm.moveItem(atPath: logPath, toPath: rotatedPath)
     }
 }
