@@ -1386,10 +1386,13 @@ public final class BoardStore: @unchecked Sendable {
                 configuredProjects: configuredProjects
             )
 
+            // Prune old Done cards before dispatching
+            let prunedLinks = AutoCleanup.clean(links: mergedLinks)
+
             // Dispatch reconciled result — reducer handles all state mutations atomically
             let t5 = ContinuousClock.now
             let result = ReconciliationResult(
-                links: mergedLinks,
+                links: prunedLinks,
                 sessions: sessions,
                 isClaudeRunning: isClaudeRunningMap,
                 lastHookEvent: latestEventBySession,

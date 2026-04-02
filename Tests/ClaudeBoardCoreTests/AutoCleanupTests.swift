@@ -3,20 +3,20 @@ import Foundation
 @testable import ClaudeBoardCore
 
 struct AutoCleanupTests {
-    @Test func removesOldDoneCards_discoveredOnly() {
+    @Test func removesAllOldDoneCards() {
         let oldDiscovered = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-25 * 3600),
+            updatedAt: Date.now.addingTimeInterval(-73 * 3600), // >72h
             source: .discovered
         )
         let oldManual = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-25 * 3600),
+            updatedAt: Date.now.addingTimeInterval(-73 * 3600),
             source: .manual
         )
         let oldTodoist = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-25 * 3600),
+            updatedAt: Date.now.addingTimeInterval(-73 * 3600),
             source: .todoist
         )
         let recentDiscovered = Link(
@@ -27,11 +27,8 @@ struct AutoCleanupTests {
 
         let result = AutoCleanup.clean(links: [oldDiscovered, oldManual, oldTodoist, recentDiscovered])
 
-        #expect(result.count == 3) // only oldDiscovered removed
-        #expect(!result.contains(where: { $0.id == oldDiscovered.id }))
-        #expect(result.contains(where: { $0.id == oldManual.id }))
-        #expect(result.contains(where: { $0.id == oldTodoist.id }))
-        #expect(result.contains(where: { $0.id == recentDiscovered.id }))
+        #expect(result.count == 1) // only recentDiscovered survives
+        #expect(result[0].id == recentDiscovered.id)
     }
 
     @Test func capsAtMaxCards() {

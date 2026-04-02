@@ -3,7 +3,7 @@ import Foundation
 public enum AutoCleanup {
     public static func clean(
         links: [Link],
-        maxAgeHours: Int = 24,
+        maxAgeHours: Int = 72,
         maxCards: Int = 1000
     ) -> [Link] {
         let cutoff = Date.now.addingTimeInterval(-Double(maxAgeHours) * 3600)
@@ -23,9 +23,9 @@ public enum AutoCleanup {
             return link
         }
 
-        // Remove old Done cards
+        // Remove old Done cards (any source)
         cleaned = cleaned.filter { link in
-            if link.column == .done && link.source == .discovered && link.updatedAt < cutoff {
+            if link.column == .done && link.updatedAt < cutoff {
                 return false
             }
             return true
