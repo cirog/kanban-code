@@ -3,7 +3,7 @@ import Foundation
 public enum AutoCleanup {
     public static func clean(
         links: [Link],
-        maxAgeHours: Int = 72,
+        maxAgeHours: Int = 48,
         maxCards: Int = 1000
     ) -> [Link] {
         let cutoff = Date.now.addingTimeInterval(-Double(maxAgeHours) * 3600)

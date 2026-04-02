@@ -29,7 +29,7 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: claudeDir) else { return [] }
 
-        let ageCutoff = Date.now.addingTimeInterval(-3 * 24 * 3600) // 3 days
+        let ageCutoff = Date.now.addingTimeInterval(-2 * 24 * 3600) // 2 days
         let projectDirs = try fileManager.contentsOfDirectory(atPath: claudeDir)
         var seenDirs: Set<String> = []
 

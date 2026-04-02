@@ -120,9 +120,9 @@ struct SessionDiscoveryTests {
         let oldPath = (projectDir as NSString).appendingPathComponent("old.jsonl")
         try #"{"type":"user","sessionId":"old","message":{"content":"Hi"},"cwd":"/test"}"#
             .write(toFile: oldPath, atomically: true, encoding: .utf8)
-        let fourDaysAgo = Date.now.addingTimeInterval(-4 * 24 * 3600)
+        let threeDaysAgo = Date.now.addingTimeInterval(-3 * 24 * 3600)
         try FileManager.default.setAttributes(
-            [.modificationDate: fourDaysAgo],
+            [.modificationDate: threeDaysAgo],
             ofItemAtPath: oldPath
         )
 
