@@ -103,6 +103,36 @@ struct SessionDiscoveryTests {
         #expect(sessions.isEmpty)
     }
 
+    @Test("Skips .jsonl files older than 3 days")
+    func skipsOldSessions() async throws {
+        let dir = try makeTempDir()
+        defer { cleanup(dir) }
+
+        let projectDir = (dir as NSString).appendingPathComponent("-Users-test-age")
+        try FileManager.default.createDirectory(atPath: projectDir, withIntermediateDirectories: true)
+
+        // Recent session (should be included)
+        let recentPath = (projectDir as NSString).appendingPathComponent("recent.jsonl")
+        try #"{"type":"user","sessionId":"recent","message":{"content":"Hi"},"cwd":"/test"}"#
+            .write(toFile: recentPath, atomically: true, encoding: .utf8)
+
+        // Old session — backdate mtime to 4 days ago
+        let oldPath = (projectDir as NSString).appendingPathComponent("old.jsonl")
+        try #"{"type":"user","sessionId":"old","message":{"content":"Hi"},"cwd":"/test"}"#
+            .write(toFile: oldPath, atomically: true, encoding: .utf8)
+        let fourDaysAgo = Date.now.addingTimeInterval(-4 * 24 * 3600)
+        try FileManager.default.setAttributes(
+            [.modificationDate: fourDaysAgo],
+            ofItemAtPath: oldPath
+        )
+
+        let discovery = ClaudeCodeSessionDiscovery(claudeDir: dir)
+        let sessions = try await discovery.discoverSessions()
+
+        #expect(sessions.count == 1)
+        #expect(sessions[0].id == "recent")
+    }
+
     @Test("Sessions sorted by modification time (newest first)")
     func sortedByModTime() async throws {
         let dir = try makeTempDir()

@@ -29,6 +29,7 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: claudeDir) else { return [] }
 
+        let ageCutoff = Date.now.addingTimeInterval(-3 * 24 * 3600) // 3 days
         let projectDirs = try fileManager.contentsOfDirectory(atPath: claudeDir)
         var seenDirs: Set<String> = []
 
@@ -73,6 +74,9 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
                       let mtime = attrs[.modificationDate] as? Date else {
                     continue
                 }
+
+                // Skip files older than 3 days
+                guard mtime > ageCutoff else { continue }
 
                 // Skip if file mtime unchanged and we have a cached session
                 if let cachedMtime = fileMtimes[filePath],
