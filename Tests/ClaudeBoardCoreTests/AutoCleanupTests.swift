@@ -6,22 +6,22 @@ struct AutoCleanupTests {
     @Test func removesAllOldDoneCards() {
         let oldDiscovered = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-73 * 3600), // >72h
+            lastActivity: Date.now.addingTimeInterval(-73 * 3600), // >72h
             source: .discovered
         )
         let oldManual = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-73 * 3600),
+            lastActivity: Date.now.addingTimeInterval(-73 * 3600),
             source: .manual
         )
         let oldTodoist = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-73 * 3600),
+            lastActivity: Date.now.addingTimeInterval(-73 * 3600),
             source: .todoist
         )
         let recentDiscovered = Link(
             column: .done,
-            updatedAt: Date.now.addingTimeInterval(-12 * 3600),
+            lastActivity: Date.now.addingTimeInterval(-12 * 3600),
             source: .discovered
         )
 
