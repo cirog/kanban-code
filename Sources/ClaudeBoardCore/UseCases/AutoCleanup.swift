@@ -25,18 +25,16 @@ public enum AutoCleanup {
 
         // Remove old Done cards (any source).
         // Use lastActivity (real session activity) not updatedAt (refreshed on every persist).
+        let cardAge: (Link) -> Date = { $0.lastActivity ?? $0.createdAt }
         cleaned = cleaned.filter { link in
-            if link.column == .done {
-                let age = link.lastActivity ?? link.createdAt
-                if age < cutoff { return false }
-            }
+            if link.column == .done && cardAge(link) < cutoff { return false }
             return true
         }
 
         // Cap total count — remove oldest Done cards first
         if cleaned.count > maxCards {
             let doneCards = cleaned.filter { $0.column == .done }
-                .sorted { ($0.lastActivity ?? $0.createdAt) < ($1.lastActivity ?? $1.createdAt) }
+                .sorted { cardAge($0) < cardAge($1) }
             let toRemove = cleaned.count - maxCards
             let removeIds = Set(doneCards.prefix(toRemove).map(\.id))
             cleaned = cleaned.filter { !removeIds.contains($0.id) }

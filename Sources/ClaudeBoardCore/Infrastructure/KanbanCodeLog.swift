@@ -21,7 +21,7 @@ public enum ClaudeBoardLog {
     private static let queue = DispatchQueue(label: "kanban-code.log", qos: .utility)
 
     /// Reusable formatter — ISO8601DateFormatter init is expensive (ICU setup).
-    /// Only accessed from `queue` (serial) — safe despite non-Sendable type.
+    /// Accessed only inside `queue.async` blocks — serial access, safe despite non-Sendable type.
     private nonisolated(unsafe) static let formatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         return f
@@ -50,10 +50,10 @@ public enum ClaudeBoardLog {
     }
 
     private nonisolated static func write(_ level: String, _ subsystem: String, _ message: String) {
-        let timestamp = formatter.string(from: Date())
-        let line = "[\(timestamp)] [\(level)] [\(subsystem)] \(message)\n"
-
         queue.async {
+            let timestamp = formatter.string(from: Date())
+            let line = "[\(timestamp)] [\(level)] [\(subsystem)] \(message)\n"
+
             // Open handle if needed
             if handle == nil {
                 rotateIfNeeded()

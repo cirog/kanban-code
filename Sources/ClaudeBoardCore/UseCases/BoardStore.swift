@@ -914,10 +914,8 @@ public enum Reducer {
             }
 
             // Prune old Done cards from the fully-merged set
-            let prunedIds = Set(AutoCleanup.clean(links: Array(mergedLinks.values)).map(\.id))
-            for id in mergedLinks.keys where !prunedIds.contains(id) {
-                mergedLinks.removeValue(forKey: id)
-            }
+            let cleaned = AutoCleanup.clean(links: Array(mergedLinks.values))
+            mergedLinks = Dictionary(uniqueKeysWithValues: cleaned.map { ($0.id, $0) })
 
             state.links = mergedLinks
             state.lastRefresh = Date()

@@ -103,7 +103,7 @@ struct SessionDiscoveryTests {
         #expect(sessions.isEmpty)
     }
 
-    @Test("Skips .jsonl files older than 3 days")
+    @Test("Skips .jsonl files older than 2 days")
     func skipsOldSessions() async throws {
         let dir = try makeTempDir()
         defer { cleanup(dir) }

@@ -75,8 +75,11 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
                     continue
                 }
 
-                // Skip files older than 3 days
-                guard mtime > ageCutoff else { continue }
+                // Skip files older than 2 days and evict from cache
+                guard mtime > ageCutoff else {
+                    cachedSessions.removeValue(forKey: sessionId)
+                    continue
+                }
 
                 // Skip if file mtime unchanged and we have a cached session
                 if let cachedMtime = fileMtimes[filePath],
@@ -150,7 +153,7 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
         }
 
         let sessions = cachedSessions.values
-            .filter { $0.messageCount > 0 }
+            .filter { $0.messageCount > 0 && $0.modifiedTime > ageCutoff }
             .sorted { $0.modifiedTime > $1.modifiedTime }
 
         lastScanTime = Date()
