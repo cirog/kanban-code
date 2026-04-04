@@ -2176,17 +2176,18 @@ private struct EditPromptSheet: View {
 private struct PromptsWebView: NSViewRepresentable {
     let html: String
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> WebViewScrollWrapper {
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = false
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         loadContent(into: webView, coordinator: context.coordinator)
-        return webView
+        return WebViewScrollWrapper(webView: webView)
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
+    func updateNSView(_ wrapper: WebViewScrollWrapper, context: Context) {
+        let webView = wrapper.webView
         let coord = context.coordinator
         guard html != coord.lastHTML else { return }
         loadContent(into: webView, coordinator: coord)
