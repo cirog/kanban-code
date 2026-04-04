@@ -315,6 +315,10 @@ final class TerminalCache {
         for (sessionName, terminal) in terminals {
             guard !terminal.isHidden,
                   terminal.window == window else { continue }
+            // Skip terminals whose container has scroll interception disabled
+            // (e.g., when a non-terminal tab like History is active in the ZStack)
+            if let container = terminal.superview as? TerminalContainerNSView,
+               !container.scrollInterceptEnabled { continue }
             let localPoint = terminal.convert(windowPoint, from: nil)
             if terminal.bounds.contains(localPoint) {
                 return sessionName
@@ -573,12 +577,15 @@ struct TerminalContainerView: NSViewRepresentable, Equatable {
     /// When true, the terminal grabs keyboard focus (user clicked a tab).
     /// When false, the terminal is shown but focus stays where it was (keyboard nav, drawer open).
     var grabFocus: Bool = false
+    /// When false, the global scroll wheel monitor skips this container's terminals.
+    var isTerminalTabActive: Bool = true
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        // Ultra-strict: only sessions matter. grabFocus changes should NOT
-        // trigger updateNSView — we handle focus separately.
+        // Ultra-strict: only sessions and tab visibility matter. grabFocus changes
+        // should NOT trigger updateNSView — we handle focus separately.
         lhs.sessions == rhs.sessions
             && lhs.activeSession == rhs.activeSession
+            && lhs.isTerminalTabActive == rhs.isTerminalTabActive
     }
 
     /// Coordinator owns the TerminalContainerNSView. Created once per SwiftUI
@@ -597,6 +604,7 @@ struct TerminalContainerView: NSViewRepresentable, Equatable {
 
     func makeNSView(context: Context) -> TerminalContainerNSView {
         let container = context.coordinator.container
+        container.scrollInterceptEnabled = isTerminalTabActive
         for session in sessions {
             container.ensureTerminal(for: session)
         }
@@ -608,6 +616,7 @@ struct TerminalContainerView: NSViewRepresentable, Equatable {
 
     func updateNSView(_ nsView: TerminalContainerNSView, context: Context) {
         let coordinator = context.coordinator
+        nsView.scrollInterceptEnabled = isTerminalTabActive
 
         // When sessions are empty (terminal not yet created), just clean up and return.
         guard !sessions.isEmpty, !activeSession.isEmpty else {
@@ -644,6 +653,10 @@ struct TerminalContainerView: NSViewRepresentable, Equatable {
 /// Uses TerminalCache for process lifecycle — terminal processes survive view teardown.
 final class TerminalContainerNSView: NSView {
     private static let terminalPadding: CGFloat = 6
+
+    /// When false, the global scroll wheel monitor skips terminals in this container.
+    /// Set to false when a non-terminal tab (History, Prompts, etc.) is active in the ZStack.
+    var scrollInterceptEnabled = true
 
     /// Ordered list of session names managed by this container.
     private var managedSessions: [String] = []

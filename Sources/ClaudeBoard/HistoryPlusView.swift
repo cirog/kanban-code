@@ -2,32 +2,6 @@ import SwiftUI
 import WebKit
 import ClaudeBoardCore
 
-/// Wraps a WKWebView to forward trackpad scroll events directly,
-/// bypassing SwiftUI's responder chain which attenuates scroll deltas.
-final class WebViewScrollWrapper: NSView {
-    let webView: WKWebView
-
-    init(webView: WKWebView) {
-        self.webView = webView
-        super.init(frame: .zero)
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: topAnchor),
-            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func scrollWheel(with event: NSEvent) {
-        webView.scrollWheel(with: event)
-    }
-}
-
 /// WKWebView-based chat renderer for History+ tab.
 /// Shows full conversation with user messages as pink bubbles (right) and
 /// assistant text as Dracula-styled markdown (left), and tool activity as compact green indicators.
@@ -36,18 +10,17 @@ struct HistoryPlusView: NSViewRepresentable {
     /// Optional session segments with divider HTML. When provided, renders segmented view with dividers.
     var segments: [(dividerHTML: String?, turns: [ConversationTurn])]?
 
-    func makeNSView(context: Context) -> WebViewScrollWrapper {
+    func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = false
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         loadHTML(into: webView, coordinator: context.coordinator)
-        return WebViewScrollWrapper(webView: webView)
+        return webView
     }
 
-    func updateNSView(_ wrapper: WebViewScrollWrapper, context: Context) {
-        let webView = wrapper.webView
+    func updateNSView(_ webView: WKWebView, context: Context) {
         let coord = context.coordinator
         let currentLine = turns.last?.lineNumber ?? -1
         if currentLine == coord.lastLineNumber {

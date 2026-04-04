@@ -603,7 +603,8 @@ struct CardDetailView: View {
                     TerminalContainerView(
                         sessions: allLiveSessions,
                         activeSession: effectiveActiveSession ?? allLiveSessions.first ?? "",
-                        grabFocus: terminalGrabFocus
+                        grabFocus: terminalGrabFocus,
+                        isTerminalTabActive: selectedTab == .terminal
                     )
                     .equatable()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2176,18 +2177,17 @@ private struct EditPromptSheet: View {
 private struct PromptsWebView: NSViewRepresentable {
     let html: String
 
-    func makeNSView(context: Context) -> WebViewScrollWrapper {
+    func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = false
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         loadContent(into: webView, coordinator: context.coordinator)
-        return WebViewScrollWrapper(webView: webView)
+        return webView
     }
 
-    func updateNSView(_ wrapper: WebViewScrollWrapper, context: Context) {
-        let webView = wrapper.webView
+    func updateNSView(_ webView: WKWebView, context: Context) {
         let coord = context.coordinator
         guard html != coord.lastHTML else { return }
         loadContent(into: webView, coordinator: coord)
