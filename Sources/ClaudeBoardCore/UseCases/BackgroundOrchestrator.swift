@@ -66,9 +66,10 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
             }
         }
 
-        if let todoistSync {
-            Task { await todoistSync.start() }
-        }
+        // TODO: re-enable Todoist sync when ready
+        // if let todoistSync {
+        //     Task { await todoistSync.start() }
+        // }
     }
 
     /// Update the notifier (e.g. when settings change).
@@ -89,9 +90,10 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
     /// Set the dispatch callback for sending actions to the BoardStore.
     public func setDispatch(_ dispatch: @MainActor @Sendable @escaping (Action) -> Void) {
         self.dispatch = dispatch
-        if let todoistSync {
-            Task { await todoistSync.setDispatch(dispatch) }
-        }
+        // TODO: re-enable Todoist sync when ready
+        // if let todoistSync {
+        //     Task { await todoistSync.setDispatch(dispatch) }
+        // }
     }
 
     /// Stop the background loop.
@@ -99,7 +101,8 @@ public final class BackgroundOrchestrator: @unchecked Sendable {
         backgroundTask?.cancel()
         backgroundTask = nil
         isRunning = false
-        Task { await todoistSync?.stop() }
+        // TODO: re-enable Todoist sync when ready
+        // Task { await todoistSync?.stop() }
     }
 
     // MARK: - Event-driven notification path (called from file watcher)
