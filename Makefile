@@ -44,6 +44,7 @@ app: build
 	@echo '<key>CFBundleIconFile</key><string>AppIcon</string>' >> $(BUNDLE_DIR)/Contents/Info.plist
 	@echo '<key>CFBundleIconName</key><string>AppIcon</string>' >> $(BUNDLE_DIR)/Contents/Info.plist
 	@echo '<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.kanban-code</string><key>CFBundleURLSchemes</key><array><string>kanbancode</string></array></dict></array>' >> $(BUNDLE_DIR)/Contents/Info.plist
+	@echo '<key>NSAppDataUsageDescription</key><string>ClaudeBoard reads Claude Code session data to display your active coding sessions.</string>' >> $(BUNDLE_DIR)/Contents/Info.plist
 	@echo '</dict></plist>' >> $(BUNDLE_DIR)/Contents/Info.plist
 	@# Copy SPM bundle resources
 	@if [ -d $(BUILD_DIR)/ClaudeBoard_ClaudeBoard.bundle ]; then \
